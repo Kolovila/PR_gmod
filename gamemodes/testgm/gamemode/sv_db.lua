@@ -200,6 +200,15 @@ local SCHEMA = {
         price INTEGER,
         level INTEGER,
         extra TEXT
+    )]],
+
+    -- Споты патрулей NPC (sv_patrols.lua): точки, где патруль появляется и между которыми ходит.
+    -- zone — название территории, патруль старается ходить между разными территориями.
+    [[CREATE TABLE IF NOT EXISTS pr_patrol_spots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        map TEXT NOT NULL,
+        x REAL NOT NULL, y REAL NOT NULL, z REAL NOT NULL,
+        zone TEXT NOT NULL DEFAULT ''
     )]]
 }
 
@@ -526,6 +535,40 @@ end
 
 function PR_DB.RemoveLayout(map, name)
     PR_DB.Query("DELETE FROM pr_point_layout WHERE map = ? AND name = ?", map, name)
+end
+
+----------------------------------------------------------------------------------------------------
+-- Споты патрулей
+----------------------------------------------------------------------------------------------------
+
+-- {{Id = 1, Pos = Vector, Zone = "Город"}, ...} для карты, в порядке создания
+function PR_DB.GetPatrolSpots(map)
+    local spots = {}
+
+    for _, row in ipairs(PR_DB.Query("SELECT * FROM pr_patrol_spots WHERE map = ? ORDER BY id", map) or {}) do
+        table.insert(spots, {
+            Id = Num(row.id, 0),
+            Pos = Vector(Num(row.x, 0), Num(row.y, 0), Num(row.z, 0)),
+            Zone = Str(row.zone) or ""
+        })
+    end
+
+    return spots
+end
+
+-- Новый спот, возвращает его id
+function PR_DB.AddPatrolSpot(map, pos, zone)
+    PR_DB.Query("INSERT INTO pr_patrol_spots (map, x, y, z, zone) VALUES (?, ?, ?, ?, ?)", map, pos.x, pos.y, pos.z, zone or "")
+    local rows = PR_DB.Query("SELECT last_insert_rowid() AS id")
+    return rows and rows[1] and Num(rows[1].id)
+end
+
+function PR_DB.RemovePatrolSpot(id)
+    PR_DB.Query("DELETE FROM pr_patrol_spots WHERE id = ?", id)
+end
+
+function PR_DB.SetPatrolSpotZone(id, zone)
+    PR_DB.Query("UPDATE pr_patrol_spots SET zone = ? WHERE id = ?", zone or "", id)
 end
 
 ----------------------------------------------------------------------------------------------------

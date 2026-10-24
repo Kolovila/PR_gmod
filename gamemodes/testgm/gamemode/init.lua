@@ -15,9 +15,10 @@ include("player/sh_player_save.lua")
 include("sv_shop.lua")
 include("sv_admin.lua")
 include("sv_sandbox.lua")
+include("sv_patrols.lua")
 
 -- Игрок, которому засчитывается убийство. Водитель техники тоже считается.
-local function PR_KillerPlayer(attacker)
+function PR_KillerPlayer(attacker)
 	if IsValid(attacker) and isfunction(attacker.GetDriver) and IsValid(attacker:GetDriver()) then
 		attacker = attacker:GetDriver()
 	end
@@ -100,8 +101,10 @@ hook.Add("OnNPCKilled", "PR_KillReward", function(victim, attacker, inflictor)
 	-- За своих защитников точки не платим
 	if victim.WhiteFractionList != nil and victim.WhiteFractionList == attacker:GetNWString("PR_fraction") then return end
 
-	PR_AddMoney(attacker, 100)
-	PR_AddExp(attacker, 1, 1)
+	-- У патрульных своя награда (config/patrols.lua), у остальных NPC — 100$ и 1 опыта
+	local reward = victim.PR_Reward or {}
+	PR_AddMoney(attacker, reward.money or 100)
+	PR_AddExp(attacker, reward.exp or 1, reward.exp or 1)
 	attacker:SetNWInt("PR_kills_npc", attacker:GetNWInt("PR_kills_npc") + 1)
 end)
 

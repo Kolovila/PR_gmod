@@ -119,7 +119,6 @@ PR_Vehicle_List = PR_Vehicle_List or {}
 PR_Equip_List = PR_Equip_List or {}
 PR_Cloth_List = PR_Cloth_List or {}
 PR_Capture_Points_List = PR_Capture_Points_List or {}
-PR_Patrols_List = PR_Patrols_List or {}
 
 -- Есть ли такое оружие в игре: Lua-оружие (weapons.GetStored) или встроенное оружие HL2 (список "Weapon")
 function PR_WeaponExists(class)

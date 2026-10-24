@@ -34,9 +34,6 @@ for _, list in ipairs(LISTS) do
     _G[list.global] = PR_DB.LoadShopList(list.kind)
 end
 
--- Патрули — недописанная фича (pr_point_for_patrol), их список пока остаётся в JSON
-PR_Patrols_List = util.JSONToTable(file.Read("pr_gamemode/patrols_list.txt", "DATA") or "") or {}
-
 ----------------------------------------------------------------------------------------------------
 -- Стартовые товары (config/shop_defaults.lua): один раз добавляются в базу к уже существующим
 ----------------------------------------------------------------------------------------------------
