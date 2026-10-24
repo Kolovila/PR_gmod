@@ -101,6 +101,11 @@ function ENT:HasOwner()
 	return team ~= "" and team ~= "Ничья"
 end
 
+-- Можно ли владельцу точки нанимать защитников (мародёрам нельзя)
+function ENT:CanHaveGuardians()
+	return self:HasOwner() and not (PR_NO_GUARDIANS_FRACTIONS or {})[self:GetCaptureTeam()]
+end
+
 -- Цена защитника или nil, если выбор неверный
 function ENT:GetGuardianPrice(typeKey, weaponKey, hpIndex, signal)
 	local gtype = self.GuardianTypes[typeKey]

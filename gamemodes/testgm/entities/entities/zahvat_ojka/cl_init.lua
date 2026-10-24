@@ -105,6 +105,11 @@ function idkMenuOpen()
 		draw.SimpleText( "призвать защитника", "DermaLarge", 10, 5, Color(255,255,255) )
 	end
 	guardSpawn.DoClick = function()
+		if not IsValid(ent) or not ent:CanHaveGuardians() then
+			PR_CreateErrorNotice("Мародёрам охрана не положена")
+			return
+		end
+
 		-- Выбор игрока: ключи из таблиц ENT.Guardian* (shared.lua)
 		local type_key = ""
 		local weap_key = ""
@@ -472,7 +477,11 @@ function idkMenuOpen()
 		surface.SetDrawColor(200,220,220,255)
 		draw.SimpleText("Осталось: " .. math.max(math.Round(ent:GetNextIncome() - CurTime(), 0), 0) .. "с.", "DermaLarge", 35, 15, Color(255,255,255))
 		draw.SimpleText("Приход: " .. ent:GetIncomeAmount() .. "$", "DermaLarge", 35, 55, Color(255,255,255))
-		draw.SimpleText("Защитников: " .. ent:GetGuardianCount() .. "/" .. ent.MaxGuardianCount, "DermaLarge", 35, 100, Color(255,255,255))
+		if ent:CanHaveGuardians() then
+			draw.SimpleText("Защитников: " .. ent:GetGuardianCount() .. "/" .. ent.MaxGuardianCount, "DermaLarge", 35, 100, Color(255,255,255))
+		else
+			draw.SimpleText("Охраны нет: точку держи сам", "DermaLarge", 35, 100, Color(255,200,120))
+		end
 		draw.SimpleText("Сейчас хранится: " .. ent:GetStoredMoney() .. "$", "DermaLarge", 35, 150, Color(255,255,255))
 	end
 
@@ -485,7 +494,10 @@ function idkMenuOpen()
 		local lostPoint = CurTime() - openedAt > 1 and IsValid(ent) and ent:GetCaptureTeam() != ply:GetNWString("PR_fraction")
 		if not ply:Alive() or not IsValid(ent) or lostPoint then
 			idkMenu:Remove()
+			return
 		end
+		-- Мародёрам охрана не положена: кнопку не показываем
+		guardSpawn:SetVisible(ent:CanHaveGuardians())
 	end
 end
 

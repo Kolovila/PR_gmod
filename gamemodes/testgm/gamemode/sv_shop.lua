@@ -190,10 +190,12 @@ local function SeedCloth(D)
     return added
 end
 
+-- Отметка в pr_meta, что стартовые товары уже добавлены. Новая версия списка — новый ключ
+local SEED_META_KEY = "shop_defaults_v2"
+
 -- Запускается после загрузки всех аддонов, когда оружие и техника уже зарегистрированы
 function PR_SeedShopDefaults()
-    local META_KEY = "shop_defaults_v2"
-    if PR_DB.GetMeta(META_KEY) == "1" then return end
+    if PR_DB.GetMeta(SEED_META_KEY) == "1" then return end
 
     local counts = {}
     local ok = PR_DB.Transaction(function()
@@ -201,7 +203,7 @@ function PR_SeedShopDefaults()
         counts.equipment = SeedEquipment(PR_SHOP_DEFAULTS)
         counts.vehicles = SeedVehicles(PR_SHOP_DEFAULTS)
         counts.cloth = SeedCloth(PR_SHOP_DEFAULTS)
-        PR_DB.SetMeta(META_KEY, "1")
+        PR_DB.SetMeta(SEED_META_KEY, "1")
     end)
 
     if not ok then return end
@@ -216,12 +218,18 @@ end
 
 hook.Add("InitPostEntity", "PR_SeedShopDefaults", PR_SeedShopDefaults)
 
+local function SendList(list, target)
+    net.Start(list.send)
+        net.WriteTable(_G[list.global] or {})
+    if target then net.Send(target) else net.Broadcast() end
+end
+
 -- Поставил новые паки — "pr_shop_reseed" в консоли (админ или консоль сервера) добавит
 -- недостающее из стартового списка. Уже настроенные товары не трогаются.
 concommand.Add("pr_shop_reseed", function(ply)
     if IsValid(ply) and not PR_IsAdmin(ply) then return end
 
-    PR_DB.SetMeta("shop_defaults_v2", "0")
+    PR_DB.SetMeta(SEED_META_KEY, "0")
     PR_SeedShopDefaults()
 
     for _, list in ipairs(LISTS) do
@@ -230,12 +238,6 @@ concommand.Add("pr_shop_reseed", function(ply)
 
     PR_Log(ply, "перезапустил посев стартовых товаров")
 end)
-
-local function SendList(list, target)
-    net.Start(list.send)
-        net.WriteTable(_G[list.global] or {})
-    if target then net.Send(target) else net.Broadcast() end
-end
 
 concommand.Add("open_main_menu", function(ply)
     if not IsValid(ply) or not PR_NetThrottle(ply, "open_main_menu", 0.5) then return end

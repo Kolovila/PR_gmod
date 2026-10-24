@@ -374,6 +374,11 @@ net.Receive("SpawnGuardianNPC", function(len, ply)
 
 	if not IsPoint(point) or not point:CanManage(ply) then return end
 
+	if not point:CanHaveGuardians() then
+		ply:ChatPrint("Мародёрам охрана не положена")
+		return
+	end
+
 	if point:GetGuardianCount() >= point.MaxGuardianCount then
 		ply:ChatPrint("Защитников уже максимальное количество")
 		return

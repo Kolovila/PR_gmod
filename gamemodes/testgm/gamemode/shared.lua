@@ -20,9 +20,11 @@ PR_FRACTION_NAMES = {
 }
 
 -- Мародёры: покупают любое оружие любой группировки, техника только своя (старьё),
--- друг другу не союзники — убийство своего оплачивается как обычное
+-- друг другу не союзники — убийство своего оплачивается как обычное.
+-- Охрану на точки не нанимают: точку держат сами, а деньги с неё может утащить любой мародёр
 PR_ALL_WEAPONS_FRACTIONS = {SCAV = true}
 PR_FREE_FOR_ALL_FRACTIONS = {SCAV = true}
+PR_NO_GUARDIANS_FRACTIONS = {SCAV = true}
 
 function PR_IsFraction(name)
     return table.HasValue(PR_FRACTIONS, name)
