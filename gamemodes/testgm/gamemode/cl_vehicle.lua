@@ -405,18 +405,8 @@ if CLIENT then
                             end
 
                             BuyButton.DoClick = function()
-                                local DeploySpots
-
-                                if veh_type == "jets" or veh_type == "helicopters" then
-                                    DeploySpots = {
-                                        ["Город"] = Vector(-12486, -2897, -350)
-                                    }
-                                else
-                                    DeploySpots = {
-                                        ["Южная военка"] = Vector(-11599, -6272, -353),
-                                        ["Северная военка"] = Vector(12800, -4566, -353)
-                                    }
-                                end
+                                -- Места вызова по картам: PR_VehicleDeploys в shared.lua
+                                local DeploySpots = PR_GetVehicleDeploys(veh_type)
 
                                 local BackGround = vgui.Create ("DFrame")
                                 BackGround:SetSize(300,200)
@@ -431,7 +421,7 @@ if CLIENT then
                                     draw.RoundedBox(4,0,0,BackGround:GetWide()-4, 21, Color(50,50,50,200))
                                 end
 
-                                local PR_DeployVector
+                                local PR_DeployName
 
                                 local PR_Deploy = "Куда вызвать?"
                                 
@@ -467,7 +457,7 @@ if CLIENT then
                     
                                         DButton.DoClick = function()
                                             PR_Deploy = k
-                                            PR_DeployVector = v
+                                            PR_DeployName = k
                                             ScrollUnlock:Remove()
                                         end
                                     end
@@ -486,11 +476,15 @@ if CLIENT then
                                 end
                     
                                 SpawnButton.DoClick = function()
+                                    if not PR_DeployName then
+                                        PR_CreateErrorNotice("Выбери, куда вызвать")
+                                        return
+                                    end
+
+                                    -- Цену и способ спавна сервер берёт из своего списка техники
                                     net.Start("GiveVehicle")
-                                    net.WriteInt(v["Price"], 32)
                                     net.WriteString(v["ClassName"])
-                                    net.WriteString(v["Mod"])
-                                    net.WriteVector(PR_DeployVector)
+                                    net.WriteString(PR_DeployName)
                                     net.SendToServer()
                                     BackGround:Remove()
                                 end

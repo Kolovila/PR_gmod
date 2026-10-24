@@ -97,13 +97,13 @@ function GM:ScoreboardShow()
 						draw.SimpleText("K/D: ".. math.Round(v:GetNWInt("PR_kills")/deathForKD, 2),"DermaDefault",PlayerList:GetWide()-20,33, Color(255,255,255,255), TEXT_ALIGN_RIGHT)
 						draw.SimpleText("Пинг: "..v:Ping(),"DermaDefault",PlayerList:GetWide()-160,30, Color(255,255,255,255), TEXT_ALIGN_RIGHT)
 
-						if LocalPlayer():GetNWInt("PR_admin") == true or LocalPlayer():IsAdmin() then
+						if PR_IsAdmin(LocalPlayer()) then
 							draw.SimpleText("HP: "..v:Health(),"DermaDefault",250,10,Color(255,255,255,255))
 							draw.SimpleText("Armor: "..v:Armor(),"DermaDefault",250,25,Color(255,255,255,255))
-							draw.SimpleText("$"..v:GetNWInt("PR_money") .. "/" .. v:GetNWInt("PR_Coin") .. "©","DermaDefault",55,25,Color(255,255,255,255))
+							draw.SimpleText("$"..v:GetNWInt("PR_money") .. "/" .. v:GetNWInt("PR_coin") .. "©","DermaDefault",55,25,Color(255,255,255,255))
 							--draw.SimpleText(v:GetNWInt("MPcoin").. " ©","DermaDefault",200,25,Color(255,255,255,255))
 						end
-						if LocalPlayer():GetNWInt("PR_admin") == 1 or LocalPlayer():IsAdmin() or LocalPlayer():GetNWBool("PR_leader_" .. LocalPlayer():GetNWString("PR_fraction")) == true then
+						if PR_IsAdmin(LocalPlayer()) or LocalPlayer():GetNWBool("PR_leader_" .. LocalPlayer():GetNWString("PR_fraction")) == true then
 							if v:GetNWString("PR_fraction") == LocalPlayer():GetNWString("PR_fraction") then
 								draw.SimpleText("$"..v:GetNWInt("PR_money"),"DermaDefault",55,25,Color(255,255,255,255))
 							end
@@ -201,7 +201,7 @@ function GM:ScoreboardShow()
 
 					local KickButton = PR_CreateNewButton(butt, "КИК НАХУЙ", 115, 45, 600, 102, "kick.png", PlayersPanelList[k-1])
 					KickButton.DoClick = function()
-						net.Start("KickOffNahyiPR")
+						net.Start("PR_KickPlayer")
 							net.WriteEntity(v)
 						net.SendToServer()
 					end
@@ -240,10 +240,10 @@ function GM:ScoreboardShow()
 					draw.SimpleText("Убийств NPC: "..v:GetNWInt("PR_kills_npc"),"DermaDefault",PlayerList:GetWide()-160,3, Color(255,255,255,255), TEXT_ALIGN_RIGHT)
 					draw.SimpleText("K/D: ".. math.Round(v:GetNWInt("PR_kills") / deathForKD, 2),"DermaDefault",PlayerList:GetWide()-20,33, Color(255,255,255,255), TEXT_ALIGN_RIGHT)
 					draw.SimpleText("Пинг: "..v:Ping(),"DermaDefault",PlayerList:GetWide()-160,30, Color(255,255,255,255), TEXT_ALIGN_RIGHT)
-					if LocalPlayer():GetNWInt("PR_admin") == true or LocalPlayer():IsAdmin() then
+					if PR_IsAdmin(LocalPlayer()) then
 						draw.SimpleText("HP: "..v:Health(),"DermaDefault",250,10,Color(255,255,255,255))
 						draw.SimpleText("Armor: "..v:Armor(),"DermaDefault",250,25,Color(255,255,255,255))
-						draw.SimpleText("$"..v:GetNWInt("PR_money") .. "/" .. v:GetNWInt("PR_Coin") .. "©","DermaDefault",55,25,Color(255,255,255,255))
+						draw.SimpleText("$"..v:GetNWInt("PR_money") .. "/" .. v:GetNWInt("PR_coin") .. "©","DermaDefault",55,25,Color(255,255,255,255))
 					end
 					if LocalPlayer():GetNWBool("PR_leader_" .. LocalPlayer():GetNWString("PR_fraction")) == true then
 						if v:GetNWString("PR_fraction") == LocalPlayer():GetNWString("PR_fraction") then

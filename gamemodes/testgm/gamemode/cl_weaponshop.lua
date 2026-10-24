@@ -721,7 +721,6 @@ if CLIENT then
         PR_PurchasedWeapons = PR_PurchasedWeapons or {}
         PR_Preset = PR_Preset or {}
 
-        PrintTable(PR_WS_List)
 
         if PR_WS_List != nil then
             if PR_WS_List[ply:GetNWString("PR_fraction")] != nil then
@@ -811,9 +810,9 @@ if CLIENT then
                                 if v["ClassName"] == mdl then
                                     Model:SetModel(v["WorldModel"])
                                     --PrintTable(v)
-                                    wp_firerate = math.Round(60 / v["FireDelay"])
-                                    wp_dmg = v["Damage"]
-                                    wp_cal = v["Primary"]["Ammo"]
+                                    wp_firerate = v["FireDelay"] and math.Round(60 / v["FireDelay"]) or (v["RPM"] or "?")
+                                    wp_dmg = v["Damage"] or v["DamageMax"] or "?"
+                                    wp_cal = (istable(v["Primary"]) and v["Primary"]["Ammo"]) or v["Ammo"] or "?"
                                 end
                             end
 
@@ -821,7 +820,6 @@ if CLIENT then
                                 --PrintTable(NeedToUnlock)
                                 for k,v in pairs(NeedToUnlock) do
                                     if v == weapon["ClassName"] then
-                                        print(weapon["Name"])
                                         if wp_ntu == "" then
                                             wp_ntu = weapon["Name"]
                                         else
@@ -861,7 +859,6 @@ if CLIENT then
                                 BuyButton:SetPos(365,590)
                                 BuyButton:SetSize(160,60)
 
-                                print("-------")
 
                                 if not table.HasValue(PR_PurchasedWeapons, v["ClassName"]) then
                                     BuyButton.Paint = function()
@@ -928,14 +925,7 @@ if CLIENT then
                                             else
                                                 net.Start("GiveWeapon")
                                                 net.WriteString(v["ClassName"])
-                                                net.WriteInt(v["Price"], 32)
-                                                net.WriteInt(v["Exp"], 32)
                                                 net.SendToServer()
-
-                                                if not table.HasValue(PR_PurchasedWeapons, v["ClassName"]) then
-                                                    table.insert(PR_PurchasedWeapons, v["ClassName"])
-                                                end
-                                                
                                                 PR_Panels.BuyWindow:Remove()
                                             end
                                         end)
@@ -975,8 +965,6 @@ if CLIENT then
                                             else
                                                 net.Start("GiveWeapon")
                                                 net.WriteString(v["ClassName"])
-                                                net.WriteInt(0, 32)
-                                                net.WriteInt(0, 32)
                                                 net.SendToServer()
                                             end
                                         end)

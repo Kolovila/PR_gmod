@@ -22,11 +22,12 @@ if CLIENT then
 end
 
 if SERVER then
-    local SAVE_DIR = "pr_gamemode"
-    local SAVE_FILE = SAVE_DIR .. "/players.txt"
+    -- Сейвы: data/pr_gamemode/players/<SteamID64>.txt, один файл на игрока.
+    -- Старый общий players.txt (по нику) переносится при первом заходе игрока.
+    local SAVE_DIR = "pr_gamemode/players"
+    local LEGACY_FILE = "pr_gamemode/players.txt"
 
-    -- Поля сейва: ключ в players.txt, NW-переменная, тип, значение по умолчанию.
-    -- Формат файла не менялся, старые сейвы читаются как есть.
+    -- Поля сейва: ключ в файле, NW-переменная, тип, значение по умолчанию
     local SAVE_FIELDS = {
         {"Money", "PR_money", "Int", 0},
         {"Exp", "PR_exp", "Int", 0},
@@ -40,7 +41,7 @@ if SERVER then
         {"Deaths", "PR_deaths", "Int", 0}
     }
 
-    for _, frac in ipairs({"SSNK", "USA", "GBC", "WN"}) do
+    for _, frac in ipairs(PR_FRACTIONS) do
         table.insert(SAVE_FIELDS, {"Money_" .. frac, "PR_money_" .. frac, "Int", 0})
         table.insert(SAVE_FIELDS, {"Exp_" .. frac, "PR_exp_" .. frac, "Int", 0})
         table.insert(SAVE_FIELDS, {"Level_" .. frac, "PR_level_" .. frac, "Int", 1})
@@ -48,16 +49,22 @@ if SERVER then
         table.insert(SAVE_FIELDS, {"Leader_" .. frac, "PR_leader_" .. frac, "Bool", false})
     end
 
-    local function ReadSaves()
-        return util.JSONToTable(file.Read(SAVE_FILE, "DATA") or "") or {}
-    end
-
-    local function WriteSaves(list)
-        if not file.Exists(SAVE_DIR, "DATA") then
-            file.CreateDir(SAVE_DIR)
+    -- Ключ сейва: SteamID64. У ботов и в LAN-режиме (sv_lan 1) SteamID нет, тогда по хэшу ника.
+    local function SaveKey(ply)
+        if ply:IsBot() then
+            return "bot_" .. util.CRC(ply:Nick())
         end
 
-        file.Write(SAVE_FILE, util.TableToJSON(list, true))
+        local id = ply:SteamID64()
+        if not id or id == "" or id == "0" then
+            return "nick_" .. util.CRC(ply:Nick())
+        end
+
+        return id
+    end
+
+    local function SavePath(ply)
+        return SAVE_DIR .. "/" .. SaveKey(ply) .. ".txt"
     end
 
     local function CollectPlayer(ply)
@@ -75,9 +82,11 @@ if SERVER then
             end
         end
 
+        data["Nick"] = ply:Nick() -- просто для того, кто будет читать файл глазами
         data["PurchasedModels"] = ply.PurchasedModels or {}
         data["PurchasedWeapons"] = ply.PurchasedWeapons or {}
         data["Preset"] = ply.Preset or {}
+        data["Outfit"] = ply.PR_Outfit
 
         return data
     end
@@ -86,25 +95,51 @@ if SERVER then
         -- Не затираем сейв, если игрок вышел до загрузки
         if not IsValid(ply) or not ply.PR_Loaded then return end
 
-        local list = ReadSaves()
-        list[ply:Nick()] = CollectPlayer(ply)
-        WriteSaves(list)
+        if not file.Exists(SAVE_DIR, "DATA") then
+            file.CreateDir(SAVE_DIR)
+        end
+
+        file.Write(SavePath(ply), util.TableToJSON(CollectPlayer(ply), true))
     end
 
     function PR_Save_All()
-        local list = ReadSaves()
-
         for _, ply in ipairs(player.GetAll()) do
-            if ply.PR_Loaded then
-                list[ply:Nick()] = CollectPlayer(ply)
-            end
+            PR_Save_Player(ply)
+        end
+    end
+
+    -- Перенос из старого players.txt по нику. Запись оттуда удаляется, чтобы
+    -- её не забрал другой игрок с таким же ником. PR-админку при переносе не даём.
+    local function MigrateLegacy(ply)
+        if ply:IsBot() then return end
+
+        local legacy = util.JSONToTable(file.Read(LEGACY_FILE, "DATA") or "")
+        if not istable(legacy) then return end
+
+        local data = legacy[ply:Nick()]
+        if not istable(data) then return end
+
+        if not file.Exists(LEGACY_FILE .. ".bak", "DATA") then
+            file.Write(LEGACY_FILE .. ".bak", file.Read(LEGACY_FILE, "DATA"))
         end
 
-        WriteSaves(list)
+        legacy[ply:Nick()] = nil
+        file.Write(LEGACY_FILE, util.TableToJSON(legacy, true))
+
+        data["Admin"] = false
+        MsgN("[PR] перенёс сейв " .. ply:Nick() .. " из players.txt в " .. SavePath(ply))
+
+        return data
     end
 
     function PR_Load_Player(ply)
-        local saved = ReadSaves()[ply:Nick()]
+        local saved = util.JSONToTable(file.Read(SavePath(ply), "DATA") or "")
+        local fresh = not istable(saved)
+
+        if fresh then
+            saved = MigrateLegacy(ply)
+        end
+
         local data = istable(saved) and saved or {}
 
         for _, f in ipairs(SAVE_FIELDS) do
@@ -124,15 +159,16 @@ if SERVER then
         ply.PurchasedModels = istable(data["PurchasedModels"]) and data["PurchasedModels"] or {}
         ply.PurchasedWeapons = istable(data["PurchasedWeapons"]) and data["PurchasedWeapons"] or {}
         ply.Preset = istable(data["Preset"]) and data["Preset"] or {}
+        ply.PR_Outfit = istable(data["Outfit"]) and data["Outfit"] or nil
 
         ply.PR_Loaded = true
 
-        if not saved then
+        if fresh then
             PR_Save_Player(ply)
         end
     end
 
-    local function SendPurchased(ply)
+    function PR_SendPurchased(ply)
         net.Start("PurchasedTable")
             net.WriteTable(ply.PurchasedModels or {})
             net.WriteTable(ply.PurchasedWeapons or {})
@@ -144,7 +180,7 @@ if SERVER then
         if ply.PR_SentPurchased then return end
         ply.PR_SentPurchased = true
 
-        SendPurchased(ply)
+        PR_SendPurchased(ply)
     end)
 
     hook.Add("PlayerInitialSpawn", "PR_LoadPlayerData", PR_Load_Player)

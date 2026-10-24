@@ -81,6 +81,7 @@
 | [LFS] Vietnam Helicopter Pack | [2125035846](https://steamcommunity.com/sharedfiles/filedetails/?id=2125035846) | ❌ (нужна база LFS, Steam предложит при подписке) |
 | [LFS] A-10 Thunderbolt II | [1581181120](https://steamcommunity.com/sharedfiles/filedetails/?id=1581181120) | ❌ (нужна база LFS) |
 | Bell AH-1G | [1430346908](https://steamcommunity.com/sharedfiles/filedetails/?id=1430346908) | ⚠️ стоит, но без базы [WAC Aircraft](https://steamcommunity.com/sharedfiles/filedetails/?id=104990330) не заработает |
+| Wiremod | [160250458](https://steamcommunity.com/sharedfiles/filedetails/?id=160250458) | ❌ (без него турели simfphys armed и LVS пишут ошибку при загрузке) |
 
 **Прочее из коллекции**
 

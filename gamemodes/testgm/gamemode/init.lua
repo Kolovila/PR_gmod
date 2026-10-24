@@ -1,11 +1,9 @@
-AddCSLuaFile( "cl_init.lua" )
-AddCSLuaFile( "shared.lua" )
-AddCSLuaFile("concommands.lua")
+AddCSLuaFile("cl_init.lua")
+AddCSLuaFile("shared.lua")
+AddCSLuaFile("cl_util.lua")
 AddCSLuaFile("testhud.lua")
---AddCSLuaFile("custom_menu.lua")
 AddCSLuaFile("custom_scoreboard.lua")
 AddCSLuaFile("player/sh_player_save.lua")
-AddCSLuaFile("teamsetup.lua")
 AddCSLuaFile("sh_f4menu.lua")
 AddCSLuaFile("cl_weaponshop.lua")
 AddCSLuaFile("cl_equipment.lua")
@@ -13,12 +11,12 @@ AddCSLuaFile("cl_cloth.lua")
 AddCSLuaFile("cl_profile.lua")
 AddCSLuaFile("cl_vehicle.lua")
 
-include( "shared.lua" )
-include("sh_f4menu.lua")
-include("concommands.lua")
+include("shared.lua")
+include("sv_util.lua")
 include("player/sh_player_save.lua")
-include("teamsetup.lua")
-
+include("sv_shop.lua")
+include("sv_admin.lua")
+include("sv_sandbox.lua")
 
 -- Игрок, которому засчитывается убийство. Водитель техники тоже считается.
 local function PR_KillerPlayer(attacker)
@@ -31,157 +29,105 @@ local function PR_KillerPlayer(attacker)
 	end
 end
 
-hook.Add("PlayerSpawn", "Aboltys", function(ply)
-	local preset = ply.Preset or {}
-
-	if preset["Primary"] != nil then
-		if preset["Primary"]["Item"] != nil then
-			ply:Give(preset["Primary"]["Item"])
+-- Опыт игроку: общий, фракционный и оружейный. Уровень растёт, когда опыта >= уровень * 100.
+local function PR_AddExp(ply, exp, weaponExp)
+	local function LevelUp(expKey, levelKey)
+		local level = ply:GetNWInt(levelKey)
+		if ply:GetNWInt(expKey) >= level * 100 then
+			ply:SetNWInt(expKey, 0)
+			ply:SetNWInt(levelKey, level + 1)
 		end
 	end
 
-	if preset["Secondary"] != nil then
-		if preset["Secondary"]["Item"] != nil then
-			ply:Give(preset["Secondary"]["Item"])
+	ply:SetNWInt("PR_exp", ply:GetNWInt("PR_exp") + exp)
+	LevelUp("PR_exp", "PR_level")
+
+	local frac = ply:GetNWString("PR_fraction")
+	if PR_IsFraction(frac) then
+		ply:SetNWInt("PR_exp_" .. frac, ply:GetNWInt("PR_exp_" .. frac) + exp)
+		ply:SetNWInt("PR_weapon_exp_" .. frac, ply:GetNWInt("PR_weapon_exp_" .. frac) + weaponExp)
+		LevelUp("PR_exp_" .. frac, "PR_level_" .. frac)
+	end
+end
+
+local function PR_AddMoney(ply, amount)
+	ply:SetNWInt("PR_money", math.max(ply:GetNWInt("PR_money") + amount, 0))
+end
+
+-- Купленное оружие из пресета при каждом спавне
+hook.Add("PlayerSpawn", "PR_GivePreset", function(ply)
+	local preset = ply.Preset or {}
+	local purchased = ply.PurchasedWeapons or {}
+
+	for _, slot in ipairs({"Primary", "Secondary"}) do
+		local item = istable(preset[slot]) and preset[slot]["Item"]
+		if isstring(item) and table.HasValue(purchased, item) then
+			ply:Give(item)
 		end
 	end
 end)
 
-hook.Add("PlayerDeath", "Aboltys", function(victim, inflictor, attacker)
-	--[[ 
-	StartMoney+AdditionalMoney*LevelFraction+AdditionalMoney(ExpLevel/ExpLevelNext)
-	StartMoney=500
-	AdditionalMoney=100
-	LevelFraction - ур фракции противника
-	ExpLevel - опыт на его уровне
-	ExpLevelNext - нужное кол-во опыта для повышения
-	]]
-
+-- Награда за убийство игрока: 100$ + 20$ за уровень фракции жертвы, опыт 10 + уровень жертвы.
+-- За своего — штраф 100$.
+hook.Add("PlayerDeath", "PR_KillReward", function(victim, inflictor, attacker)
 	victim:SetNWInt("PR_deaths", victim:GetNWInt("PR_deaths") + 1)
 
 	-- Убил NPC, мир или упал сам: награды нет
 	attacker = PR_KillerPlayer(attacker)
 	if not attacker or victim == attacker then return end
 
-	local atkMoney = attacker:GetNWInt("PR_money")
-	local atkLevel = attacker:GetNWInt("PR_level")
-	local atkFracLevel = attacker:GetNWInt("PR_level_" .. attacker:GetNWString("PR_fraction"))
-	local atkExp = attacker:GetNWInt("PR_exp")
-	local atkFracExp = attacker:GetNWInt("PR_exp_" .. attacker:GetNWString("PR_fraction"))
+	local victimFrac = victim:GetNWString("PR_fraction")
+	local victimLevel = victim:GetNWInt("PR_level_" .. victimFrac)
 
-	local atkKills = attacker:GetNWInt("PR_kills")
-	
-	local vicFracLevel = victim:GetNWInt("PR_level_" .. victim:GetNWString("PR_fraction"))
-	local vicFracExp = victim:GetNWInt("PR_exp_" .. victim:GetNWString("PR_fraction")) + 50
-
-	if victim:GetNWString("PR_fraction") == attacker:GetNWString("PR_fraction") then
-		attacker:SetNWInt("PR_money", atkMoney - 100)
-		return false
+	if victimFrac == attacker:GetNWString("PR_fraction") then
+		PR_AddMoney(attacker, -100)
+		return
 	end
 
-	if victim:GetNWString("PR_fraction") == "" then
-		attacker:SetNWInt("PR_money", atkMoney + 100)
+	if victimFrac == "" then
+		PR_AddMoney(attacker, 100)
 	else
-		attacker:SetNWInt("PR_money", atkMoney + 100 + 20 * vicFracLevel)
-		--attacker:SetNWInt("PR_money", atkMoney + 1000)
-	end
-	attacker:SetNWInt("PR_exp", atkExp + 10 + 1 * vicFracLevel)
-	attacker:SetNWInt("PR_exp_" .. attacker:GetNWString("PR_fraction"), atkFracExp + 10 + 1 * vicFracLevel)
-
-	attacker:SetNWInt("PR_weapon_exp_" .. attacker:GetNWString("PR_fraction"), attacker:GetNWInt("PR_weapon_exp_" .. attacker:GetNWString("PR_fraction")) + 10 + 1 * vicFracLevel)
-
-	local atkLevel = attacker:GetNWInt("PR_level")
-	local atkFracLevel = attacker:GetNWInt("PR_level_" .. attacker:GetNWString("PR_fraction"))
-	local atkExp = attacker:GetNWInt("PR_exp")
-	local atkFracExp = attacker:GetNWInt("PR_exp_" .. attacker:GetNWString("PR_fraction"))
-
-	if atkExp >= atkLevel * 100 then
-		attacker:SetNWInt("PR_exp", 0)
-		attacker:SetNWInt("PR_level", atkLevel + 1)
+		PR_AddMoney(attacker, 100 + 20 * victimLevel)
 	end
 
-	if atkFracExp >= atkFracLevel * 100 then
-		attacker:SetNWInt("PR_exp_" .. attacker:GetNWString("PR_fraction"), 0)
-		attacker:SetNWInt("PR_level_" .. attacker:GetNWString("PR_fraction"), atkFracLevel + 1)
-	end
-
-	attacker:SetNWInt("PR_kills", atkKills + 1)
-
-	--[[ victim:SetNWInt("DEATHS",victim:GetNWInt("DEATHS") + 1)
-    victim:SetPData("DEATHS",victim:GetNWInt("DEATHS")) ]]
+	PR_AddExp(attacker, 10 + victimLevel, 10 + victimLevel)
+	attacker:SetNWInt("PR_kills", attacker:GetNWInt("PR_kills") + 1)
 end)
 
 -- Внимание: у OnNPCKilled порядок (npc, attacker, inflictor), не как у PlayerDeath
-hook.Add("OnNPCKilled", "Aboltys", function(victim, attacker, inflictor)
+hook.Add("OnNPCKilled", "PR_KillReward", function(victim, attacker, inflictor)
 	attacker = PR_KillerPlayer(attacker)
 	if not attacker then return end
 
 	-- За своих защитников точки не платим
 	if victim.WhiteFractionList != nil and victim.WhiteFractionList == attacker:GetNWString("PR_fraction") then return end
 
-	attacker:SetNWInt("PR_money", attacker:GetNWInt("PR_money") + 100)
-	attacker:SetNWInt("PR_exp", attacker:GetNWInt("PR_exp") + 1)
-	attacker:SetNWInt("PR_exp_" .. attacker:GetNWString("PR_fraction"), attacker:GetNWInt("PR_exp_" .. attacker:GetNWString("PR_fraction")) + 1)
-	
-	attacker:SetNWInt("PR_weapon_exp_" .. attacker:GetNWString("PR_fraction"), attacker:GetNWInt("PR_weapon_exp_" .. attacker:GetNWString("PR_fraction")) + 1)
-
-	if attacker:GetNWInt("PR_exp") >= attacker:GetNWInt("PR_level") * 100 then
-		attacker:SetNWInt("PR_exp", 0)
-		attacker:SetNWInt("PR_level", attacker:GetNWInt("PR_level") + 1)
-	end
-
-	if attacker:GetNWInt("PR_exp_" .. attacker:GetNWString("PR_fraction")) >= attacker:GetNWInt("PR_level_" .. attacker:GetNWString("PR_fraction")) * 100 then
-		attacker:SetNWInt("PR_exp_" .. attacker:GetNWString("PR_fraction"), 0)
-		attacker:SetNWInt("PR_level_" .. attacker:GetNWString("PR_fraction"), attacker:GetNWInt("PR_level_" .. attacker:GetNWString("PR_fraction")) + 1)
-	end
-
+	PR_AddMoney(attacker, 100)
+	PR_AddExp(attacker, 1, 1)
 	attacker:SetNWInt("PR_kills_npc", attacker:GetNWInt("PR_kills_npc") + 1)
-
-	--[[ victim:SetNWInt("DEATHS",victim:GetNWInt("DEATHS") + 1)
-    victim:SetPData("DEATHS",victim:GetNWInt("DEATHS")) ]]
 end)
 
-hook.Add("ScalePlayerDamage", "Ebaboba", function( ply, hitgroup, dmginfo )
-	dmginfo:ScaleDamage(1)
-end)
-
-hook.Add("EntityTakeDamage", "Elaboba", function( target, dmginfo )
-	if dmginfo:GetDamageType() == 64 then
-		if target:IsPlayer() or target:IsNPC() then return false end
+-- Взрывы (DMG_BLAST) по технике и пропам в 20 раз сильнее
+hook.Add("EntityTakeDamage", "PR_BlastVsVehicles", function(target, dmginfo)
+	if dmginfo:GetDamageType() == DMG_BLAST then
+		if target:IsPlayer() or target:IsNPC() then return end
 		dmginfo:ScaleDamage(20)
 	end
 end)
 
+-- F4
 function GM:ShowSpare2(ply)
-   ply:ConCommand("open_main_menu")
+	ply:ConCommand("open_main_menu")
 end
 
 function GM:ShutDown()
 	PR_Save_All()
 end
 
---[[ for k,v in pairs(player.GetAll()) do
-	print(v:Nick().." "..v:GetNWString("PR_fraction"))
-end ]]
-
 function GM:PlayerSay(ply, text)
-	local playerMsg = string.Explode (" ", text)
-	
-	--[[ --GIVEMONEY (ADMIN)
-	if playerMsg[1] == "!giveMoney" or playerMsg[1] == "/giveMoney" then	-- если первое сообщение - !giveMoney или /giveMoney, то выполняется
-		if ply:GetNWInt("AdminPR") == 1 or ply:IsAdmin() then --если тот, кто пишет - админ, то работает
-			for k, v in ipairs(player.GetAll()) do -- ищет среди всех игроков (если что зайдите в gmod wiki)
-				if playerMsg[2] == v:SteamID64() then --если второе сообщение - стим айди, то выполняется
-					local amount = playerMsg[3] --вводить тип данных integer (например 213210)
-					v:SetNWInt("Money", v:GetNWInt("Money") + amount) --даёт бабло
-					v:SetPData("Money",v:GetBalance()) -- сохраняет в PData
-					ply:ChatPrint("Дал " .. amount .. "$ " .. "бомжу: " .. v:Nick()) --выводит это в чат (только вам)
-				end
-			end
-		end
-	return "" -- чтобы в чат не писало ваши секретные команды
-	end ]]
-	
+	local playerMsg = string.Explode(" ", text)
+
+	-- !деньги 500 — выкинуть пачку денег перед собой
 	if playerMsg[1] == "!деньги" then
 		local amount = math.floor(tonumber(playerMsg[2] or "") or 0)
 
@@ -198,29 +144,21 @@ function GM:PlayerSay(ply, text)
 			end
 		end
 
-		return "" -- чтобы в чат не писало ваши секретные команды
+		return "" -- чтобы команда не светилась в чате
 	end
-
-	--[[ if playerMsg[1] == "!!" then
-		for k,v in pairs(ents.GetAll()) do
-			v:Freeze(false)
-		end
-	end ]]
 
 	-- Без этого обычные сообщения не доходят до чата
 	return text
 end
 
-if not timer.Exists("PR_ChangeSpeed") then
-	timer.Create("PR_ChangeSpeed", 1, 0, function()
-		for k,v in pairs(player.GetAll()) do
-			if v:GetRunSpeed() > 250 then
-				v:SetRunSpeed(250)
-			end
-			if v:GetWalkSpeed() > 150 then
-				v:SetWalkSpeed(150)
-			end
+-- Потолок скорости: бег 250, шаг 150
+timer.Create("PR_ChangeSpeed", 1, 0, function()
+	for _, v in ipairs(player.GetAll()) do
+		if v:GetRunSpeed() > 250 then
+			v:SetRunSpeed(250)
 		end
-	end)
-end
-	
+		if v:GetWalkSpeed() > 150 then
+			v:SetWalkSpeed(150)
+		end
+	end
+end)

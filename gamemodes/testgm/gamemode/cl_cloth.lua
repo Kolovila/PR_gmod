@@ -278,11 +278,8 @@ if CLIENT then
                                             net.WriteTable(bodygroups)
                                             net.WriteInt(v["Price"], 32)
                                             net.SendToServer()
+                                            -- Список купленного обновит сервер (PurchasedTable)
 
-                                            if not table.HasValue(PR_PurchasedModels, v["Model"]) then
-                                                table.insert(PR_PurchasedModels, v["Model"])
-                                            end
-                                            
                                             BuyButton.Paint = function()
                                                 surface.SetDrawColor(10,10,10,255)
                                                 surface.DrawRect(0,0, BuyButton:GetWide(), BuyButton:GetTall())

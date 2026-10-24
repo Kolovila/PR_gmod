@@ -39,8 +39,8 @@ function ENT:SpawnFunction(ply, tr, ClassName)
 end
 
 function ENT:Use(activator, caller)
-   activator:SetNWInt("MPcoin", activator:GetNWInt("MPcoin") + self:GetValue())
-   activator:GetPData("MPcoin", activator:GetNWInt("MPcoin") + self:GetValue())
+   if not IsValid(activator) or not activator:IsPlayer() then return end
+   activator:SetNWInt("PR_coin", activator:GetNWInt("PR_coin") + self:GetValue())
    
    self:Remove()
 end

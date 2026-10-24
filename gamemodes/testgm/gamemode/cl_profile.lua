@@ -53,5 +53,5 @@ function PR_Show_Stats()
 
     PR_CrateProfileLabel("EXP ".. ply:GetNWString("PR_fraction") .. ": " ..ply:GetNWInt("PR_exp_" .. ply:GetNWString("PR_fraction")).. "" .."/" .. ply:GetNWInt("PR_level_" .. ply:GetNWString("PR_fraction"))*100, 40 , 340)
 
-    PR_CrateProfileLabel(ply:GetNWInt("MPcoin").. "©", 40 , 400)
+    PR_CrateProfileLabel(ply:GetNWInt("PR_coin").. "©", 40 , 400)
 end

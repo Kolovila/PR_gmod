@@ -1,6 +1,6 @@
-include( "shared.lua" )
+include("shared.lua")
+include("cl_util.lua")
 include("testhud.lua")
---include("custom_menu.lua")
 include("custom_scoreboard.lua")
 include("sh_f4menu.lua")
 include("cl_weaponshop.lua")
@@ -10,17 +10,13 @@ include("cl_vehicle.lua")
 include("cl_profile.lua")
 include("player/sh_player_save.lua")
 
-
-hook.Add("ContextMenuOpen", "pizda_spawnmenu", function()
-   if not (LocalPlayer():IsAdmin() or LocalPlayer():GetNWBool("PR_admin") == true) then
+-- Спавн-меню (Q) и контекстное меню (C) только для админов.
+-- Это только интерфейс: сами команды спавна закрыты на сервере (sv_sandbox.lua).
+local function AdminOnlyMenu()
+   if not PR_IsAdmin(LocalPlayer()) then
       return false
    end
-end)
+end
 
-
-
-hook.Add("OnSpawnMenuOpen", "pizda_spawnmenu", function()
-   if not (LocalPlayer():IsAdmin() or LocalPlayer():GetNWBool("PR_admin") == true) then
-      return false
-   end
-end)
+hook.Add("ContextMenuOpen", "PR_AdminOnlyMenu", AdminOnlyMenu)
+hook.Add("OnSpawnMenuOpen", "PR_AdminOnlyMenu", AdminOnlyMenu)
