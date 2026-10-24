@@ -12,6 +12,7 @@ if CLIENT then
         PR_PurchasedModels = net.ReadTable()
         PR_PurchasedWeapons = net.ReadTable()
         PR_Preset = net.ReadTable()
+        hook.Run("PR_PurchasedUpdated")
     end)
 
     -- Сервер шлёт купленное только когда клиент загрузился, иначе сообщение теряется
