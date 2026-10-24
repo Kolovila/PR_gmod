@@ -36,12 +36,12 @@ function PR_Show_Stats()
         return DLabel
     end
 
-    local frac = PR_CrateProfileLabel("FRACTION: " .. ply:GetNWString("PR_Fraction"), 40, 40)
+    local frac = PR_CrateProfileLabel("FRACTION: " .. ply:GetNWString("PR_fraction"), 40, 40)
 
     local flag = vgui.Create("DImage", PR_Panels.ProfileBackGround)
     flag:SetSize(50, 30)
     flag:SetPos(40 + frac:GetWide() + 5, 40)
-    flag:SetImage("test_gm_mat/flags/" .. ply:GetNWString("PR_Fraction") .. ".png")
+    flag:SetImage("test_gm_mat/flags/" .. ply:GetNWString("PR_fraction") .. ".png")
 
     PR_CrateProfileLabel(math.Round(ply:GetNWInt("PR_money")).. "$", 40 , 100)
 

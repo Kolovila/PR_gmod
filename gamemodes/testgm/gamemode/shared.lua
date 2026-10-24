@@ -11,6 +11,40 @@ team.SetUp(4, "WN", Color(0,255,255))
 
 DeriveGamemode("sandbox")
 
+-- Админ режима: админ сервера или выданный через табло флаг PR_admin
+function PR_IsAdmin(ply)
+    return IsValid(ply) and (ply:IsAdmin() or ply:GetNWBool("PR_admin"))
+end
+
+-- Зоны покупки по картам: список коробок {угол1, угол2} для каждого типа покупки.
+-- Если для карты зон нет, покупать можно где угодно.
+PR_BuyZones = PR_BuyZones or {
+    ["rp_desert_conflict"] = {
+        ["weapon"] = {
+            {Vector(2599, -5735, -534), Vector(2827, -5960, -396)}
+        }
+    }
+}
+
+if SERVER then
+    function PR_IsInBuyZone(ply, kind)
+        local zones = PR_BuyZones[string.lower(game.GetMap())]
+        if not zones or not zones[kind] then return true end
+
+        for _, box in ipairs(zones[kind]) do
+            local a, b = box[1], box[2]
+            local mins = Vector(math.min(a.x, b.x), math.min(a.y, b.y), math.min(a.z, b.z))
+            local maxs = Vector(math.max(a.x, b.x), math.max(a.y, b.y), math.max(a.z, b.z))
+
+            for _, ent in ipairs(ents.FindInBox(mins, maxs)) do
+                if ent == ply then return true end
+            end
+        end
+
+        return false
+    end
+end
+
 if SERVER then
     util.AddNetworkString("MainMenuOpen")
 
@@ -283,6 +317,7 @@ if SERVER then
         local Type = net.ReadString()
         local Name = net.ReadString()
 
+        ply.Preset = ply.Preset or {}
         ply.Preset[Type] = {
             ["Item"] = Item,
             ["Name"] = Name
@@ -297,13 +332,23 @@ if SERVER then
         local tr = ply:GetEyeTrace()
         
         if mod == "simfphys" then
+            if not simfphys then
+                ply:ChatPrint("На сервере не стоит simfphys")
+                return
+            end
+
             simfphys.SpawnVehicleSimple( classname, vecDeploy, Angle(0,90,0) )
         else
             local ent = ents.Create(classname)
-            ent:SetModel(classname)
+            if not IsValid(ent) then
+                ply:ChatPrint("Нет такой техники: " .. classname)
+                return
+            end
+
             ent:SetPos( vecDeploy )
             ent:SetAngles( Angle(0,90,0) )
             ent:Spawn()
+            ent:Activate()
         end
 
         ply:SetNWInt("PR_money", ply:GetNWInt("PR_money") - price)
@@ -345,23 +390,29 @@ if SERVER then
         end ]]
     end)
 
+    -- Клиент шлёт: класс, цену (cl_equipment.lua). Раньше сервер читал лишнюю строку, и цена была мусором.
     net.Receive("GiveEnity", function(len, ply)
         local Entity = net.ReadString()
-        local Type = net.ReadString()
-        local Price = net.ReadInt(32)
-        if Type == "wepaon" then
+        local Price = math.max(net.ReadInt(32), 0)
+
+        if weapons.GetStored(Entity) then
             ply:Give(Entity)
         else
             local entity_spawn = ents.Create(Entity)
-            
-            local tr = {}
-            tr.start = ply:EyePos()
-            tr.endpos = ply:EyePos() + 95 * ply:GetAimVector()
-            tr.filter = ply
-            local trace = util.TraceLine(tr)
+            if not IsValid(entity_spawn) then
+                ply:ChatPrint("Нет такого предмета: " .. Entity)
+                return
+            end
 
-			entity_spawn:SetPos(trace.HitPos)
-			entity_spawn:Spawn()
+            local trace = util.TraceLine({
+                start = ply:EyePos(),
+                endpos = ply:EyePos() + 95 * ply:GetAimVector(),
+                filter = ply
+            })
+
+            entity_spawn:SetPos(trace.HitPos)
+            entity_spawn:Spawn()
+            entity_spawn:Activate()
         end
 
         ply:SetNWInt("PR_money", ply:GetNWInt("PR_money") - Price)
@@ -384,25 +435,12 @@ if SERVER then
         ply:SetNWInt("PR_money", ply:GetNWInt("PR_money") - Price)
     end)
 
+    -- Ответ клиенту: стоит ли он в зоне покупки (зоны в PR_BuyZones выше)
     net.Receive("IsPlayerInBuyBox", function(len, ply)
-        print("ad")
-        local ply = net.ReadEntity()
         local typeBuy = net.ReadString()
 
-        local isInBox = false
-
-        if typeBuy == "weapon" then
-            local tEntities = ents.FindInBox( Vector(2599, -5735, -534), Vector(2827, -5960, -396) )
-            
-            for i = 1, #tEntities do
-                if ( tEntities[ i ] == ply ) then
-                    if isInBox == false then isInBox = true end
-                end
-            end
-        end
-
         net.Start("SendIsPlayerInBuyBox")
-            net.WriteBool(isInBox)
+            net.WriteBool(PR_IsInBuyZone(ply, typeBuy))
         net.Send(ply)
     end)
 
@@ -419,6 +457,25 @@ if SERVER then
 end
 
 if CLIENT then
+    -- Спросить сервер, стоит ли игрок в зоне покупки. callback(bool) вызовется, когда придёт ответ.
+    -- Раньше ответ ждали фиксированные 0.1 с, и при пинге выше 100 мс покупка не проходила.
+    local buyBoxCallbacks = {}
+
+    function PR_CheckBuyBox(typeBuy, callback)
+        table.insert(buyBoxCallbacks, callback)
+
+        net.Start("IsPlayerInBuyBox")
+            net.WriteString(typeBuy)
+        net.SendToServer()
+    end
+
+    net.Receive("SendIsPlayerInBuyBox", function()
+        local isInBox = net.ReadBool()
+        local callback = table.remove(buyBoxCallbacks, 1)
+
+        if callback then callback(isInBox) end
+    end)
+
     function PR_CreateErrorNotice(errorText)
         if not timer.Exists("OshibkaNovichka") then
 

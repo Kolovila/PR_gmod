@@ -218,7 +218,7 @@ function HUD()
 	--[[ draw.RoundedBox(0,15, ScrH() - 330,275,320, Color(0,0,0,240))
 
 	draw.RoundedBox(0,30, ScrH() - 320,245,2, Color(255,255,255,255))
-	draw.SimpleText("FRACTION: " .. LocalPlayer():GetNWString("PR_Fraction"), "testgm_INFO_font", 150, ScrH() - 305, Color(255,255,255,255),1,1)
+	draw.SimpleText("FRACTION: " .. LocalPlayer():GetNWString("PR_fraction"), "testgm_INFO_font", 150, ScrH() - 305, Color(255,255,255,255),1,1)
 	draw.RoundedBox(0,30, ScrH() - 290,245,2, Color(255,255,255,255))
 
 	draw.SimpleText(math.Round(client:GetNWInt("PR_money")).. "$", "testgm_INFO_font", 35, ScrH() - 270, Color(255,255,255,255),0,1)

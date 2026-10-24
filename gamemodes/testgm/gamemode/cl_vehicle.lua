@@ -287,8 +287,8 @@ if CLIENT then
         local ply = LocalPlayer()
 
         if PR_Vehicle_List != nil then
-            if PR_Vehicle_List[ply:GetNWString("PR_Fraction")] != nil then
-                for k,v in pairs(PR_Vehicle_List[ply:GetNWString("PR_Fraction")]) do
+            if PR_Vehicle_List[ply:GetNWString("PR_fraction")] != nil then
+                for k,v in pairs(PR_Vehicle_List[ply:GetNWString("PR_fraction")]) do
                     if v["Type"] == veh_type then
                         local PR_Vehicle = PR_Panels.Veh_ScrollPanel:Add("DButton")
                         PR_Vehicle:SetText("")
@@ -298,7 +298,7 @@ if CLIENT then
 
                         PR_Vehicle.Paint = function()
                             surface.SetDrawColor(255, 255, 255, 240)
-                            surface.SetMaterial(Material("test_gm_mat/buttons/".. string.lower(ply:GetNWString("PR_Fraction")) .."_button.png"))
+                            surface.SetMaterial(Material("test_gm_mat/buttons/".. string.lower(ply:GetNWString("PR_fraction")) .."_button.png"))
 
                             surface.DrawTexturedRect(0, 0, PR_Vehicle:GetWide(), PR_Vehicle:GetTall())
 

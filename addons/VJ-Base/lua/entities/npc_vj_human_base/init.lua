@@ -2059,7 +2059,8 @@ function ENT:Think()
 		if self.FollowingPlayer == true then
 			//print(self:GetTarget())
 			//print(self.FollowPlayer_Entity)
-			if IsValid(self.FollowPlayer_Entity) && self.FollowPlayer_Entity:Alive() && self.FollowPlayer_Entity:GetNWString("PR_Fraction") == self.WhiteFractionList && self.FollowPlayer_Entity:Alive() then 
+			-- PR: защитник точки ходит за своей фракцией, остальные NPC как в оригинале VJ (D_LI)
+			if IsValid(self.FollowPlayer_Entity) && self.FollowPlayer_Entity:Alive() && ((self.WhiteFractionList != nil && self.FollowPlayer_Entity:GetNWString("PR_fraction") == self.WhiteFractionList) or (self.WhiteFractionList == nil && self:Disposition(self.FollowPlayer_Entity) == D_LI)) then
 				if CurTime() > self.NextFollowPlayerT && self.AlreadyBeingHealedByMedic != true then
 					local distToPly = self:GetPos():Distance(self.FollowPlayer_Entity:GetPos())
 					local busy = self:BusyWithActivity()
@@ -3122,10 +3123,12 @@ function ENT:OnTakeDamage(dmginfo)
 	}
 	self:SetHealth(self:Health() - dmginfo:GetDamage())
 
-	if self.SignalUpgrade == true then
+	-- PR: сигнал защитника, не чаще раза в 10 секунд
+	if self.SignalUpgrade == true && CurTime() > (self.PR_NextSignalT or 0) then
+		self.PR_NextSignalT = CurTime() + 10
 		for k,v in pairs(player.GetAll()) do
-			if v:GetNWString("PR_Fraction") == self.WhiteFractionList then
-				v:ChatPrint("Король Артур, на нас напали!\nМоя изначальная точка: " .. self.SignalPoint)
+			if v:GetNWString("PR_fraction") == self.WhiteFractionList then
+				v:ChatPrint("Король Артур, на нас напали!\nМоя изначальная точка: " .. tostring(self.SignalPoint))
 			end
 		end
 	end
@@ -3291,18 +3294,11 @@ function ENT:OnTakeDamage(dmginfo)
 		end
 		self:PriorToKilled(dmginfo, hitgroup)
 
-		if self.Point != nil then
-			self.Point.GuardianCount = self.Point.GuardianCount - 1
-
-			net.Start("GuardianDown")
-				net.WriteEntity(self.Point)
-			net.Broadcast()
-
-			if self.SignalUpgrade == true then
-				for k,v in pairs(player.GetAll()) do
-					if v:GetNWString("PR_Fraction") == self.WhiteFractionList then
-						v:ChatPrint("Я помер\nМоя изначальная точка: " .. self.SignalPoint)
-					end
+		-- PR: счётчик защитников ведёт сама точка (zahvat_ojka), тут только сигнал
+		if self.SignalUpgrade == true && self.WhiteFractionList != nil then
+			for k,v in pairs(player.GetAll()) do
+				if v:GetNWString("PR_fraction") == self.WhiteFractionList then
+					v:ChatPrint("Я помер\nМоя изначальная точка: " .. tostring(self.SignalPoint))
 				end
 			end
 		end

@@ -872,18 +872,7 @@ if CLIENT then
                                     end
 
                                     BuyButton.DoClick = function()
-                                        local isPlyInBox
-            
-                                        net.Start("IsPlayerInBuyBox")
-                                            net.WriteEntity(ply)
-                                            net.WriteString("weapon")
-                                        net.SendToServer()
-            
-                                        net.Receive("SendIsPlayerInBuyBox", function()
-                                            isPlyInBox = net.ReadBool()
-                                        end)
-
-                                        timer.Simple(0.1, function()
+                                        PR_CheckBuyBox("weapon", function(isPlyInBox)
                                             if ply:GetNWInt("PR_money") < v["Price"] then
                                                 if not timer.Exists("NoMoney") then
                                                     local NoMoneyLabel = vgui.Create("DLabel", PR_Panels.BuyWindow)
@@ -969,18 +958,7 @@ if CLIENT then
                                     end
 
                                     BuyButton.DoClick = function()
-                                        local isPlyInBox
-            
-                                        net.Start("IsPlayerInBuyBox")
-                                            net.WriteEntity(ply)
-                                            net.WriteString("weapon")
-                                        net.SendToServer()
-            
-                                        net.Receive("SendIsPlayerInBuyBox", function()
-                                            isPlyInBox = net.ReadBool()
-                                        end)
-
-                                        timer.Simple(0.1, function()
+                                        PR_CheckBuyBox("weapon", function(isPlyInBox)
                                             if isPlyInBox != true then
                                                 if not timer.Exists("NotInBox") then
                                                     local NotInBoxLabel = vgui.Create("DLabel", PR_Panels.BuyWindow)

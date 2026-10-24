@@ -542,7 +542,7 @@ end
 		- doQuickIfActiveEnemy = Runs a quicker set enemy without resetting everything, it must have a active enemy! | DEFAULT = false
 -----------------------------------------------------------]]
 function ENT:VJ_DoSetEnemy(ent, stopMoving, doQuickIfActiveEnemy)
-	if !IsValid(ent) or self.Behavior == VJ_BEHAVIOR_PASSIVE_NATURE or ent:Health() <= 0 or (ent:IsPlayer() && (!ent:Alive() or GetConVar("ai_ignoreplayers"):GetInt() == 1)) or ent:GetNWString("PR_Fraction") == self.WhiteFractionList then return end
+	if !IsValid(ent) or self.Behavior == VJ_BEHAVIOR_PASSIVE_NATURE or ent:Health() <= 0 or (ent:IsPlayer() && (!ent:Alive() or GetConVar("ai_ignoreplayers"):GetInt() == 1)) or (self.WhiteFractionList != nil && ent:GetNWString("PR_fraction") == self.WhiteFractionList) then return end -- PR: своих защитник не трогает
 	stopMoving = stopMoving or false -- Will not run if doQuickIfActiveEnemy passes!
 	doQuickIfActiveEnemy = doQuickIfActiveEnemy or false -- It will run a much quicker set enemy without resetting everything (Only if it has an active enemy!)
 	if IsValid(self.Medic_CurrentEntToHeal) && self.Medic_CurrentEntToHeal == ent then self:DoMedicCode_Reset() end
@@ -760,12 +760,12 @@ function ENT:FollowPlayerCode(key, activator, caller, data)
 	if self.Dead == true or self.FollowPlayer == false or GetConVar("ai_disabled"):GetInt() == 1 or GetConVar("ai_ignoreplayers"):GetInt() == 1 then return end
 	
 	if IsValid(activator) && activator:IsPlayer() && activator:Alive() then
-		if self:Disposition(activator) == D_HT && activator:GetNWString("PR_Fraction") != self.WhiteFractionList then -- If it's an enemy
+		if self:Disposition(activator) == D_HT && !(self.WhiteFractionList != nil && activator:GetNWString("PR_fraction") == self.WhiteFractionList) then -- If it's an enemy
 			if self.AllowPrintingInChat == true then
 				activator:PrintMessage(HUD_PRINTTALK, self:GetName().." is hostile to you, therefore it won't follow you.")
 			end
 			return
-		elseif self:Disposition(activator) == D_NU && activator:GetNWString("PR_Fraction") != self.WhiteFractionList then -- If it's neutral
+		elseif self:Disposition(activator) == D_NU && !(self.WhiteFractionList != nil && activator:GetNWString("PR_fraction") == self.WhiteFractionList) then -- If it's neutral
 			if self.AllowPrintingInChat == true then
 				activator:PrintMessage(HUD_PRINTTALK, self:GetName().." is neutral to you, therefore it won't follow you.")
 			end

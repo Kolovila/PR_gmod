@@ -8,10 +8,7 @@ function idkMenuOpen()
 	local ply = LocalPlayer()
 
 	local ent = net.ReadEntity()
-
-	net.Start("GetPointsCfgs")
-	net.WriteTable(PR_Capture_Points_List)
-	net.SendToServer()
+	if not IsValid(ent) then return end
 
 	local W, H 	= ScrW(), ScrH()
 	local idkMenu = vgui.Create( "DFrame" )
@@ -37,49 +34,48 @@ function idkMenuOpen()
 		draw.SimpleText( "забрать деньги", "DermaLarge", 9, 15, Color(255,255,255) )
 	end
 	takeMoney.DoClick = function()
-		net.Start("SkamKazino")
-		net.WriteInt(ent.Money, 32)
+		net.Start("PR_PointTakeMoney")
+			net.WriteEntity(ent)
 		net.SendToServer()
-		ent.Money = 0
+	end
+
+	-- Кнопка улучшения: kind = "monitor" | "computer"
+	local function PriceText(kind)
+		local price = ent:GetUpgradePrice(kind)
+		return price and (price .. "$") or "MAX"
+	end
+
+	local function BuyUpgrade(kind)
+		if ply:GetNWBool("PR_leader_" .. ply:GetNWString("PR_fraction")) != true then PR_CreateErrorNotice("Ты не лидер фракции") return end
+
+		local price = ent:GetUpgradePrice(kind)
+		if not price then return end
+
+		if ply:GetNWInt("PR_money") < price then
+			PR_CreateErrorNotice("У тебя не хватает щекелей")
+			return
+		end
+
+		net.Start("UpgradePoint")
+			net.WriteEntity(ent)
+			net.WriteString(kind)
+		net.SendToServer()
 	end
 	
 	local upgradeMonik = vgui.Create( "DButton", idkMenu)
 	upgradeMonik:SetPos( W*0.2, H*0.3 )
 	upgradeMonik:SetText( "" )
 	upgradeMonik:SetSize( 265, 70 )
-	print(ent.UpgradeMonitor)
 	upgradeMonik.Paint = function()
+		if not IsValid(ent) then return end
 		surface.SetDrawColor(50,50,50,255)
 		surface.DrawRect(0,0, upgradeMonik:GetWide(),upgradeMonik:GetTall())
 		surface.SetDrawColor(200,220,220,255)
 		draw.SimpleText( "улучшить монитор", "DermaLarge", 14, 5, Color(255,255,255) )
-		if ent.UpgradeMonitor == 0 then NforPriceMonitor = "30000" 
-		elseif ent.UpgradeMonitor == 1 then NforPriceMonitor = "80000" 
-		elseif ent.UpgradeMonitor == 2 then NforPriceMonitor = "180000" 
-		elseif ent.UpgradeMonitor == 3 then NforPriceMonitor = "480000" 
-		elseif ent.UpgradeMonitor >= 4 then NforPriceMonitor = "MAX" 
-		end
-		draw.SimpleText( "цена:".. NforPriceMonitor .."$", "DermaLarge", 50, 35, Color(255,255,255) )
+		draw.SimpleText( "цена:".. PriceText("monitor"), "DermaLarge", 50, 35, Color(255,255,255) )
 	end
 	upgradeMonik.DoClick = function()
-		if ply:GetNWBool("PR_leader_" .. ply:GetNWString("PR_fraction")) != true then PR_CreateErrorNotice("Ты не лидер фракции") return false end
-		if ent.UpgradeMonitor < 4 then
-			if ply:GetNWInt("PR_money") >= tonumber(NforPriceMonitor) then
-				ent.UpgradeMonitor = ent.UpgradeMonitor + 1
-				net.Start("UpgradePoint")
-				net.WriteEntity(ent)
-				if NforPriceMonitor != "MAX" then
-					net.WriteInt(NforPriceMonitor, 32)
-				else
-					net.WriteInt(0, 32)
-				end
-				net.WriteInt(1, 3)
-				net.SendToServer()
-				ent.Delay = CurTime() + 500 - ent.UpgradeMonitor * 100
-			else
-                PR_CreateErrorNotice("У тебя не хватает щекелей")
-			end
-		end
+		BuyUpgrade("monitor")
 	end
 	
 	local upgradeComp = vgui.Create( "DButton", idkMenu)
@@ -87,36 +83,15 @@ function idkMenuOpen()
 	upgradeComp:SetText( "" )
 	upgradeComp:SetSize( 250, 70 )
 	upgradeComp.Paint = function()
+		if not IsValid(ent) then return end
 		surface.SetDrawColor(50,50,50,255)
 		surface.DrawRect(0,0, upgradeComp:GetWide(),upgradeComp:GetTall())
 		surface.SetDrawColor(200,220,220,255)
 		draw.SimpleText( "улучшить комп", "DermaLarge", 30, 5, Color(255,255,255) )
-		if ent.UpgradeComputer == 1 then NforPriceComputer = "30000" 
-		elseif ent.UpgradeComputer == 2 then NforPriceComputer = "80000" 
-		elseif ent.UpgradeComputer == 3 then NforPriceComputer = "180000" 
-		elseif ent.UpgradeComputer == 4 then NforPriceComputer = "480000" 
-		elseif ent.UpgradeComputer >= 5 then NforPriceComputer = "MAX" 
-		end
-		draw.SimpleText( "цена:".. NforPriceComputer .."$", "DermaLarge", 50, 35, Color(255,255,255) )
+		draw.SimpleText( "цена:".. PriceText("computer"), "DermaLarge", 50, 35, Color(255,255,255) )
 	end
 	upgradeComp.DoClick = function()
-		if ply:GetNWBool("PR_leader_" .. ply:GetNWString("PR_fraction")) != true then PR_CreateErrorNotice("Ты не лидер фракции") return false end
-		if ent.UpgradeComputer < 5 then
-			if ply:GetNWInt("PR_money") >= tonumber(NforPriceComputer) then
-				ent.UpgradeComputer = ent.UpgradeComputer + 1
-				net.Start("UpgradePoint")
-				net.WriteEntity(ent)
-				if NforPriceComputer != "MAX" then
-					net.WriteInt(NforPriceComputer, 32)
-				else
-					net.WriteInt(0, 32)
-				end
-				net.WriteInt(2, 3)
-				net.SendToServer()
-			else
-                PR_CreateErrorNotice("У тебя не хватает щекелей")
-			end
-		end
+		BuyUpgrade("computer")
 	end
 	
 	local guardSpawn = vgui.Create( "DButton", idkMenu)
@@ -130,17 +105,19 @@ function idkMenuOpen()
 		draw.SimpleText( "призвать защитника", "DermaLarge", 10, 5, Color(255,255,255) )
 	end
 	guardSpawn.DoClick = function()
-		local type_guard = ""
-		local weap_guard = ""
+		-- Выбор игрока: ключи из таблиц ENT.Guardian* (shared.lua)
+		local type_key = ""
+		local weap_key = ""
+		local hp_index = 1
+
 		local healthy_guard = 1
 		local sign_guard = false
 
 		local type_guard_price = 0
 		local weap_guard_price = 0
 		local sign_guard_price = 0
-		local price_guard = 0
 
-		if ent.GuardianCount < ent.MaxGuardianCount then
+		if ent:GetGuardianCount() < ent.MaxGuardianCount then
 			local BuyWindow = vgui.Create ("DFrame")
 			BuyWindow:SetSize(800,700)
 			BuyWindow:SetPos((ScrW()/2)-BuyWindow:GetWide()/2,(ScrH()/2)-BuyWindow:GetTall()/2)
@@ -182,16 +159,7 @@ function idkMenuOpen()
 			end
 			
 			type_guard_btn.DoClick = function()
-				local types = {
-					["дикий"] = {
-						["ClassName"] = "npc_vj_mishawild_sniper1",
-						["Price"] = 2000
-					},
-					["ёбнутый"] = {
-						["ClassName"] = "npc_vj_mishawild_sanitar_security1",
-						["Price"] = 4000
-					}
-				}
+				local types = ent.GuardianTypes
 
                 local DScrollPanel = vgui.Create( "DScrollPanel", BuyWindow )
                 DScrollPanel:SetPos(type_guard_btn.x,type_guard_btn.y)
@@ -221,11 +189,11 @@ function idkMenuOpen()
                     end
 
                     DButton.DoClick = function()
-						type_guard = v["ClassName"]
+						type_key = k
 						type_guard_text = k
 						type_guard_price = v["Price"]
 
-						weap_guard = ""
+						weap_key = ""
 						weap_guard_text = "оружие челика"
 						weap_guard_price = 0
 
@@ -257,77 +225,13 @@ function idkMenuOpen()
 			end
 			
 			weap_guard_btn.DoClick = function()
-				local weapons_get
-
-				local SCAV_Weapons = {
-					["Кедр"] = {
-						["ClassName"] = "weapon_vj_meft_kedr",
-						["Price"] = 1500
-					}, 
-					["Двухстволка"] = {
-						["ClassName"] = "MR43",
-						["Price"] = 1000
-					}, 
-					["МР153"] = {
-						["ClassName"] = "weapon_vj_meft_mp153",
-						["Price"] = 3000
-					}, 
-					["ПМ"] = {
-						["ClassName"] = "weapon_vj_meft_pm",
-						["Price"] = 2500
-					},
-					["ТОЗ-136"] = {
-						["ClassName"] = "weapon_vj_meft_toz",
-						["Price"] = 1500
-					},
-					["АКС-74У"] = {
-						["ClassName"] = "weapon_vj_meft_aks74u",
-						["Price"] = 1000
-					},
-					["АК-74М"] = {
-						["ClassName"] = "weapon_vj_meft_ak74m",
-						["Price"] = 1500
-					}, 
-					["Говностай"] = {
-						["ClassName"] = "weapon_vj_meft_vpo215",
-						["Price"] = 1500
-					},
-					["СКС"] = {
-						["ClassName"] = "weapon_vj_meft_sks",
-						["Price"] = 1000
-					}, 
-					["Мосинка"] = {
-						["ClassName"] = "weapon_vj_meft_mosin",
-						["Price"] = 3000
-					}
-				}
-				local Sanitar_Guard_Weapons = {
-					["АК-101"] = {
-						["ClassName"] = "weapon_vj_meft_reshala_ak101",
-						["Price"] = 3000
-					},
-					["UMP45"] = {
-						["ClassName"] = "weapon_vj_meft_ump45",
-						["Price"] = 1500
-					},
-					["SCAR"] = {
-						["ClassName"] = "weapon_vj_meft_scar",
-						["Price"] = 1000
-					}, 
-					["M4A1"] = {
-						["ClassName"] = "weapon_vj_meft_m4a1",
-						["Price"] = 3000
-					},
-					["АС ВАЛ"] = {
-						["ClassName"] = "weapon_vj_meft_asval",
-						["Price"] = 3000
-					}
-				}
-
-
-				if type_guard_text == "дикий" then weapons_get = SCAV_Weapons
-				elseif type_guard_text == "ёбнутый" then weapons_get = Sanitar_Guard_Weapons
+				local gtype = ent.GuardianTypes[type_key]
+				if not gtype then
+					PR_CreateErrorNotice("Сначала выбери тип челика")
+					return
 				end
+
+				local weapons_get = ent.GuardianWeapons[gtype.Weapons] or {}
 
                 PR_GUARD_MENU.WeaponScrollPanel = vgui.Create( "DScrollPanel", BuyWindow )
                 PR_GUARD_MENU.WeaponScrollPanel:SetPos(weap_guard_btn.x,weap_guard_btn.y)
@@ -357,7 +261,7 @@ function idkMenuOpen()
                     end
 
                     DButton.DoClick = function()
-						weap_guard = v["ClassName"]
+						weap_key = k
 						weap_guard_text = k
 						weap_guard_price = v["Price"]
                         PR_GUARD_MENU.WeaponScrollPanel:Remove()
@@ -386,12 +290,7 @@ function idkMenuOpen()
 			end
 			
 			healthy_guard_btn.DoClick = function()
-				local hp_multiplayer_list = {
-					1,
-					1.5,
-					2,
-					2.5
-				}
+				local hp_multiplayer_list = ent.GuardianHealthMul
 
                 local DScrollPanel = vgui.Create( "DScrollPanel", BuyWindow )
                 DScrollPanel:SetPos(healthy_guard_btn.x, healthy_guard_btn.y)
@@ -422,6 +321,7 @@ function idkMenuOpen()
 
                     DButton.DoClick = function()
 						healthy_guard = v
+						hp_index = k
 						healthy_guard_text = "x" .. v
                         DScrollPanel:Remove()
                     end
@@ -452,7 +352,7 @@ function idkMenuOpen()
 				local sign_list = {
 					["включить"] = {
 						["Boolean"] = true,
-						["Price"] = 500
+						["Price"] = ent.GuardianSignalPrice
 					},
 					["выключить"] = {
 						["Boolean"] = false,
@@ -513,27 +413,28 @@ function idkMenuOpen()
 	
 				draw.RoundedBox(0, 0, MoneyText:GetTall() - 1, MoneyText:GetWide(), 1, Color(255,255,255,255)) -- низушка
 
-				draw.SimpleText((type_guard_price * healthy_guard) + weap_guard_price + sign_guard_price.. "$", "DermaLarge", MoneyText:GetWide()/2, 7, Color(255,255,255), 1)
+				draw.SimpleText(math.floor(type_guard_price * healthy_guard) + weap_guard_price + sign_guard_price.. "$", "DermaLarge", MoneyText:GetWide()/2, 7, Color(255,255,255), 1)
 			end
 
 			local summon_guard = PR_CreateNewButton(butt, "призвать защитника", 285, 50, BuyWindow:GetWide()/2 - 285/2, 600, "", BuyWindow, Color(50,50,50), Color(255,255,255), 0, 10, 5, "DermaLarge")
 			summon_guard.DoClick = function()
-				price_guard = (type_guard_price * healthy_guard) + weap_guard_price + sign_guard_price
-				if ent.MaxGuardianCount > ent.GuardianCount then
-					if ply:GetNWInt("PR_money") >= price_guard then
-						local npc_setting = {
-							["npc"] = type_guard,
-							["weapon"] = weap_guard,
-							["healthy"] = healthy_guard,
-							["signal"] = sign_guard,
-							["price"] = price_guard
-						}
+				if not IsValid(ent) then return end
 
+				local price_guard = ent:GetGuardianPrice(type_key, weap_key, hp_index, sign_guard)
+				if not price_guard then
+					PR_CreateErrorNotice("Сначала выбери тип челика")
+					return
+				end
+
+				if ent.MaxGuardianCount > ent:GetGuardianCount() then
+					if ply:GetNWInt("PR_money") >= price_guard then
 						net.Start("SpawnGuardianNPC")
 							net.WriteEntity(ent)
-							net.WriteTable(npc_setting)
+							net.WriteString(type_key)
+							net.WriteString(weap_key)
+							net.WriteUInt(hp_index, 4)
+							net.WriteBool(sign_guard)
 						net.SendToServer()
-						ent.GuardianCount = ent.GuardianCount + 1
 					else
 						PR_CreateErrorNotice("У тебя не хватает щекелей")
 					end
@@ -565,41 +466,35 @@ function idkMenuOpen()
 	InfoText:SetText( "" )
 	InfoText:SetSize( 500, 200 )
 	InfoText.Paint = function()
+		if not IsValid(ent) then return end
 		surface.SetDrawColor(50,50,50,255)
 		surface.DrawRect(0,0, InfoText:GetWide(), InfoText:GetTall())
 		surface.SetDrawColor(200,220,220,255)
-		draw.SimpleText("Осталось: " .. math.Round(ent.Delay - CurTime(), 0) .. "с.", "DermaLarge", 35, 15, Color(255,255,255))
-		draw.SimpleText("Приход: " .. ent.UpgradeComputer * 1000 .. "$", "DermaLarge", 35, 55, Color(255,255,255))
-		draw.SimpleText("Защитников: " .. ent.GuardianCount .. "/" .. ent.MaxGuardianCount, "DermaLarge", 35, 100, Color(255,255,255))
-		draw.SimpleText("Сейчас хранится: " .. ent.Money .. "$", "DermaLarge", 35, 150, Color(255,255,255))
+		draw.SimpleText("Осталось: " .. math.max(math.Round(ent:GetNextIncome() - CurTime(), 0), 0) .. "с.", "DermaLarge", 35, 15, Color(255,255,255))
+		draw.SimpleText("Приход: " .. ent:GetIncomeAmount() .. "$", "DermaLarge", 35, 55, Color(255,255,255))
+		draw.SimpleText("Защитников: " .. ent:GetGuardianCount() .. "/" .. ent.MaxGuardianCount, "DermaLarge", 35, 100, Color(255,255,255))
+		draw.SimpleText("Сейчас хранится: " .. ent:GetStoredMoney() .. "$", "DermaLarge", 35, 150, Color(255,255,255))
 	end
 
-	function ent.Think()
-		if CurTime() >= ent.Delay then
-			ent.Delay = CurTime() + 450 - ent.UpgradeMonitor * 100
-			ent.Money = ent.Money + ent.UpgradeComputer * 1000
-
-			if !ply:Alive() then
-				idkMenu:Remove()
-			end
+	-- Закрыть меню, если игрок умер, точку убрали или её захватили
+	local frameThink = idkMenu.Think
+	idkMenu.Think = function(self)
+		frameThink(self)
+		if not ply:Alive() or not IsValid(ent) or ent:GetCaptureTeam() != ply:GetNWString("PR_fraction") then
+			idkMenu:Remove()
 		end
 	end
-	
 end
 
 function ConfigAdminMenu()
 	local ply = LocalPlayer()
 
 	local ent = net.ReadEntity()
+	if not IsValid(ent) then return end
 
 	PR_Capture_Points_List = PR_Capture_Points_List or {}
 
-	if ent.CurPoint == nil then
-		ent.CurPoint = ""
-	end
-
 	net.Start("GetPointsCfgs")
-	net.WriteTable(PR_Capture_Points_List)
 	net.SendToServer()
 
 	local W, H 	= ScrW(), ScrH()
@@ -615,8 +510,9 @@ function ConfigAdminMenu()
 		surface.SetDrawColor( 100, 100, 100, 150 )
 		surface.DrawTexturedRect( 0, 0, W, H )
 
-		local text = "Текущая точка: ".. ent.CurPoint
-		
+		if not IsValid(ent) then return end
+		local text = "Текущая точка: ".. ent:GetCurPoint() .. " (" .. ent:GetCaptureTeam() .. ")"
+
 		surface.SetFont( "DermaLarge" )
 		surface.SetTextPos( 100, 50 )
 
@@ -711,12 +607,10 @@ function ConfigAdminMenu()
 				end
 
 				SaveCfgButton.DoClick = function()
-					GetNewCfgs()
 					net.Start("CreateNewCfgs")
 						net.WriteString(ConfigName:GetValue())
 						net.WriteEntity(ent)
 					net.SendToServer()
-					ent.CurPoint = ConfigName:GetValue()
 					ConfigScroll:Remove()
 					SaveWindow:Remove()
 				end
@@ -740,12 +634,6 @@ function ConfigAdminMenu()
 						net.WriteString(k)
 						net.WriteEntity(ent)
 					net.SendToServer()
-
-					PR_Capture_Points_List.Team = PR_Capture_Points_List.Config[k]["Team"]
-					PR_Capture_Points_List.MonikUp = PR_Capture_Points_List.Config[k]["Monitor"]
-					PR_Capture_Points_List.SistemnikUp = PR_Capture_Points_List.Config[k]["System"]
-
-					ent.CurPoint = k
 
 					ConfigScroll:Remove()
 				end
@@ -785,40 +673,31 @@ function ConfigAdminMenu()
 	escapefromkazino.DoClick = function()
 		idkMenu:Remove()
 	end
-
-	function GetNewCfgs()
-		local PointInfo = {PR_Capture_Points_List.Team, PR_Capture_Points_List.MonikUp, PR_Capture_Points_List.SistemnikUp}
-		net.Start("GetNewCfgs")
-			net.WriteTable(PointInfo)
-		net.SendToServer()
-	end
 end
 
-net.Receive( "SetClientNewPoint", function()
-	ent = net.ReadEntity()
-	ent.CaptureTeam = net.ReadString()
-end)
-
 net.Receive( "GivePointsCfgs", function()
+	PR_Capture_Points_List = PR_Capture_Points_List or {}
 	PR_Capture_Points_List.Config = net.ReadTable()
 end)
 
-net.Receive( "GuardianDown", function()
-	ent = net.ReadEntity()
-	ent.GuardianCount = ent.GuardianCount - 1
-end)
+-- Полоска прогресса у того, кто захватывает
+hook.Add("HUDPaint", "PR_CaptureProgress", function()
+	local lp = LocalPlayer()
 
-net.Receive( "GivePointEnt", function()
-	ent = net.ReadEntity()
-	ent.CaptureTeam = net.ReadString()
-	ent.UpgradeMonitor = net.ReadInt(8)
-	ent.UpgradeComputer = net.ReadInt(8)
-end)
+	for _, point in ipairs(ents.FindByClass("zahvat_ojka")) do
+		if point:GetCapturer() == lp then
+			local total = point:GetCaptureEnd() - point:GetCaptureStart()
+			local frac = total > 0 and math.Clamp((CurTime() - point:GetCaptureStart()) / total, 0, 1) or 0
 
-net.Receive( "GivePointUpgrade", function()
-	ent = net.ReadEntity()
-	ent.UpgradeMonitor = net.ReadInt(8)
-	ent.UpgradeComputer = net.ReadInt(8)
+			local w, h = 400, 30
+			local x, y = ScrW() / 2 - w / 2, ScrH() * 0.75
+
+			draw.RoundedBox(0, x, y, w, h, Color(0, 0, 0, 200))
+			draw.RoundedBox(0, x + 2, y + 2, (w - 4) * frac, h - 4, Color(200, 40, 40, 230))
+			draw.SimpleText("Захват точки «" .. point:GetCurPoint() .. "»: " .. math.floor(frac * 100) .. "%", "DermaDefaultBold", ScrW() / 2, y + h / 2, Color(255, 255, 255), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+			break
+		end
+	end
 end)
 
 net.Receive("OpenIDKPanel", idkMenuOpen )

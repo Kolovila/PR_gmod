@@ -7,363 +7,468 @@ util.AddNetworkString("OpenAdminPanel")
 util.AddNetworkString("GetPointsCfgs")
 util.AddNetworkString("GivePointsCfgs")
 util.AddNetworkString("SetServerPointsCfgs")
-util.AddNetworkString("GetNewCfgs")
 util.AddNetworkString("CreateNewCfgs")
-util.AddNetworkString("SetClientNewPoint")
 util.AddNetworkString("SetPoint")
 util.AddNetworkString("UpgradePoint")
-util.AddNetworkString("GivePointEnt")
-util.AddNetworkString("GivePointUpgrade")
 util.AddNetworkString("SpawnGuardianNPC")
-util.AddNetworkString("GuardianDown")
+util.AddNetworkString("PR_PointTakeMoney")
 
-PR_Capture_Points_List = PR_Capture_Points_List or {}
+local CAPTURE_TIME = CreateConVar("pr_capture_time", "20", {FCVAR_ARCHIVE, FCVAR_NOTIFY}, "Сколько секунд стоять у точки, чтобы её захватить")
+
+local CFG_DIR = "pr_gamemode"
+local CFG_FILE = CFG_DIR .. "/capture_points_list.txt"
+
+local function LoadPointsConfig()
+	return util.JSONToTable(file.Read(CFG_FILE, "DATA") or "") or {}
+end
+
+local function SavePointsConfig(cfg)
+	if not file.Exists(CFG_DIR, "DATA") then
+		file.CreateDir(CFG_DIR)
+	end
+
+	file.Write(CFG_FILE, util.TableToJSON(cfg, true))
+end
+
+local function IsPoint(ent)
+	return IsValid(ent) and ent:GetClass() == "zahvat_ojka"
+end
 
 function ENT:Initialize()
-    self:SetModel(self.Model)
-    --self:PhysicsInit(SOLID_VPHYSICS)
-    --self:SetMoveType(MOVETYPE_VPHYSICS)
-    self:SetSolid(SOLID_VPHYSICS)
-   
-    self:SetUseType(SIMPLE_USE)
-   
-    local phys = self:GetPhysicsObject()
-   
-    if (IsValid(phys)) then
-		phys:Wake()
-    end
-	
+	self:SetModel(self.Model)
+	self:SetSolid(SOLID_VPHYSICS)
+	self:SetUseType(SIMPLE_USE)
 	self:SetHealth(self.BaseHealth)
-	
-	self.timer = CurTime()
-	
-	--timer.Create("PrintTimer"..self:EntIndex(), self.PrintRate, 0, function()
-	   --self:SetStorage(self:GetStorage() + self.PrintAmount)
-	--end)
+
+	self:SetUpgradeComputer(1)
+
+	self.Guardians = {}
 end
 
 function ENT:SpawnFunction(ply, tr, ClassName)
-    if(!tr.Hit) then return end
-   
-    tr.start = ply:EyePos()
-    tr.endpos = ply:EyePos() + 95 * ply:GetAimVector()
-    tr.filter = ply
-   
-    local trace = util.TraceLine(tr)
-   
-    
-    local entityforpr = ents.Create(ClassName)
-    entityforpr:SetPos(trace.HitPos)
-    entityforpr:Spawn()
-    entityforpr:Activate()
+	if not tr.Hit then return end
 
-	SpawnModules(entityforpr)
-	
-	return entityforpr
+	local trace = util.TraceLine({
+		start = ply:EyePos(),
+		endpos = ply:EyePos() + 95 * ply:GetAimVector(),
+		filter = ply
+	})
+
+	local point = ents.Create(ClassName)
+	point:SetPos(trace.HitPos)
+	point:Spawn()
+	point:Activate()
+	point:SpawnModules()
+
+	return point
 end
 
-function ENT:Use(activator, caller)
-	if self.CaptureTeam == "" or self.CaptureTeam == nil then
-		net.Start("OpenAdminPanel")
-		net.WriteEntity(self)
-		net.Send(activator)
-	elseif self.CaptureTeam != activator:GetNWString("PR_fraction") and (self.CaptureTeam != "" or self.CaptureTeam != nil) then
-		CapturePoint(activator:GetNWString("PR_Fraction"), activator, self)
-	else
+-- Монитор, системник, клавиатура и флаг на точке
+function ENT:SpawnModules()
+	local function AddModule(model, pos, skin)
+		local prop = ents.Create("prop_physics")
+		prop:SetPos(pos)
+		prop:SetAngles(self:GetAngles())
+		prop:SetModel(model)
+		if skin then prop:SetSkin(skin) end
+		prop:Spawn()
+		prop:Activate()
+		prop:SetCollisionGroup(COLLISION_GROUP_DEBRIS)
+		prop:SetMoveType(MOVETYPE_NONE)
+		prop:SetParent(self, -1)
+	end
+
+	AddModule("models/props_lab/monitor01a.mdl", self:GetPos() + Vector(-10, 0, 31.5))
+	AddModule("models/props_lab/harddrive02.mdl", self:GetPos() + self:GetUp() * 30 + self:GetRight() * -30)
+	AddModule("models/props/cs_office/computer_keyboard.mdl", self:GetPos() + Vector(20, 0, 20))
+	AddModule("models/gmodflags/flagpole05.mdl", self:GetPos() + Vector(0, -80, -20), 24)
+end
+
+function ENT:Use(activator)
+	if not IsValid(activator) or not activator:IsPlayer() then return end
+
+	local frac = activator:GetNWString("PR_fraction")
+	local team = self:GetCaptureTeam()
+
+	-- Ненастроенная точка, или админ в группировке «admin»: меню настройки
+	if team == "" or frac == "admin" then
+		if PR_IsAdmin(activator) then
+			net.Start("OpenAdminPanel")
+				net.WriteEntity(self)
+			net.Send(activator)
+		else
+			activator:ChatPrint("Точка ещё не настроена админом")
+		end
+		return
+	end
+
+	if frac == team then
 		net.Start("OpenIDKPanel")
-		net.WriteEntity(self)
+			net.WriteEntity(self)
 		net.Send(activator)
+		return
+	end
+
+	if frac == "" then
+		activator:ChatPrint("Сначала выбери группировку (F4)")
+		return
+	end
+
+	self:StartCapture(activator)
+end
+
+function ENT:NotifyTeam(team, text)
+	if team == "" then return end
+
+	for _, v in ipairs(player.GetAll()) do
+		if v:GetNWString("PR_fraction") == team then
+			v:ChatPrint(text)
+		end
 	end
 end
 
---[[
-function ENT:OnTakeDamage(damage)
-   self:SetHealth(self:Health() - damage:GetDamage())
-   
-    if (self:Health() <= 0) then
-	 --timer.Remove("PrintTimer"..self:EntIndex())
-     self:Remove()
-	end
-end
-]]
-
-function ENT:OnRemove()
-	self.CurPoint = ""
-	self.CaptureTeam = ""
-	self.UpgradeMonitor = 0
-	self.UpgradeComputer = 1
-end
-
-function SpawnModules(mainEnt)
-	local Monitor = ents.Create("prop_physics")
-	Monitor:SetPos(mainEnt:GetPos()+Vector(-10,0,31.5))
-	Monitor:SetAngles(mainEnt:GetAngles())
-	Monitor:SetModel("models/props_lab/monitor01a.mdl") --сделать взависимости от переменных .._for_num
-	Monitor:Spawn()
-	Monitor:Activate()
-	Monitor:SetCollisionGroup(COLLISION_GROUP_DEBRIS)
-	Monitor:SetMoveType(MOVETYPE_NONE)
-	Monitor:SetParent(mainEnt,-1)
-
-	local Computer = ents.Create("prop_physics")
-	Computer:SetPos(mainEnt:GetPos()+mainEnt:GetUp()*30+mainEnt:GetRight()*-30)
-	Computer:SetAngles(mainEnt:GetAngles())
-	Computer:SetModel("models/props_lab/harddrive02.mdl")
-	Computer:Spawn()
-	Computer:Activate()
-	Computer:SetCollisionGroup(COLLISION_GROUP_DEBRIS)
-	Computer:SetMoveType(MOVETYPE_NONE)
-	Computer:SetParent(mainEnt,-1)
-
-	local KeyBoard = ents.Create("prop_physics")
-	KeyBoard:SetPos(mainEnt:GetPos()+Vector(20,0,20))
-	KeyBoard:SetAngles(mainEnt:GetAngles())
-	KeyBoard:SetModel("models/props/cs_office/computer_keyboard.mdl")
-	KeyBoard:Spawn()
-	KeyBoard:Activate()
-	KeyBoard:SetCollisionGroup(COLLISION_GROUP_DEBRIS)
-	KeyBoard:SetMoveType(MOVETYPE_NONE)
-	KeyBoard:SetParent(mainEnt,-1)
-
-	local Flag = ents.Create("prop_physics")
-	Flag:SetPos(mainEnt:GetPos()+Vector(0,-80,-20))
-	Flag:SetAngles(mainEnt:GetAngles())
-	Flag:SetModel("models/gmodflags/flagpole05.mdl")
-	Flag:SetSkin(24)
-	Flag:Spawn()
-	Flag:Activate()
-	Flag:SetCollisionGroup(COLLISION_GROUP_DEBRIS)
-	Flag:SetMoveType(MOVETYPE_NONE)
-	Flag:SetParent(mainEnt,-1)
-
-
-end
-
-function CapturePoint(team, player, point)
-	if not timer.Exists( "CapturePoint" ) then
-		timer.Create( "CapturePoint", 1, 2,
-		function()
-			if(player:GetPos():Distance(point:GetPos())<600 and player:Health() > 0) then
-				player:ChatPrint(timer.RepsLeft("CapturePoint"))
-				if timer.RepsLeft("CapturePoint") < 1 then
-					player:ChatPrint("Точка захвачена!")
-					timer.Remove("CapturePoint")
-					point.CaptureTeam = team
-					UpdatePointInfo(point)
-				end
-			else
-				timer.Remove("CapturePoint")
-			end
-		end)
-	end
-end
-
-function UpdatePointInfo(ent)
-	if not file.Exists("pr_gamemode", "DATA") then
-		file.CreateDir("pr_gamemode")
+function ENT:StartCapture(ply)
+	local capturer = self:GetCapturer()
+	if IsValid(capturer) then
+		if capturer ~= ply then
+			ply:ChatPrint("Точку уже захватывает " .. capturer:Nick())
+		end
+		return
 	end
 
-	if not file.Exists( "pr_gamemode/capture_points_list.txt", "DATA" ) then
-		file.Write("pr_gamemode/capture_points_list.txt")
-	end
+	local time = math.max(CAPTURE_TIME:GetFloat(), 1)
+	self:SetCapturer(ply)
+	self:SetCaptureStart(CurTime())
+	self:SetCaptureEnd(CurTime() + time)
 
-	local SaveData = file.Read("pr_gamemode/capture_points_list.txt", "DATA")
-	PR_Capture_Points_List.Config = util.JSONToTable(SaveData) or {}
-	PR_Capture_Points_List.Config[ent.CurPoint] = {
-		["Team"] = 0,
-		["Monitor"] = 0,
-		["System"] = 1
+	ply:ChatPrint("Захват начат: держись рядом с точкой " .. math.Round(time) .. " с.")
+	self:NotifyTeam(self:GetCaptureTeam(), "Точку «" .. self:GetCurPoint() .. "» захватывают!")
+end
+
+function ENT:StopCapture()
+	self:SetCapturer(NULL)
+	self:SetCaptureStart(0)
+	self:SetCaptureEnd(0)
+end
+
+function ENT:FinishCapture(ply)
+	local newTeam = ply:GetNWString("PR_fraction")
+	local oldTeam = self:GetCaptureTeam()
+
+	self:StopCapture()
+	self:SetCaptureTeam(newTeam)
+	self:SetStoredMoney(0)
+	self:SetNextIncome(CurTime() + self:GetIncomeInterval())
+
+	-- Защитники прошлого владельца остаются воевать, но больше не считаются за точкой
+	for guard in pairs(self.Guardians) do
+		if IsValid(guard) then guard.PR_GuardPoint = nil end
+	end
+	self.Guardians = {}
+	self:SetGuardianCount(0)
+
+	self:SavePointState()
+
+	ply:ChatPrint("Точка захвачена!")
+	self:NotifyTeam(oldTeam, "Точка «" .. self:GetCurPoint() .. "» потеряна!")
+end
+
+function ENT:SavePointState()
+	if self:GetCurPoint() == "" then return end
+
+	local cfg = LoadPointsConfig()
+	cfg[self:GetCurPoint()] = {
+		["Team"] = self:GetCaptureTeam(),
+		["Monitor"] = self:GetUpgradeMonitor(),
+		["System"] = self:GetUpgradeComputer()
 	}
-
-	PR_Capture_Points_List.Config[ent.CurPoint]["Team"] = ent.CaptureTeam
-	PR_Capture_Points_List.Config[ent.CurPoint]["Monitor"] = ent.UpgradeMonitor
-	PR_Capture_Points_List.Config[ent.CurPoint]["System"] = ent.UpgradeComputer
-
-	file.Write("pr_gamemode/capture_points_list.txt", util.TableToJSON(PR_Capture_Points_List.Config, true))
-	
-	net.Start("SetClientNewPoint")
-		net.WriteEntity(ent)
-		net.WriteString(ent.CaptureTeam)
-   	net.Broadcast()
+	SavePointsConfig(cfg)
 end
 
-net.Receive( "UpgradePoint", function(len, ply)
-	local ent = net.ReadEntity()
-	local price = net.ReadInt(32)
-	local action = net.ReadInt(3)
+function ENT:Think()
+	local capturer = self:GetCapturer()
 
-	if action == 1 then
-		ent.UpgradeMonitor = ent.UpgradeMonitor + 1
-	elseif action == 2 then
-		ent.UpgradeComputer = ent.UpgradeComputer + 1
+	if IsValid(capturer) then
+		local frac = capturer:GetNWString("PR_fraction")
+		local tooFar = capturer:GetPos():DistToSqr(self:GetPos()) > self.CaptureRadius ^ 2
+
+		if not capturer:Alive() or tooFar or frac == "" or frac == self:GetCaptureTeam() then
+			capturer:ChatPrint("Захват прерван")
+			self:StopCapture()
+		elseif CurTime() >= self:GetCaptureEnd() then
+			self:FinishCapture(capturer)
+		end
+	elseif self:GetCaptureEnd() ~= 0 then
+		-- Захватчик вышел с сервера
+		self:StopCapture()
 	end
 
-	UpdatePointInfo(ent)
-	
-	net.Start("GivePointUpgrade")
-		net.WriteEntity(ent)
-		net.WriteInt(ent.UpgradeMonitor, 8)
-		net.WriteInt(ent.UpgradeComputer, 8)
-   	net.Broadcast()
-
-	ply:SetNWInt("PR_money", ply:GetNWInt("PR_money") - price)
-end)
-
-net.Receive( "SpawnGuardianNPC", function(len, ply)
-	local ent = net.ReadEntity()
-	local npc_setting = net.ReadTable()
-	
-	local type_npc = npc_setting["npc"]
-	local weap_npc = npc_setting["weapon"]
-	local healthy = npc_setting["healthy"]
-	local signal = npc_setting["signal"]
-	local price = npc_setting["price"]
-
-	local NPCList = list.Get("NPC")
-	local NPCData = NPCList[type_npc]
-
-	local guard = ents.Create( type_npc )
-	guard:SetKeyValue("additionalequipment", weap_npc)
-
-	local SpawnFlags = bit.bor(SF_NPC_FADE_CORPSE, SF_NPC_ALWAYSTHINK)
-
-	if (NPCData.SpawnFlags) then
-		SpawnFlags = bit.bor(SpawnFlags, NPCData.SpawnFlags)
+	if self:HasOwner() then
+		if self:GetNextIncome() == 0 then
+			self:SetNextIncome(CurTime() + self:GetIncomeInterval())
+		elseif CurTime() >= self:GetNextIncome() then
+			self:SetStoredMoney(self:GetStoredMoney() + self:GetIncomeAmount())
+			self:SetNextIncome(CurTime() + self:GetIncomeInterval())
+		end
 	end
 
-	if (NPCData.TotalSpawnFlags) then
-		SpawnFlags = NPCData.TotalSpawnFlags
+	self:NextThink(CurTime() + 0.5)
+	return true
+end
+
+-- Может ли игрок пользоваться меню своей точки
+function ENT:CanManage(ply)
+	return IsValid(ply) and ply:Alive()
+		and self:HasOwner()
+		and ply:GetNWString("PR_fraction") == self:GetCaptureTeam()
+		and ply:GetPos():DistToSqr(self:GetPos()) <= self.CaptureRadius ^ 2
+end
+
+-- Место для защитника рядом с точкой. Раньше его роняли с высоты 500, чтобы не застревал,
+-- но под потолком он так попадал на крышу или в текстуру. Теперь ищем место явно:
+-- 1) опускаемся на пол карты (только геометрия мира, сквозь точку и её пропы),
+-- 2) хитбокс NPC ни с чем не пересекается (точка, флаг, пропы, стены),
+-- 3) от точки до места нет стены, чтобы не попасть в соседнюю комнату.
+function ENT:FindGuardianSpot()
+	local base = self:GetPos()
+	local mins, maxs = Vector(-16, -16, 0), Vector(16, 16, 72)
+
+	for i = 1, 16 do
+		local ang = math.rad(math.random(0, 359))
+		local dist = math.random(80, 200)
+		local pos = base + Vector(math.cos(ang) * dist, math.sin(ang) * dist, 0)
+
+		local down = util.TraceLine({
+			start = pos + Vector(0, 0, 64),
+			endpos = pos - Vector(0, 0, 256),
+			mask = MASK_NPCSOLID_BRUSHONLY
+		})
+
+		if down.Hit and not down.StartSolid then
+			local spot = down.HitPos + Vector(0, 0, 4)
+
+			local hull = util.TraceHull({
+				start = spot,
+				endpos = spot,
+				mins = mins,
+				maxs = maxs,
+				mask = MASK_NPCSOLID
+			})
+
+			local wall = util.TraceLine({
+				start = base + Vector(0, 0, 40),
+				endpos = spot + Vector(0, 0, 40),
+				mask = MASK_NPCSOLID_BRUSHONLY
+			})
+
+			if not hull.Hit and not wall.Hit then return spot end
+		end
 	end
 
-	guard:SetKeyValue("spawnflags", SpawnFlags)
+	-- Не нашли места: над точкой, как запасной вариант
+	return base + Vector(0, 0, 64)
+end
 
-	if (NPCData.KeyValues) then
-		for k, v in pairs(NPCData.KeyValues) do
+function ENT:SpawnGuardian(class, weaponClass, hpMul, signal)
+	local npcData = list.Get("NPC")[class]
+	if not npcData then return end
+
+	local guard = ents.Create(class)
+	if not IsValid(guard) then return end
+
+	if weaponClass and weaponClass ~= "" then
+		guard:SetKeyValue("additionalequipment", weaponClass)
+	end
+
+	local spawnFlags = bit.bor(SF_NPC_FADE_CORPSE, SF_NPC_ALWAYSTHINK)
+	if npcData.SpawnFlags then spawnFlags = bit.bor(spawnFlags, npcData.SpawnFlags) end
+	if npcData.TotalSpawnFlags then spawnFlags = npcData.TotalSpawnFlags end
+	guard:SetKeyValue("spawnflags", spawnFlags)
+
+	if npcData.KeyValues then
+		for k, v in pairs(npcData.KeyValues) do
 			guard:SetKeyValue(k, v)
 		end
 	end
 
-	guard.WhiteFractionList = ent.CaptureTeam
-	guard:SetPos(ent:GetPos() + Vector(0,0,500))
+	local team = self:GetCaptureTeam()
+
+	guard:SetPos(self:FindGuardianSpot())
+	guard:SetAngles(Angle(0, math.random(0, 359), 0))
+
+	-- Свой/чужой: правки в addons/VJ-Base читают WhiteFractionList.
+	-- Отдельный VJ-класс на фракцию, чтобы защитники разных фракций воевали друг с другом.
+	guard.WhiteFractionList = team
+	guard.VJ_NPC_Class = {"CLASS_PR_" .. team}
+	guard:SetNWString("PR_fraction", team)
+
+	guard.SignalUpgrade = signal
+	guard.SignalPoint = self:GetCurPoint()
+	guard.PR_GuardPoint = self
+
 	guard:Spawn()
 	guard:Activate()
 
-	--guard:SetHealth(guard:GetMaxHealth() * 1)
-	guard:SetHealth(guard:Health() * healthy)
-	print(guard:Health())
+	-- Некоторые VJ-паки ставят свой класс в Initialize, возвращаем фракционный
+	guard.VJ_NPC_Class = {"CLASS_PR_" .. team}
 
-	--guard.Behavior = VJ_BEHAVIOR_PASSIVE
+	guard:SetHealth(math.floor(guard:Health() * hpMul))
+	guard:SetMaxHealth(guard:Health())
 
-	--guard:SetCurrentWeaponProficiency(WEAPON_PROFICIENCY_PERFECT)
+	self.Guardians[guard] = true
+	self:SetGuardianCount(table.Count(self.Guardians))
 
-	guard.SignalUpgrade = signal
-	guard.SignalPoint = ent.CurPoint
+	return guard
+end
 
-	guard.Point = ent
+local function ForgetGuardian(guard)
+	local point = guard.PR_GuardPoint
+	if not IsPoint(point) or not point.Guardians then return end
 
-	ent.GuardianCount = ent.GuardianCount + 1
+	guard.PR_GuardPoint = nil
+	point.Guardians[guard] = nil
+	point:SetGuardianCount(table.Count(point.Guardians))
+end
 
-	--NPC:SetLastPosition( Vector Position )
+hook.Add("OnNPCKilled", "PR_GuardianKilled", function(npc)
+	ForgetGuardian(npc)
+end)
 
-	--[[ if not timer.Exists(tostring(guard).."CheckIsAlive") then
-		timer.Create(tostring(guard).."CheckIsAlive", 5, 0, function()
-			if guard:IsValid() then
-				guard_mem = guard
-			else
-				ent.GuardianCount = ent.GuardianCount - 1
-				print(guard_mem)
-				for k,v in pairs(player.GetAll()) do
-					if v:GetNWString("PR_Fraction") == guard_mem.WhiteFractionList then
-						v:ChatPrint("Я помер\nМоя изначальная точка: " .. guard_mem.SignalPoint)
-					end
-				end
-				timer.Remove(tostring(guard_mem).."CheckIsAlive")
-			end
-		end)
-	end ]]
+hook.Add("EntityRemoved", "PR_GuardianRemoved", function(ent)
+	if ent.PR_GuardPoint then ForgetGuardian(ent) end
+end)
+
+net.Receive("PR_PointTakeMoney", function(len, ply)
+	local point = net.ReadEntity()
+	if not IsPoint(point) or not point:CanManage(ply) then return end
+
+	local money = point:GetStoredMoney()
+	if money <= 0 then return end
+
+	point:SetStoredMoney(0)
+	ply:SetNWInt("PR_money", ply:GetNWInt("PR_money") + money)
+end)
+
+net.Receive("UpgradePoint", function(len, ply)
+	local point = net.ReadEntity()
+	local kind = net.ReadString()
+
+	if not IsPoint(point) or not point:CanManage(ply) then return end
+
+	if not ply:GetNWBool("PR_leader_" .. ply:GetNWString("PR_fraction")) then
+		ply:ChatPrint("Ты не лидер фракции")
+		return
+	end
+
+	local price = point:GetUpgradePrice(kind)
+	if not price then return end
+
+	if ply:GetNWInt("PR_money") < price then
+		ply:ChatPrint("Не хватает денег")
+		return
+	end
+
+	ply:SetNWInt("PR_money", ply:GetNWInt("PR_money") - price)
+
+	if kind == "monitor" then
+		point:SetUpgradeMonitor(point:GetUpgradeMonitor() + 1)
+	else
+		point:SetUpgradeComputer(point:GetUpgradeComputer() + 1)
+	end
+
+	point:SavePointState()
+end)
+
+net.Receive("SpawnGuardianNPC", function(len, ply)
+	local point = net.ReadEntity()
+	local typeKey = net.ReadString()
+	local weaponKey = net.ReadString()
+	local hpIndex = net.ReadUInt(4)
+	local signal = net.ReadBool()
+
+	if not IsPoint(point) or not point:CanManage(ply) then return end
+
+	if point:GetGuardianCount() >= point.MaxGuardianCount then
+		ply:ChatPrint("Защитников уже максимальное количество")
+		return
+	end
+
+	local price = point:GetGuardianPrice(typeKey, weaponKey, hpIndex, signal)
+	if not price then return end
+
+	if ply:GetNWInt("PR_money") < price then
+		ply:ChatPrint("Не хватает денег")
+		return
+	end
+
+	local gtype = point.GuardianTypes[typeKey]
+	local weapon = weaponKey ~= "" and point.GuardianWeapons[gtype.Weapons][weaponKey].ClassName or ""
+
+	local guard = point:SpawnGuardian(gtype.ClassName, weapon, point.GuardianHealthMul[hpIndex], signal)
+	if not IsValid(guard) then
+		ply:ChatPrint("Не удалось призвать защитника: нет NPC " .. gtype.ClassName)
+		return
+	end
+
 	ply:SetNWInt("PR_money", ply:GetNWInt("PR_money") - price)
 end)
 
-net.Receive( "GetPointsCfgs", function()
-	if not file.Exists("pr_gamemode", "DATA") then
-		file.CreateDir("pr_gamemode")
-	end
+-- Ниже меню настройки точек, только для админов
 
-	if not file.Exists( "pr_gamemode/capture_points_list.txt", "DATA" ) then
-		file.Write("pr_gamemode/capture_points_list.txt")
-	end
-
-	local SaveData = file.Read("pr_gamemode/capture_points_list.txt", "DATA")
-	local config = util.JSONToTable(SaveData) or {}
+net.Receive("GetPointsCfgs", function(len, ply)
+	if not PR_IsAdmin(ply) then return end
 
 	net.Start("GivePointsCfgs")
-		net.WriteTable(config)
-   	net.Broadcast()
+		net.WriteTable(LoadPointsConfig())
+	net.Send(ply)
 end)
 
-net.Receive( "SetServerPointsCfgs", function()
-	local namecfg = net.ReadString()
-	local ent = net.ReadEntity()
-	local SaveData = file.Read("pr_gamemode/capture_points_list.txt", "DATA")
-	local config = util.JSONToTable(SaveData) or {}
-	
-	PR_Capture_Points_List.Team = config[namecfg]["Team"]
-	PR_Capture_Points_List.MonikUp = config[namecfg]["Monitor"]
-	PR_Capture_Points_List.SistemnikUp = config[namecfg]["System"]
+net.Receive("SetServerPointsCfgs", function(len, ply)
+	local name = net.ReadString()
+	local point = net.ReadEntity()
 
-	ent.CurPoint = namecfg
+	if not PR_IsAdmin(ply) or not IsPoint(point) then return end
+	if not LoadPointsConfig()[name] then return end
+
+	point:SetCurPoint(name)
 end)
 
-net.Receive("CreateNewCfgs", function()
-	local cfgname = net.ReadString()
-	local ent = net.ReadEntity()
+net.Receive("CreateNewCfgs", function(len, ply)
+	local name = string.Trim(net.ReadString())
+	local point = net.ReadEntity()
 
-	if not file.Exists("pr_gamemode", "DATA") then
-		file.CreateDir("pr_gamemode")
-	end
+	if not PR_IsAdmin(ply) or not IsPoint(point) then return end
+	if name == "" or #name > 64 then return end
 
-	if not file.Exists( "pr_gamemode/capture_points_list.txt", "DATA" ) then
-		file.Write("pr_gamemode/capture_points_list.txt")
-	end
-
-	local SaveData = file.Read("pr_gamemode/capture_points_list.txt", "DATA")
-	PR_Capture_Points_List.Config = util.JSONToTable(SaveData) or {}
-	PR_Capture_Points_List.Config[cfgname] = {
-		["Team"] = 0,
+	local cfg = LoadPointsConfig()
+	cfg[name] = cfg[name] or {
+		["Team"] = "Ничья",
 		["Monitor"] = 0,
 		["System"] = 1
 	}
+	SavePointsConfig(cfg)
 
-	PR_Capture_Points_List.Config[cfgname]["Team"] = "Ничья"
-	PR_Capture_Points_List.Config[cfgname]["Monitor"] = 0
-	PR_Capture_Points_List.Config[cfgname]["System"] = 1
-
-	ent.CurPoint = cfgname
-	file.Write("pr_gamemode/capture_points_list.txt", util.TableToJSON(PR_Capture_Points_List.Config, true))
+	point:SetCurPoint(name)
 end)
 
-net.Receive( "GetNewCfgs", function()
-	local PointsTable = net.ReadTable()
-	PR_Capture_Points_List.Team, PR_Capture_Points_List.MonikUp, PR_Capture_Points_List.SistemnikUp = PointsTable[1], PointsTable[2], PointsTable[3]
-	net.Start("SetClientNewPoint")
-		net.WriteTable(PointsTable)
-   	net.Broadcast()
-end )
+net.Receive("SetPoint", function(len, ply)
+	local point = net.ReadEntity()
 
-net.Receive( "SetPoint", function()
-	local ent = net.ReadEntity()
-	local namecfg = ent.CurPoint
-	local SaveData = file.Read("pr_gamemode/capture_points_list.txt", "DATA")
-	local config = util.JSONToTable(SaveData) or {}
-	
-	ent.CaptureTeam = config[namecfg]["Team"]
-	ent.UpgradeMonitor = config[namecfg]["Monitor"]
-	ent.UpgradeComputer = config[namecfg]["System"]
-	
-	net.Start("GivePointEnt")
-		net.WriteEntity(ent)
-		net.WriteString(config[namecfg]["Team"])
-		net.WriteInt(config[namecfg]["Monitor"], 8)
-		net.WriteInt(config[namecfg]["System"], 8)
-   	net.Broadcast()
+	if not PR_IsAdmin(ply) or not IsPoint(point) then return end
+
+	local data = LoadPointsConfig()[point:GetCurPoint()]
+	if not data then
+		ply:ChatPrint("Сначала выбери или создай точку")
+		return
+	end
+
+	local team = data["Team"]
+	if not isstring(team) or team == "" then team = "Ничья" end
+
+	point:StopCapture()
+	point:SetCaptureTeam(team)
+	point:SetUpgradeMonitor(data["Monitor"] or 0)
+	point:SetUpgradeComputer(data["System"] or 1)
+	point:SetStoredMoney(0)
+	point:SetNextIncome(CurTime() + point:GetIncomeInterval())
 end)

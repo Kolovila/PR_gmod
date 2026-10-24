@@ -20,16 +20,29 @@ include("player/sh_player_save.lua")
 include("teamsetup.lua")
 
 
+-- Игрок, которому засчитывается убийство. Водитель техники тоже считается.
+local function PR_KillerPlayer(attacker)
+	if IsValid(attacker) and isfunction(attacker.GetDriver) and IsValid(attacker:GetDriver()) then
+		attacker = attacker:GetDriver()
+	end
+
+	if IsValid(attacker) and attacker:IsPlayer() then
+		return attacker
+	end
+end
+
 hook.Add("PlayerSpawn", "Aboltys", function(ply)
-	if ply.Preset["Primary"] != nil then
-		if ply.Preset["Primary"]["Item"] != nil then
-			ply:Give(ply.Preset["Primary"]["Item"])
+	local preset = ply.Preset or {}
+
+	if preset["Primary"] != nil then
+		if preset["Primary"]["Item"] != nil then
+			ply:Give(preset["Primary"]["Item"])
 		end
 	end
 
-	if ply.Preset["Secondary"] != nil then
-		if ply.Preset["Secondary"]["Item"] != nil then
-			ply:Give(ply.Preset["Secondary"]["Item"])
+	if preset["Secondary"] != nil then
+		if preset["Secondary"]["Item"] != nil then
+			ply:Give(preset["Secondary"]["Item"])
 		end
 	end
 end)
@@ -46,7 +59,9 @@ hook.Add("PlayerDeath", "Aboltys", function(victim, inflictor, attacker)
 
 	victim:SetNWInt("PR_deaths", victim:GetNWInt("PR_deaths") + 1)
 
-	if victim == attacker then return false end
+	-- Убил NPC, мир или упал сам: награды нет
+	attacker = PR_KillerPlayer(attacker)
+	if not attacker or victim == attacker then return end
 
 	local atkMoney = attacker:GetNWInt("PR_money")
 	local atkLevel = attacker:GetNWInt("PR_level")
@@ -96,7 +111,14 @@ hook.Add("PlayerDeath", "Aboltys", function(victim, inflictor, attacker)
     victim:SetPData("DEATHS",victim:GetNWInt("DEATHS")) ]]
 end)
 
-hook.Add("OnNPCKilled", "Aboltys", function(victim, inflictor, attacker)
+-- Внимание: у OnNPCKilled порядок (npc, attacker, inflictor), не как у PlayerDeath
+hook.Add("OnNPCKilled", "Aboltys", function(victim, attacker, inflictor)
+	attacker = PR_KillerPlayer(attacker)
+	if not attacker then return end
+
+	-- За своих защитников точки не платим
+	if victim.WhiteFractionList != nil and victim.WhiteFractionList == attacker:GetNWString("PR_fraction") then return end
+
 	attacker:SetNWInt("PR_money", attacker:GetNWInt("PR_money") + 100)
 	attacker:SetNWInt("PR_exp", attacker:GetNWInt("PR_exp") + 1)
 	attacker:SetNWInt("PR_exp_" .. attacker:GetNWString("PR_fraction"), attacker:GetNWInt("PR_exp_" .. attacker:GetNWString("PR_fraction")) + 1)
@@ -135,9 +157,7 @@ function GM:ShowSpare2(ply)
 end
 
 function GM:ShutDown()
-	for k,v in pairs(player.GetAll()) do
-		PR_Save_Player(v)
-	end
+	PR_Save_All()
 end
 
 --[[ for k,v in pairs(player.GetAll()) do
@@ -163,12 +183,19 @@ function GM:PlayerSay(ply, text)
 	end ]]
 	
 	if playerMsg[1] == "!деньги" then
-		local amount = playerMsg[2]
+		local amount = math.floor(tonumber(playerMsg[2] or "") or 0)
 
-		if ply:GetNWInt("PR_money") >= tonumber(amount) then
-			scripted_ents.Get("pr_money"):SpawnFunction(ply, ply:GetEyeTrace(), "pr_money"):SetValue(amount)
+		if amount <= 0 then
+			ply:ChatPrint("Пиши так: !деньги 500")
+		elseif ply:GetNWInt("PR_money") < amount then
+			ply:ChatPrint("Не хватает денег")
+		else
+			local money = scripted_ents.Get("pr_money"):SpawnFunction(ply, ply:GetEyeTrace(), "pr_money")
 
-			ply:SetNWInt("PR_money", ply:GetNWInt("PR_money") - amount)
+			if IsValid(money) then
+				money:SetValue(amount)
+				ply:SetNWInt("PR_money", ply:GetNWInt("PR_money") - amount)
+			end
 		end
 
 		return "" -- чтобы в чат не писало ваши секретные команды
@@ -179,6 +206,9 @@ function GM:PlayerSay(ply, text)
 			v:Freeze(false)
 		end
 	end ]]
+
+	-- Без этого обычные сообщения не доходят до чата
+	return text
 end
 
 if not timer.Exists("PR_ChangeSpeed") then
