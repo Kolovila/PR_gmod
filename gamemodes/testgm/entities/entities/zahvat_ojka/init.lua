@@ -12,10 +12,12 @@ util.AddNetworkString("SetPoint")
 util.AddNetworkString("UpgradePoint")
 util.AddNetworkString("SpawnGuardianNPC")
 util.AddNetworkString("PR_PointTakeMoney")
+util.AddNetworkString("PR_PointRemove")
 
 local CAPTURE_TIME = CreateConVar("pr_capture_time", "20", {FCVAR_ARCHIVE, FCVAR_NOTIFY}, "Сколько секунд стоять у точки, чтобы её захватить")
 
 local CFG_DIR = "pr_gamemode"
+-- Состояние точек по имени: команда и улучшения (общее для всех карт, как и раньше)
 local CFG_FILE = CFG_DIR .. "/capture_points_list.txt"
 
 local function LoadPointsConfig()
@@ -28,6 +30,23 @@ local function SavePointsConfig(cfg)
 	end
 
 	file.Write(CFG_FILE, util.TableToJSON(cfg, true))
+end
+
+-- Где стоят точки на текущей карте: {["имя"] = {Pos = Vector, Ang = Angle}}
+local function LayoutFile()
+	return CFG_DIR .. "/points_" .. string.lower(game.GetMap()) .. ".txt"
+end
+
+local function LoadLayout()
+	return util.JSONToTable(file.Read(LayoutFile(), "DATA") or "") or {}
+end
+
+local function SaveLayout(layout)
+	if not file.Exists(CFG_DIR, "DATA") then
+		file.CreateDir(CFG_DIR)
+	end
+
+	file.Write(LayoutFile(), util.TableToJSON(layout, true))
 end
 
 local function IsPoint(ent)
@@ -451,24 +470,82 @@ net.Receive("CreateNewCfgs", function(len, ply)
 	point:SetCurPoint(name)
 end)
 
+-- Применить сохранённое состояние точки (команда, улучшения) по её имени
+function ENT:LoadConfig()
+	local data = LoadPointsConfig()[self:GetCurPoint()]
+	if not data then return false end
+
+	local team = data["Team"]
+	if not isstring(team) or team == "" then team = "Ничья" end
+
+	self:StopCapture()
+	self:SetCaptureTeam(team)
+	self:SetUpgradeMonitor(tonumber(data["Monitor"]) or 0)
+	self:SetUpgradeComputer(tonumber(data["System"]) or 1)
+	self:SetStoredMoney(0)
+	self:SetNextIncome(CurTime() + self:GetIncomeInterval())
+
+	return true
+end
+
+-- «Установить точку»: применяем состояние и запоминаем, где точка стоит на этой карте
 net.Receive("SetPoint", function(len, ply)
 	local point = net.ReadEntity()
 
 	if not PR_IsAdmin(ply) or not IsPoint(point) then return end
 
-	local data = LoadPointsConfig()[point:GetCurPoint()]
-	if not data then
+	if not point:LoadConfig() then
 		ply:ChatPrint("Сначала выбери или создай точку")
 		return
 	end
 
-	local team = data["Team"]
-	if not isstring(team) or team == "" then team = "Ничья" end
+	local layout = LoadLayout()
+	layout[point:GetCurPoint()] = {
+		["Pos"] = point:GetPos(),
+		["Ang"] = point:GetAngles()
+	}
+	SaveLayout(layout)
 
-	point:StopCapture()
-	point:SetCaptureTeam(team)
-	point:SetUpgradeMonitor(data["Monitor"] or 0)
-	point:SetUpgradeComputer(data["System"] or 1)
-	point:SetStoredMoney(0)
-	point:SetNextIncome(CurTime() + point:GetIncomeInterval())
+	ply:ChatPrint("Точка «" .. point:GetCurPoint() .. "» сохранена на карте " .. game.GetMap())
 end)
+
+-- «Убрать с карты»: удалить точку и забыть её позицию (команда и улучшения в конфиге остаются)
+net.Receive("PR_PointRemove", function(len, ply)
+	local point = net.ReadEntity()
+
+	if not PR_IsAdmin(ply) or not IsPoint(point) then return end
+
+	local name = point:GetCurPoint()
+	if name ~= "" then
+		local layout = LoadLayout()
+		layout[name] = nil
+		SaveLayout(layout)
+	end
+
+	point:Remove()
+	ply:ChatPrint("Точка «" .. name .. "» убрана с карты")
+end)
+
+-- Расставить сохранённые точки после загрузки карты и после очистки (game.CleanUpMap)
+local function SpawnSavedPoints()
+	local existing = {}
+	for _, point in ipairs(ents.FindByClass("zahvat_ojka")) do
+		existing[point:GetCurPoint()] = true
+	end
+
+	for name, place in pairs(LoadLayout()) do
+		if not existing[name] and isvector(place["Pos"]) then
+			local point = ents.Create("zahvat_ojka")
+			point:SetPos(place["Pos"])
+			point:SetAngles(isangle(place["Ang"]) and place["Ang"] or Angle(0, 0, 0))
+			point:Spawn()
+			point:Activate()
+			point:SpawnModules()
+			point:SetCurPoint(name)
+			point:LoadConfig()
+		end
+	end
+end
+
+hook.Add("InitPostEntity", "PR_SpawnSavedPoints", SpawnSavedPoints)
+hook.Add("PostCleanupMap", "PR_SpawnSavedPoints", SpawnSavedPoints)

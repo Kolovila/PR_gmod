@@ -477,10 +477,13 @@ function idkMenuOpen()
 	end
 
 	-- Закрыть меню, если игрок умер, точку убрали или её захватили
+	-- Первую секунду не сверяем фракцию: сетевые переменные могут прийти позже, чем команда открыть меню
+	local openedAt = CurTime()
 	local frameThink = idkMenu.Think
 	idkMenu.Think = function(self)
 		frameThink(self)
-		if not ply:Alive() or not IsValid(ent) or ent:GetCaptureTeam() != ply:GetNWString("PR_fraction") then
+		local lostPoint = CurTime() - openedAt > 1 and IsValid(ent) and ent:GetCaptureTeam() != ply:GetNWString("PR_fraction")
+		if not ply:Alive() or not IsValid(ent) or lostPoint then
 			idkMenu:Remove()
 		end
 	end
@@ -658,6 +661,28 @@ function ConfigAdminMenu()
 		net.WriteEntity(ent)
 		net.SendToServer()
 		idkMenu:Remove()
+	end
+
+	-- Удалить точку и забыть её место на карте
+	local RemoveButton = vgui.Create("DButton", idkMenu)
+	RemoveButton:SetText("")
+	RemoveButton:SetPos(700, 150)
+	RemoveButton:SetSize(238, 40)
+
+	RemoveButton.Paint = function()
+		surface.SetDrawColor(120, 30, 30, 255)
+		surface.DrawRect(0, 0, RemoveButton:GetWide(), RemoveButton:GetTall())
+
+		draw.DrawText("Убрать с карты", "DermaLarge", 5, 5, Color(255,255,255,255), 0)
+	end
+
+	RemoveButton.DoClick = function()
+		Derma_Query("Убрать точку «" .. ent:GetCurPoint() .. "» с карты?", "Точка захвата", "Да", function()
+			net.Start("PR_PointRemove")
+				net.WriteEntity(ent)
+			net.SendToServer()
+			if IsValid(idkMenu) then idkMenu:Remove() end
+		end, "Нет")
 	end
 	
 	local escapefromkazino = vgui.Create( "DButton", idkMenu)

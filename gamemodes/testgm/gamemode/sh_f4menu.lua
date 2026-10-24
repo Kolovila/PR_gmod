@@ -2,10 +2,27 @@ if CLIENT then
     function MainMenuFunc()
         local ply = LocalPlayer()
 
+        -- Меню свёрстано под 1200x800. На экранах меньше оно лежит в прокрутке, чтобы низ не обрезался.
+        local function SetMenuVisible(visible)
+            MainMenu:SetVisible(visible)
+            if IsValid(MainMenuScroll) then MainMenuScroll:SetVisible(visible) end
+            gui.EnableScreenClicker(visible)
+        end
+
         if not MainMenu then
-            MainMenu = vgui.Create("DPanel")
-            MainMenu:SetSize(1200,800)
-            MainMenu:Center()
+            if ScrW() < 1200 or ScrH() < 820 then
+                MainMenuScroll = vgui.Create("DScrollPanel")
+                MainMenuScroll:SetPos(0, 0)
+                MainMenuScroll:SetSize(ScrW(), ScrH())
+
+                MainMenu = MainMenuScroll:Add("DPanel")
+                MainMenu:SetSize(1200,800)
+                MainMenu:SetPos(math.max((ScrW() - 1200) / 2, 0), 10)
+            else
+                MainMenu = vgui.Create("DPanel")
+                MainMenu:SetSize(1200,800)
+                MainMenu:Center()
+            end
 
             MainMenu.Paint = function()
                 surface.SetDrawColor(0,0,0,240)
@@ -18,13 +35,7 @@ if CLIENT then
             end
             gui.EnableScreenClicker(true)
         else
-            if(MainMenu:IsVisible()) then
-                MainMenu:SetVisible(false)
-                gui.EnableScreenClicker(false)
-            else
-                MainMenu:SetVisible(true)
-                gui.EnableScreenClicker(true)
-            end
+            SetMenuVisible(not MainMenu:IsVisible())
         end
 
         -----------------------------------------------------------------------------------------------------------
