@@ -13,6 +13,7 @@ AddCSLuaFile("cl_vehicle.lua")
 
 include("shared.lua")
 include("sv_util.lua")
+include("sv_db.lua")
 include("player/sh_player_save.lua")
 include("sv_shop.lua")
 include("sv_admin.lua")

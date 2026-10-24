@@ -16,37 +16,10 @@ util.AddNetworkString("PR_PointRemove")
 
 local CAPTURE_TIME = CreateConVar("pr_capture_time", "20", {FCVAR_ARCHIVE, FCVAR_NOTIFY}, "Сколько секунд стоять у точки, чтобы её захватить")
 
-local CFG_DIR = "pr_gamemode"
--- Состояние точек по имени: команда и улучшения (общее для всех карт, как и раньше)
-local CFG_FILE = CFG_DIR .. "/capture_points_list.txt"
-
-local function LoadPointsConfig()
-	return util.JSONToTable(file.Read(CFG_FILE, "DATA") or "") or {}
-end
-
-local function SavePointsConfig(cfg)
-	if not file.Exists(CFG_DIR, "DATA") then
-		file.CreateDir(CFG_DIR)
-	end
-
-	file.Write(CFG_FILE, util.TableToJSON(cfg, true))
-end
-
--- Где стоят точки на текущей карте: {["имя"] = {Pos = Vector, Ang = Angle}}
-local function LayoutFile()
-	return CFG_DIR .. "/points_" .. string.lower(game.GetMap()) .. ".txt"
-end
-
-local function LoadLayout()
-	return util.JSONToTable(file.Read(LayoutFile(), "DATA") or "") or {}
-end
-
-local function SaveLayout(layout)
-	if not file.Exists(CFG_DIR, "DATA") then
-		file.CreateDir(CFG_DIR)
-	end
-
-	file.Write(LayoutFile(), util.TableToJSON(layout, true))
+-- Состояние точек по имени (команда, улучшения) и их места на картах лежат в sqlite:
+-- таблицы pr_points и pr_point_layout, функции PR_DB.* в gamemode/sv_db.lua
+local function CurrentMap()
+	return string.lower(game.GetMap())
 end
 
 local function IsPoint(ent)
@@ -195,13 +168,7 @@ end
 function ENT:SavePointState()
 	if self:GetCurPoint() == "" then return end
 
-	local cfg = LoadPointsConfig()
-	cfg[self:GetCurPoint()] = {
-		["Team"] = self:GetCaptureTeam(),
-		["Monitor"] = self:GetUpgradeMonitor(),
-		["System"] = self:GetUpgradeComputer()
-	}
-	SavePointsConfig(cfg)
+	PR_DB.SetPoint(self:GetCurPoint(), self:GetCaptureTeam(), self:GetUpgradeMonitor(), self:GetUpgradeComputer())
 end
 
 function ENT:Think()
@@ -438,7 +405,7 @@ net.Receive("GetPointsCfgs", function(len, ply)
 	if not PR_IsAdmin(ply) then return end
 
 	net.Start("GivePointsCfgs")
-		net.WriteTable(LoadPointsConfig())
+		net.WriteTable(PR_DB.GetPoints())
 	net.Send(ply)
 end)
 
@@ -447,7 +414,7 @@ net.Receive("SetServerPointsCfgs", function(len, ply)
 	local point = net.ReadEntity()
 
 	if not PR_IsAdmin(ply) or not IsPoint(point) then return end
-	if not LoadPointsConfig()[name] then return end
+	if not PR_DB.GetPoint(name) then return end
 
 	point:SetCurPoint(name)
 end)
@@ -459,20 +426,16 @@ net.Receive("CreateNewCfgs", function(len, ply)
 	if not PR_IsAdmin(ply) or not IsPoint(point) then return end
 	if name == "" or #name > 64 then return end
 
-	local cfg = LoadPointsConfig()
-	cfg[name] = cfg[name] or {
-		["Team"] = "Ничья",
-		["Monitor"] = 0,
-		["System"] = 1
-	}
-	SavePointsConfig(cfg)
+	if not PR_DB.GetPoint(name) then
+		PR_DB.SetPoint(name, "Ничья", 0, 1)
+	end
 
 	point:SetCurPoint(name)
 end)
 
 -- Применить сохранённое состояние точки (команда, улучшения) по её имени
 function ENT:LoadConfig()
-	local data = LoadPointsConfig()[self:GetCurPoint()]
+	local data = PR_DB.GetPoint(self:GetCurPoint())
 	if not data then return false end
 
 	local team = data["Team"]
@@ -499,12 +462,7 @@ net.Receive("SetPoint", function(len, ply)
 		return
 	end
 
-	local layout = LoadLayout()
-	layout[point:GetCurPoint()] = {
-		["Pos"] = point:GetPos(),
-		["Ang"] = point:GetAngles()
-	}
-	SaveLayout(layout)
+	PR_DB.SetLayout(CurrentMap(), point:GetCurPoint(), point:GetPos(), point:GetAngles())
 
 	ply:ChatPrint("Точка «" .. point:GetCurPoint() .. "» сохранена на карте " .. game.GetMap())
 end)
@@ -517,9 +475,7 @@ net.Receive("PR_PointRemove", function(len, ply)
 
 	local name = point:GetCurPoint()
 	if name ~= "" then
-		local layout = LoadLayout()
-		layout[name] = nil
-		SaveLayout(layout)
+		PR_DB.RemoveLayout(CurrentMap(), name)
 	end
 
 	point:Remove()
@@ -533,7 +489,7 @@ local function SpawnSavedPoints()
 		existing[point:GetCurPoint()] = true
 	end
 
-	for name, place in pairs(LoadLayout()) do
+	for name, place in pairs(PR_DB.GetLayout(CurrentMap())) do
 		if not existing[name] and isvector(place["Pos"]) then
 			local point = ents.Create("zahvat_ojka")
 			point:SetPos(place["Pos"])

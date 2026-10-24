@@ -22,32 +22,20 @@ util.AddNetworkString("Preset")
 util.AddNetworkString("IsPlayerInBuyBox")
 util.AddNetworkString("SendIsPlayerInBuyBox")
 
-local DATA_DIR = "pr_gamemode"
-
--- Списки магазинов: файл в data/pr_gamemode, глобальная таблица, сообщение со списком, сообщение сохранения
+-- Списки магазинов: вид в sqlite (sv_db.lua), глобальная таблица, сообщение со списком, сообщение сохранения
 local LISTS = {
-    {file = "weapon_shop_list.txt", global = "PR_WS_List", send = "WeaponTable", save = "SaveWeaponData"},
-    {file = "equip_shop_list.txt", global = "PR_Equip_List", send = "EquipTable", save = "SaveEquipData"},
-    {file = "vehicle_shop_list.txt", global = "PR_Vehicle_List", send = "VehicleTable", save = "SaveVehicleData"},
-    {file = "cloth_shop_list.txt", global = "PR_Cloth_List", send = "ClothTable", save = "SaveClothData"}
+    {kind = "weapon", global = "PR_WS_List", send = "WeaponTable", save = "SaveWeaponData"},
+    {kind = "equip", global = "PR_Equip_List", send = "EquipTable", save = "SaveEquipData"},
+    {kind = "vehicle", global = "PR_Vehicle_List", send = "VehicleTable", save = "SaveVehicleData"},
+    {kind = "cloth", global = "PR_Cloth_List", send = "ClothTable", save = "SaveClothData"}
 }
 
-local function ReadData(name)
-    return util.JSONToTable(file.Read(DATA_DIR .. "/" .. name, "DATA") or "") or {}
-end
-
-local function WriteData(name, tbl)
-    if not file.Exists(DATA_DIR, "DATA") then
-        file.CreateDir(DATA_DIR)
-    end
-
-    file.Write(DATA_DIR .. "/" .. name, util.TableToJSON(tbl, true))
-end
-
 for _, list in ipairs(LISTS) do
-    _G[list.global] = ReadData(list.file)
+    _G[list.global] = PR_DB.LoadShopList(list.kind)
 end
-PR_Patrols_List = ReadData("patrols_list.txt")
+
+-- Патрули — недописанная фича (pr_point_for_patrol), их список пока остаётся в JSON
+PR_Patrols_List = util.JSONToTable(file.Read("pr_gamemode/patrols_list.txt", "DATA") or "") or {}
 
 local function SendList(list, target)
     net.Start(list.send)
@@ -74,11 +62,16 @@ for _, list in ipairs(LISTS) do
         local tbl = net.ReadTable()
         if not istable(tbl) then return end
 
-        _G[list.global] = tbl
-        WriteData(list.file, tbl)
+        if not PR_DB.SaveShopList(list.kind, tbl) then
+            ply:ChatPrint("Не удалось сохранить магазин, подробности в консоли сервера")
+            return
+        end
+
+        -- Перечитываем из базы, чтобы у всех был ровно сохранённый вид
+        _G[list.global] = PR_DB.LoadShopList(list.kind)
         SendList(list)
 
-        PR_Log(ply, "сохранил " .. list.file)
+        PR_Log(ply, "сохранил магазин " .. list.kind)
     end)
 end
 
