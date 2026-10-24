@@ -1,742 +1,828 @@
 ﻿include("shared.lua")
 
-function ENT:Draw()
-  	self:DrawModel()
+-- Интерфейс точки захвата: табличка над точкой, полоса захвата, меню владельца с наймом охраны
+-- и меню настройки для админа. Рисуется кирпичиками PR_UI (gamemode/cl_ui.lua), как меню F4.
+
+ENT.RenderGroup = RENDERGROUP_BOTH
+
+local S = PR_UI.S
+local C = PR_UI.Colors
+
+----------------------------------------------------------------------------------------------------
+-- Общее
+----------------------------------------------------------------------------------------------------
+
+local function HasOwnerTeam(team)
+	return isstring(team) and team ~= "" and team ~= "Ничья"
 end
 
-function idkMenuOpen()
-	local ply = LocalPlayer()
+local function OwnerName(team)
+	return HasOwnerTeam(team) and PR_FractionName(team) or "ничья"
+end
 
+local flagCache = {}
+
+-- Флаг группировки; nil, если картинки нет
+local function Flag(frac)
+	if not HasOwnerTeam(frac) then return end
+	if flagCache[frac] == nil then
+		local mat = Material(PR_FractionFlag(frac), "smooth")
+		flagCache[frac] = not mat:IsError() and mat or false
+	end
+	return flagCache[frac] or nil
+end
+
+-- Флаг, вписанный в прямоугольник с сохранением пропорций. false, если рисовать нечего
+local function DrawFlag(frac, x, y, w, h)
+	local mat = Flag(frac)
+	if not mat then return false end
+
+	local ratio = mat:Width() / math.max(mat:Height(), 1)
+	local dw, dh = math.min(w, h * ratio), math.min(h, w / ratio)
+	surface.SetDrawColor(255, 255, 255)
+	surface.SetMaterial(mat)
+	surface.DrawTexturedRect(x + (w - dw) / 2, y + (h - dh) / 2, dw, dh)
+	return true
+end
+
+local function Bar(x, y, w, h, progress, color)
+	PR_UI.Box(x, y, w, h, C.panel2)
+	PR_UI.Box(x, y, math.floor(w * math.Clamp(progress, 0, 1)), h, color or C.accent)
+end
+
+local function CaptureProgress(point)
+	local total = point:GetCaptureEnd() - point:GetCaptureStart()
+	if total <= 0 then return 0 end
+	return math.Clamp((CurTime() - point:GetCaptureStart()) / total, 0, 1)
+end
+
+-- Ключи таблицы по возрастанию цены, при равной цене — по имени
+local function KeysByPrice(tbl)
+	local keys = table.GetKeys(tbl or {})
+	table.sort(keys, function(a, b)
+		local pa, pb = tbl[a].Price or 0, tbl[b].Price or 0
+		if pa ~= pb then return pa < pb end
+		return a < b
+	end)
+	return keys
+end
+
+----------------------------------------------------------------------------------------------------
+-- Табличка над точкой
+----------------------------------------------------------------------------------------------------
+
+surface.CreateFont("PR_Point3D_Title", {font = "Bender", size = 64, weight = 700, extended = true, antialias = true})
+surface.CreateFont("PR_Point3D_Text", {font = "Bender", size = 40, weight = 500, extended = true, antialias = true})
+
+local LABEL_RANGE = 1400
+local LABEL_FADE = 300
+local HINT_RANGE = 250
+
+function ENT:Initialize()
+	-- Табличка выше модели: расширяем границы отрисовки, иначе она пропадает у края экрана
+	self:SetRenderBounds(Vector(-120, -120, -40), Vector(120, 120, 150))
+end
+
+function ENT:Draw()
+	self:DrawModel()
+end
+
+function ENT:DrawTranslucent()
+	local name = self:GetCurPoint()
+	if name == "" then return end
+
+	local lp = LocalPlayer()
+	local eye = lp:EyePos()
+	local dist = eye:Distance(self:GetPos())
+	if dist > LABEL_RANGE then return end
+
+	local pos = self:GetPos() + Vector(0, 0, 105)
+	local ang = Angle(0, (eye - pos):Angle().y + 90, 90)
+
+	local team = self:GetCaptureTeam()
+	local capturer = self:GetCapturer()
+	local capturing = IsValid(capturer)
+	local hasFlag = Flag(team) ~= nil
+
+	local w, h = 640, capturing and 236 or 160
+	local x, y = -w / 2, -h
+
+	-- Табличка растёт с расстоянием, чтобы оставаться читаемой, и плавно гаснет у края дальности
+	local scale = math.Clamp(dist * 0.0005, 0.1, 0.35)
+
+	surface.SetAlphaMultiplier(math.Clamp((LABEL_RANGE - dist) / LABEL_FADE, 0, 1))
+	cam.Start3D2D(pos, ang, scale)
+		PR_UI.Box(x, y, w, h, ColorAlpha(C.bg, 225))
+		PR_UI.Box(x, y, 8, h, HasOwnerTeam(team) and C.accent or C.line)
+
+		local textX = x + 40
+		if hasFlag then
+			DrawFlag(team, x + 32, y + 24, 150, 100)
+			textX = x + 210
+		end
+
+		draw.SimpleText(name, "PR_Point3D_Title", textX, y + 24, C.text)
+		draw.SimpleText(HasOwnerTeam(team) and PR_FractionName(team) or "Ничья", "PR_Point3D_Text", textX, y + 96, HasOwnerTeam(team) and C.gold or C.muted)
+
+		if capturing then
+			local by = PR_FractionName(capturer:GetNWString("PR_fraction"))
+			-- Под строкой владельца: полоса, под ней кто захватывает
+			Bar(x + 32, y + 150, w - 64, 18, CaptureProgress(self), C.bad)
+			draw.SimpleText("Захватывает " .. by, "PR_Point3D_Text", x + 32, y + 176, C.bad)
+		end
+
+		-- Подсказка, когда игрок рядом
+		if dist < HINT_RANGE and lp:Alive() then
+			local own = team == lp:GetNWString("PR_fraction")
+			local hint = own and "[E] Меню точки" or (capturing and "" or "[E] Захватить")
+			if hint ~= "" then
+				surface.SetFont("PR_Point3D_Text")
+				local tw, th = surface.GetTextSize(hint)
+				PR_UI.Box(-tw / 2 - 24, y + h + 12, tw + 48, th + 16, ColorAlpha(C.bg, 225))
+				draw.SimpleText(hint, "PR_Point3D_Text", 0, y + h + 20, C.text, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+			end
+		end
+	cam.End3D2D()
+	surface.SetAlphaMultiplier(1)
+end
+
+----------------------------------------------------------------------------------------------------
+-- Полоса захвата на экране: у захватчика и у всех, кто рядом
+----------------------------------------------------------------------------------------------------
+
+local CAPTURE_HUD_RANGE = 1500
+
+hook.Add("HUDPaint", "PR_CaptureProgress", function()
+	local lp = LocalPlayer()
+	if not IsValid(lp) then return end
+
+	local point
+	for _, p in ipairs(ents.FindByClass("zahvat_ojka")) do
+		local capturer = p:GetCapturer()
+		if IsValid(capturer) and (capturer == lp or lp:GetPos():DistToSqr(p:GetPos()) < CAPTURE_HUD_RANGE ^ 2) then
+			point = p
+			if capturer == lp then break end
+		end
+	end
+	if not point then return end
+
+	local capturer = point:GetCapturer()
+	local byFrac = capturer:GetNWString("PR_fraction")
+	local mine = capturer == lp
+	local defending = not mine and point:GetCaptureTeam() == lp:GetNWString("PR_fraction")
+
+	local title, color
+	if mine then
+		title, color = "Захват точки «" .. point:GetCurPoint() .. "»", C.accent
+	elseif defending then
+		title, color = "Твою точку «" .. point:GetCurPoint() .. "» захватывают!", C.bad
+	else
+		title, color = "Точку «" .. point:GetCurPoint() .. "» захватывает " .. PR_FractionName(byFrac), C.gold
+	end
+
+	local w, h = S(560), S(84)
+	local x, y = math.floor(ScrW() / 2 - w / 2), math.floor(ScrH() * 0.7)
+	local secondsLeft = math.max(math.ceil(point:GetCaptureEnd() - CurTime()), 0)
+
+	PR_UI.Box(x, y, w, h, C.bg)
+	PR_UI.Box(x, y, S(4), h, color)
+
+	local textX = x + S(20)
+	if DrawFlag(byFrac, x + S(16), y + S(12), S(84), h - S(24)) then
+		textX = x + S(116)
+	end
+
+	PR_UI.Text(title, "big", textX, y + S(14), C.text)
+	PR_UI.Text(secondsLeft .. " с", "big", x + w - S(16), y + S(14), color, TEXT_ALIGN_RIGHT)
+	Bar(textX, y + h - S(30), x + w - S(16) - textX, S(12), CaptureProgress(point), color)
+	if mine then
+		PR_UI.Text("не отходи от точки", "small", textX, y + h - S(6), C.muted, TEXT_ALIGN_LEFT, TEXT_ALIGN_BOTTOM)
+	end
+end)
+
+----------------------------------------------------------------------------------------------------
+-- Кирпичики окон
+----------------------------------------------------------------------------------------------------
+
+-- Тёмный блок с заголовком; содержимое докается внутрь
+local function Section(parent, title, tall)
+	local pnl = vgui.Create("DPanel", parent)
+	pnl:Dock(tall and TOP or FILL)
+	if tall then
+		pnl:SetTall(S(tall))
+		pnl:DockMargin(0, 0, 0, S(12))
+	end
+	pnl:DockPadding(S(16), S(46), S(16), S(14))
+	pnl.PR_Title = title
+	pnl.Paint = function(self, w, h)
+		PR_UI.Box(0, 0, w, h, C.panel)
+		local text = isfunction(self.PR_Title) and self.PR_Title() or self.PR_Title
+		PR_UI.Text(text, "big", S(16), S(24), C.text, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+	end
+	return pnl
+end
+
+-- Подпись над группой кнопок
+local function Caption(parent, text)
+	local lbl = vgui.Create("DPanel", parent)
+	lbl:Dock(TOP)
+	lbl:SetTall(S(26))
+	lbl.Paint = function(self, w, h)
+		PR_UI.Text(isfunction(text) and text() or text, "small", 0, h / 2, C.muted, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+	end
+	return lbl
+end
+
+-- Сетка кнопок одинакового размера: cols в ряд, высота ряда rowH
+local function Grid(parent, cols, rowH)
+	local gap = S(6)
+	local grid = vgui.Create("DPanel", parent)
+	grid:Dock(TOP)
+	grid:DockMargin(0, 0, 0, S(10))
+	grid.Paint = nil
+	grid.PR_Items = {}
+
+	grid.PerformLayout = function(self, w)
+		local cw = (w - gap * (cols - 1)) / cols
+		for i, item in ipairs(self.PR_Items) do
+			local col, row = (i - 1) % cols, math.floor((i - 1) / cols)
+			item:SetPos(math.floor(col * (cw + gap)), row * (S(rowH) + gap))
+			item:SetSize(math.floor(cw), S(rowH))
+		end
+	end
+
+	function grid:PR_Add(item)
+		item:SetParent(self)
+		table.insert(self.PR_Items, item)
+		local rows = math.ceil(#self.PR_Items / cols)
+		self:SetTall(rows * S(rowH) + (rows - 1) * gap)
+		self:InvalidateLayout()
+	end
+
+	function grid:PR_Clear()
+		for _, item in ipairs(self.PR_Items) do item:Remove() end
+		self.PR_Items = {}
+		self:SetTall(0)
+	end
+
+	return grid
+end
+
+-- Кнопка выбора: подпись и строка под ней, выбранная обведена акцентом
+local function Choice(label, sub, isSelected, onClick)
+	local btn = vgui.Create("DButton")
+	btn:SetText("")
+	btn.Paint = function(self, w, h)
+		local selected = isSelected()
+		PR_UI.Box(0, 0, w, h, selected and C.hover or (self:IsHovered() and C.panel2 or C.bg))
+		if selected then
+			PR_UI.Outline(0, 0, w, h, C.accent)
+			PR_UI.Outline(1, 1, w - 2, h - 2, C.accent)
+		end
+
+		local subText = isfunction(sub) and sub() or sub
+		if subText and subText ~= "" then
+			PR_UI.Text(label, "normal", w / 2, h * 0.36, C.text, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+			PR_UI.Text(subText, "small", w / 2, h * 0.72, selected and C.gold or C.muted, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+		else
+			PR_UI.Text(label, "normal", w / 2, h / 2, C.text, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+		end
+	end
+	btn.DoClick = function()
+		surface.PlaySound("ui/buttonclick.wav")
+		onClick()
+	end
+	return btn
+end
+
+-- Окно-подтверждение в стиле меню
+local function Confirm(text, yesText, onYes)
+	local frame, body = PR_UI.Popup("Точно?", 560, 220)
+
+	local msg = vgui.Create("DPanel", body)
+	msg:Dock(FILL)
+	msg.Paint = function(self, w, h)
+		PR_UI.Text(text, "normal", w / 2, h / 2, C.text, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+	end
+
+	local row = vgui.Create("DPanel", body)
+	row:Dock(BOTTOM)
+	row:SetTall(S(48))
+	row.Paint = nil
+
+	local no = PR_UI.Button(row, "Отмена", function() frame:Remove() end, {height = 48})
+	no:Dock(LEFT)
+	no:SetWide(S(200))
+
+	local yes = PR_UI.Button(row, yesText, function()
+		frame:Remove()
+		onYes()
+	end, {height = 48, color = C.accent, hoverColor = C.accentDark})
+	yes:Dock(RIGHT)
+	yes:SetWide(S(200))
+end
+
+----------------------------------------------------------------------------------------------------
+-- Меню владельца
+----------------------------------------------------------------------------------------------------
+
+local function IsLeader()
+	local ply = LocalPlayer()
+	return ply:GetNWBool("PR_leader_" .. ply:GetNWString("PR_fraction"))
+end
+
+local function BuyUpgrade(ent, kind)
+	if not IsLeader() then
+		PR_UI.Notify("Улучшать точку может только лидер группировки", true)
+		return
+	end
+
+	local price = ent:GetUpgradePrice(kind)
+	if not price then return end
+
+	if LocalPlayer():GetNWInt("PR_money") < price then
+		PR_UI.Notify("Не хватает денег", true)
+		return
+	end
+
+	net.Start("UpgradePoint")
+		net.WriteEntity(ent)
+		net.WriteString(kind)
+	net.SendToServer()
+end
+
+local function UpgradeRow(parent, ent, kind, title, levelText, effectText)
+	local row = vgui.Create("DPanel", parent)
+	row:Dock(TOP)
+	row:SetTall(S(64))
+	row:DockMargin(0, 0, 0, S(8))
+	row.Paint = function(self, w, h)
+		if not IsValid(ent) then return end
+		PR_UI.Box(0, 0, w, h, C.bg)
+		PR_UI.Text(title .. "  ·  " .. levelText(), "normal", S(14), h * 0.33, C.text, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+		PR_UI.Text(effectText(), "small", S(14), h * 0.7, C.muted, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+	end
+
+	local btn = PR_UI.Button(row, function()
+		local price = IsValid(ent) and ent:GetUpgradePrice(kind)
+		return price and PR_UI.Money(price) or "Максимум"
+	end, function() BuyUpgrade(ent, kind) end, {
+		height = 44,
+		color = C.accentDark,
+		hoverColor = C.accent,
+		disabled = function() return not IsValid(ent) or not ent:GetUpgradePrice(kind) or not IsLeader() end
+	})
+	btn:Dock(RIGHT)
+	btn:SetWide(S(160))
+	btn:DockMargin(0, S(10), S(10), S(10))
+end
+
+-- Найм охраны: тип, оружие, живучесть, доклад о врагах
+local function BuildGuardForm(form, ent)
+	local typeKeys = KeysByPrice(ent.GuardianTypes)
+	local choice = {type = typeKeys[1], weapon = "", hp = 1, signal = false}
+
+	local function Price()
+		return ent:GetGuardianPrice(choice.type, choice.weapon, choice.hp, choice.signal)
+	end
+
+	local function Full()
+		return ent:GetGuardianCount() >= ent.MaxGuardianCount
+	end
+
+	-- Итог и кнопка внизу
+	local footer = vgui.Create("DPanel", form)
+	footer:Dock(BOTTOM)
+	footer:SetTall(S(56))
+	footer:DockMargin(0, S(10), 0, 0)
+
+	local hire = PR_UI.Button(footer, "Нанять", function()
+		local price = Price()
+		if not price or Full() then return end
+		if LocalPlayer():GetNWInt("PR_money") < price then
+			PR_UI.Notify("Не хватает денег", true)
+			return
+		end
+
+		net.Start("SpawnGuardianNPC")
+			net.WriteEntity(ent)
+			net.WriteString(choice.type)
+			net.WriteString(choice.weapon)
+			net.WriteUInt(choice.hp, 4)
+			net.WriteBool(choice.signal)
+		net.SendToServer()
+	end, {
+		height = 56,
+		font = "big",
+		color = C.accent,
+		hoverColor = C.accentDark,
+		disabled = function()
+			local price = Price()
+			return not IsValid(ent) or not price or Full() or LocalPlayer():GetNWInt("PR_money") < price
+		end
+	})
+	hire:Dock(RIGHT)
+	hire:SetWide(S(220))
+
+	footer.Paint = function(self, w, h)
+		if not IsValid(ent) then return end
+		local price = Price()
+		PR_UI.Text("Итого", "small", 0, 0, C.muted)
+		PR_UI.Text(price and PR_UI.Money(price) or "—", "title", 0, h, C.gold, TEXT_ALIGN_LEFT, TEXT_ALIGN_BOTTOM)
+
+		local reason
+		if Full() then
+			reason = "Охрана укомплектована"
+		elseif price and LocalPlayer():GetNWInt("PR_money") < price then
+			reason = "Не хватает денег"
+		end
+		if reason then
+			PR_UI.Text(reason, "normal", w - S(236), h / 2, C.bad, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
+		end
+	end
+
+	local scroll = vgui.Create("DScrollPanel", form)
+	scroll:Dock(FILL)
+
+	-- Тип
+	Caption(scroll, "Кого нанять")
+	local typeGrid = Grid(scroll, 2, 56)
+
+	-- Оружие зависит от типа: пересобираем при смене
+	Caption(scroll, "Оружие")
+	local weaponGrid = Grid(scroll, 4, 50)
+
+	local function FillWeapons()
+		weaponGrid:PR_Clear()
+
+		weaponGrid:PR_Add(Choice("Стандартное", "бесплатно", function() return choice.weapon == "" end, function()
+			choice.weapon = ""
+		end))
+
+		local gtype = ent.GuardianTypes[choice.type]
+		local weapons = gtype and ent.GuardianWeapons[gtype.Weapons] or {}
+		for _, key in ipairs(KeysByPrice(weapons)) do
+			weaponGrid:PR_Add(Choice(key, PR_UI.Money(weapons[key].Price), function() return choice.weapon == key end, function()
+				choice.weapon = key
+			end))
+		end
+
+		scroll:GetCanvas():InvalidateLayout()
+		scroll:InvalidateLayout()
+	end
+
+	for _, key in ipairs(typeKeys) do
+		local gtype = ent.GuardianTypes[key]
+		typeGrid:PR_Add(Choice(key, "от " .. PR_UI.Money(gtype.Price), function() return choice.type == key end, function()
+			if choice.type == key then return end
+			choice.type = key
+			choice.weapon = ""
+			FillWeapons()
+		end))
+	end
+
+	FillWeapons()
+
+	-- Живучесть: множитель здоровья, он же множитель цены типа
+	Caption(scroll, "Живучесть")
+	local hpGrid = Grid(scroll, #ent.GuardianHealthMul, 50)
+	for i, mul in ipairs(ent.GuardianHealthMul) do
+		hpGrid:PR_Add(Choice("x" .. mul .. " HP", function()
+			local gtype = ent.GuardianTypes[choice.type]
+			return gtype and PR_UI.Money(math.floor(gtype.Price * mul)) or ""
+		end, function() return choice.hp == i end, function()
+			choice.hp = i
+		end))
+	end
+
+	-- Доклад в чат группировки, когда защитник видит врага
+	Caption(scroll, "Связь")
+	local signalGrid = Grid(scroll, 2, 50)
+	signalGrid:PR_Add(Choice("Молчит", "бесплатно", function() return not choice.signal end, function()
+		choice.signal = false
+	end))
+	signalGrid:PR_Add(Choice("Докладывает о врагах", "+" .. PR_UI.Money(ent.GuardianSignalPrice), function() return choice.signal end, function()
+		choice.signal = true
+	end))
+end
+
+local function OpenOwnerMenu()
+	local ply = LocalPlayer()
 	local ent = net.ReadEntity()
 	if not IsValid(ent) then return end
 
-	local W, H 	= ScrW(), ScrH()
-	local idkMenu = vgui.Create( "DFrame" )
-	idkMenu:SetPos( 0, 0 )
-	idkMenu:SetSize( W, H )
-	idkMenu:SetTitle("")
-	idkMenu:SetDraggable( true )
-	idkMenu:ShowCloseButton( true )
-	idkMenu:MakePopup()
-	idkMenu.Paint = function()
-		surface.SetDrawColor( 100, 100, 100, 150 )
-		surface.DrawTexturedRect( 0, 0, W, H )
+	if IsValid(PR_PointMenu) then PR_PointMenu:Remove() end
+
+	local frame, body = PR_UI.Popup("Точка «" .. ent:GetCurPoint() .. "»", 1180, 780)
+	PR_PointMenu = frame
+
+	-- Владелец и кто может улучшать
+	local top = vgui.Create("DPanel", body)
+	top:Dock(TOP)
+	top:SetTall(S(60))
+	top:DockMargin(0, 0, 0, S(12))
+	top.Paint = function(self, w, h)
+		if not IsValid(ent) then return end
+		PR_UI.Box(0, 0, w, h, C.panel)
+
+		local team = ent:GetCaptureTeam()
+		local x = S(16)
+		if DrawFlag(team, x, S(10), S(64), h - S(20)) then x = x + S(80) end
+		PR_UI.Text("Владелец: " .. OwnerName(team), "big", x, h / 2, C.text, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+
+		local leader = IsLeader()
+		PR_UI.Text(leader and "Ты лидер — улучшения доступны" or "Улучшать точку может только лидер", "normal", w - S(16), h / 2, leader and C.good or C.muted, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
 	end
-	
-	local takeMoney = vgui.Create( "DButton", idkMenu)
-	takeMoney:SetPos( W*0.45, H*0.9 )
-	takeMoney:SetText( "" )
-	takeMoney:SetSize( 215, 70 )
-	takeMoney.Paint = function()
-		surface.SetDrawColor(50,50,50,255)
-		surface.DrawRect(0,0, takeMoney:GetWide(),takeMoney:GetTall())
-		surface.SetDrawColor(200,220,220,255)
-		draw.SimpleText( "забрать деньги", "DermaLarge", 9, 15, Color(255,255,255) )
+
+	local left = vgui.Create("DPanel", body)
+	left:Dock(LEFT)
+	left:SetWide(math.floor((frame:GetWide() - S(24)) * 0.42))
+	left:DockMargin(0, 0, S(12), 0)
+	left.Paint = nil
+
+	-- Доход
+	local income = Section(left, "Доход", 140)
+	local incomeInfo = vgui.Create("DPanel", income)
+	incomeInfo:Dock(FILL)
+	incomeInfo.Paint = function(self, w, h)
+		if not IsValid(ent) then return end
+		local interval = ent:GetIncomeInterval()
+		local remain = math.max(ent:GetNextIncome() - CurTime(), 0)
+
+		PR_UI.Text("+" .. PR_UI.Money(ent:GetIncomeAmount()), "title", 0, 0, C.gold)
+		PR_UI.Text("каждые " .. interval .. " с", "normal", w, S(6), C.muted, TEXT_ALIGN_RIGHT)
+		Bar(0, h - S(30), w, S(10), 1 - remain / math.max(interval, 1), C.gold)
+		PR_UI.Text("до выплаты " .. math.ceil(remain) .. " с", "small", 0, h, C.muted, TEXT_ALIGN_LEFT, TEXT_ALIGN_BOTTOM)
 	end
-	takeMoney.DoClick = function()
+
+	-- Касса
+	local cash = Section(left, "Касса", 118)
+	local take = PR_UI.Button(cash, "Забрать", function()
 		net.Start("PR_PointTakeMoney")
 			net.WriteEntity(ent)
 		net.SendToServer()
-	end
+	end, {
+		height = 56,
+		font = "big",
+		color = C.accent,
+		hoverColor = C.accentDark,
+		disabled = function() return not IsValid(ent) or ent:GetStoredMoney() <= 0 end
+	})
+	take:Dock(RIGHT)
+	take:SetWide(S(170))
 
-	-- Кнопка улучшения: kind = "monitor" | "computer"
-	local function PriceText(kind)
-		local price = ent:GetUpgradePrice(kind)
-		return price and (price .. "$") or "MAX"
-	end
-
-	local function BuyUpgrade(kind)
-		if ply:GetNWBool("PR_leader_" .. ply:GetNWString("PR_fraction")) != true then PR_CreateErrorNotice("Ты не лидер фракции") return end
-
-		local price = ent:GetUpgradePrice(kind)
-		if not price then return end
-
-		if ply:GetNWInt("PR_money") < price then
-			PR_CreateErrorNotice("У тебя не хватает щекелей")
-			return
-		end
-
-		net.Start("UpgradePoint")
-			net.WriteEntity(ent)
-			net.WriteString(kind)
-		net.SendToServer()
-	end
-	
-	local upgradeMonik = vgui.Create( "DButton", idkMenu)
-	upgradeMonik:SetPos( W*0.2, H*0.3 )
-	upgradeMonik:SetText( "" )
-	upgradeMonik:SetSize( 265, 70 )
-	upgradeMonik.Paint = function()
+	local cashInfo = vgui.Create("DPanel", cash)
+	cashInfo:Dock(FILL)
+	cashInfo.Paint = function(self, w, h)
 		if not IsValid(ent) then return end
-		surface.SetDrawColor(50,50,50,255)
-		surface.DrawRect(0,0, upgradeMonik:GetWide(),upgradeMonik:GetTall())
-		surface.SetDrawColor(200,220,220,255)
-		draw.SimpleText( "улучшить монитор", "DermaLarge", 14, 5, Color(255,255,255) )
-		draw.SimpleText( "цена:".. PriceText("monitor"), "DermaLarge", 50, 35, Color(255,255,255) )
+		local stored = ent:GetStoredMoney()
+		PR_UI.Text(PR_UI.Money(stored), "huge", 0, h / 2, stored > 0 and C.gold or C.muted, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
 	end
-	upgradeMonik.DoClick = function()
-		BuyUpgrade("monitor")
-	end
-	
-	local upgradeComp = vgui.Create( "DButton", idkMenu)
-	upgradeComp:SetPos( W*0.2, H*0.7 )
-	upgradeComp:SetText( "" )
-	upgradeComp:SetSize( 250, 70 )
-	upgradeComp.Paint = function()
-		if not IsValid(ent) then return end
-		surface.SetDrawColor(50,50,50,255)
-		surface.DrawRect(0,0, upgradeComp:GetWide(),upgradeComp:GetTall())
-		surface.SetDrawColor(200,220,220,255)
-		draw.SimpleText( "улучшить комп", "DermaLarge", 30, 5, Color(255,255,255) )
-		draw.SimpleText( "цена:".. PriceText("computer"), "DermaLarge", 50, 35, Color(255,255,255) )
-	end
-	upgradeComp.DoClick = function()
-		BuyUpgrade("computer")
-	end
-	
-	local guardSpawn = vgui.Create( "DButton", idkMenu)
-	guardSpawn:SetPos( W*0.5, H*0.3 )
-	guardSpawn:SetText( "" )
-	guardSpawn:SetSize( 285, 70 )
-	guardSpawn.Paint = function()
-		surface.SetDrawColor(50,50,50,255)
-		surface.DrawRect(0,0, guardSpawn:GetWide(),guardSpawn:GetTall())
-		surface.SetDrawColor(200,220,220,255)
-		draw.SimpleText( "призвать защитника", "DermaLarge", 10, 5, Color(255,255,255) )
-	end
-	guardSpawn.DoClick = function()
-		if not IsValid(ent) or not ent:CanHaveGuardians() then
-			PR_CreateErrorNotice("Мародёрам охрана не положена")
-			return
-		end
 
-		-- Выбор игрока: ключи из таблиц ENT.Guardian* (shared.lua)
-		local type_key = ""
-		local weap_key = ""
-		local hp_index = 1
+	-- Улучшения
+	local upgrades = Section(left, "Улучшения", 204)
+	UpgradeRow(upgrades, ent, "monitor", "Монитор",
+		function() return "ур. " .. ent:GetUpgradeMonitor() .. " из " .. #ent.UpgradePrices end,
+		function()
+			local now = ent:GetIncomeInterval()
+			if not ent:GetUpgradePrice("monitor") then return "выплата каждые " .. now .. " с" end
+			return "выплата каждые " .. now .. " → " .. (now - 100) .. " с"
+		end)
+	UpgradeRow(upgrades, ent, "computer", "Компьютер",
+		function() return "ур. " .. ent:GetUpgradeComputer() .. " из " .. (#ent.UpgradePrices + 1) end,
+		function()
+			local now = ent:GetIncomeAmount()
+			if not ent:GetUpgradePrice("computer") then return PR_UI.Money(now) .. " за выплату" end
+			return PR_UI.Money(now) .. " → " .. PR_UI.Money(now + 1000) .. " за выплату"
+		end)
 
-		local healthy_guard = 1
-		local sign_guard = false
-
-		local type_guard_price = 0
-		local weap_guard_price = 0
-		local sign_guard_price = 0
-
-		if ent:GetGuardianCount() < ent.MaxGuardianCount then
-			local BuyWindow = vgui.Create ("DFrame")
-			BuyWindow:SetSize(800,700)
-			BuyWindow:SetPos((ScrW()/2)-BuyWindow:GetWide()/2,(ScrH()/2)-BuyWindow:GetTall()/2)
-			BuyWindow:SetTitle("")
-			BuyWindow:SetVisible(true)
-			BuyWindow:SetDraggable(true)
-			BuyWindow:ShowCloseButton(true)
-			BuyWindow:MakePopup()
-			BuyWindow.Paint = function ()
-				draw.RoundedBox(4,0,0,BuyWindow:GetWide(), BuyWindow:GetTall(), Color(80,80,80,255))
-				draw.RoundedBox(4,0,0,BuyWindow:GetWide(), 21, Color(50,50,50,255))
-			end
-
-			local PR_GUARD_MENU = {}
-
-			local type_guard_text = "тип челика"
-			local weap_guard_text = "оружие челика"
-			local healthy_guard_text = "живучесть челика"
-			local sign_guard_text = "сигнал челика"
-
-			local type_guard_btn =	vgui.Create("DButton", BuyWindow)
-			type_guard_btn:SetText("")
-			type_guard_btn:SetSize(285,50)
-			type_guard_btn:SetPos(BuyWindow:GetWide()/2 - 285/2, 50)
-
-			type_guard_btn.Paint = function()
-				draw.RoundedBox(0, 0, 0, type_guard_btn:GetWide(), type_guard_btn:GetTall(), Color(50,50,50))
-	
-				--draw.RoundedBox( number cornerRadius, number x, number y, number width, number height, table color )
-				draw.RoundedBox(0, 0, 0, type_guard_btn:GetWide(), 1, Color(255,255,255,255)) -- верхушка
-	
-				draw.RoundedBox(0, 0, 0, 1, type_guard_btn:GetTall(), Color(255,255,255,255)) -- левушка
-	
-				draw.RoundedBox(0, type_guard_btn:GetWide() - 1, 0, 1, type_guard_btn:GetTall(), Color(255,255,255,255)) -- правушка
-	
-				draw.RoundedBox(0, 0, type_guard_btn:GetTall() - 1, type_guard_btn:GetWide(), 1, Color(255,255,255,255)) -- низушка
-	
-				draw.SimpleText(type_guard_text, "DermaLarge", 285/2, 5, Color(255,255,255), 1)
-			end
-			
-			type_guard_btn.DoClick = function()
-				local types = ent.GuardianTypes
-
-                local DScrollPanel = vgui.Create( "DScrollPanel", BuyWindow )
-                DScrollPanel:SetPos(type_guard_btn.x,type_guard_btn.y)
-                DScrollPanel:SetSize(type_guard_btn:GetWide(),400)
-
-                for k,v in pairs(types) do
-                    local DButton = DScrollPanel:Add( "DButton" )
-                    DButton:SetText("")
-                    DButton:Dock(TOP)
-                    DButton:SetSize(type_guard_btn:GetWide(), type_guard_btn:GetTall())
-                    DButton:DockMargin( 0, 0, 0, 0 )
-
-                    DButton.Paint = function()
-                        surface.SetDrawColor(30,30,30,255)
-                        surface.DrawRect(0,0, DScrollPanel:GetWide(), DScrollPanel:GetTall())
-
-						draw.RoundedBox(0, 0, 0, DButton:GetWide(), 1, Color(255,255,255,255)) -- верхушка
-			
-						draw.RoundedBox(0, 0, 0, 1, DButton:GetTall(), Color(255,255,255,255)) -- левушка
-			
-						draw.RoundedBox(0, DButton:GetWide() - 1, 0, 1, DButton:GetTall(), Color(255,255,255,255)) -- правушка
-			
-						draw.RoundedBox(0, 0, DButton:GetTall() - 1, DButton:GetWide(), 1, Color(255,255,255,255)) -- низушка
-
-                        draw.DrawText(k,"DermaDefaultBold", DScrollPanel:GetWide() / 2, 5, Color(255,255,255,255),1)
-                        draw.DrawText("Цена: " .. v["Price"] .. "$","DermaDefaultBold", DScrollPanel:GetWide() / 2, 22, Color(255,255,255),1)
-                    end
-
-                    DButton.DoClick = function()
-						type_key = k
-						type_guard_text = k
-						type_guard_price = v["Price"]
-
-						weap_key = ""
-						weap_guard_text = "оружие челика"
-						weap_guard_price = 0
-
-						if PR_GUARD_MENU.WeaponScrollPanel then PR_GUARD_MENU.WeaponScrollPanel:Remove() end
-
-                        DScrollPanel:Remove()
-                    end
-                end
-			end
-
-			local weap_guard_btn =	vgui.Create("DButton", BuyWindow)
-			weap_guard_btn:SetText("")
-			weap_guard_btn:SetSize(285,50)
-			weap_guard_btn:SetPos(BuyWindow:GetWide()/2 - 285/2, 200)
-
-			weap_guard_btn.Paint = function()
-				draw.RoundedBox(0, 0, 0, weap_guard_btn:GetWide(), weap_guard_btn:GetTall(), Color(50,50,50))
-	
-				--draw.RoundedBox( number cornerRadius, number x, number y, number width, number height, table color )
-				draw.RoundedBox(0, 0, 0, weap_guard_btn:GetWide(), 1, Color(255,255,255,255)) -- верхушка
-	
-				draw.RoundedBox(0, 0, 0, 1, weap_guard_btn:GetTall(), Color(255,255,255,255)) -- левушка
-	
-				draw.RoundedBox(0, weap_guard_btn:GetWide() - 1, 0, 1, weap_guard_btn:GetTall(), Color(255,255,255,255)) -- правушка
-	
-				draw.RoundedBox(0, 0, weap_guard_btn:GetTall() - 1, weap_guard_btn:GetWide(), 1, Color(255,255,255,255)) -- низушка
-	
-				draw.SimpleText(weap_guard_text, "DermaLarge", 285/2, 5, Color(255,255,255), 1)
-			end
-			
-			weap_guard_btn.DoClick = function()
-				local gtype = ent.GuardianTypes[type_key]
-				if not gtype then
-					PR_CreateErrorNotice("Сначала выбери тип челика")
-					return
-				end
-
-				local weapons_get = ent.GuardianWeapons[gtype.Weapons] or {}
-
-                PR_GUARD_MENU.WeaponScrollPanel = vgui.Create( "DScrollPanel", BuyWindow )
-                PR_GUARD_MENU.WeaponScrollPanel:SetPos(weap_guard_btn.x,weap_guard_btn.y)
-                PR_GUARD_MENU.WeaponScrollPanel:SetSize(weap_guard_btn:GetWide(),400)
-
-                for k,v in pairs(weapons_get) do
-                    local DButton = PR_GUARD_MENU.WeaponScrollPanel:Add( "DButton" )
-                    DButton:SetText("")
-                    DButton:Dock(TOP)
-                    DButton:SetSize(weap_guard_btn:GetWide(), weap_guard_btn:GetTall())
-                    DButton:DockMargin( 0, 0, 0, 0 )
-
-                    DButton.Paint = function()
-						surface.SetDrawColor(0,0,0)
-                        surface.DrawRect(0,0, PR_GUARD_MENU.WeaponScrollPanel:GetWide(), PR_GUARD_MENU.WeaponScrollPanel:GetTall())
-
-						draw.RoundedBox(0, 0, 0, DButton:GetWide(), 1, Color(255,255,255)) -- верхушка
-			
-						draw.RoundedBox(0, 0, 0, 1, DButton:GetTall(), Color(255,255,255)) -- левушка
-			
-						draw.RoundedBox(0, DButton:GetWide() - 1, 0, 1, DButton:GetTall(), Color(255,255,255)) -- правушка
-			
-						draw.RoundedBox(0, 0, DButton:GetTall() - 1, DButton:GetWide(), 1, Color(255,255,255)) -- низушка
-
-                        draw.DrawText(k,"DermaDefaultBold", PR_GUARD_MENU.WeaponScrollPanel:GetWide() / 2, 5, Color(255,255,255),1)
-                        draw.DrawText("Цена: " .. v["Price"] .. "$","DermaDefaultBold", PR_GUARD_MENU.WeaponScrollPanel:GetWide() / 2, 22, Color(255,255,255),1)
-                    end
-
-                    DButton.DoClick = function()
-						weap_key = k
-						weap_guard_text = k
-						weap_guard_price = v["Price"]
-                        PR_GUARD_MENU.WeaponScrollPanel:Remove()
-                    end
-                end
-			end
-
-			local healthy_guard_btn = vgui.Create("DButton", BuyWindow)
-			healthy_guard_btn:SetText("")
-			healthy_guard_btn:SetSize(285,50)
-			healthy_guard_btn:SetPos(BuyWindow:GetWide()/2 - 350, 400)
-
-			healthy_guard_btn.Paint = function()
-				draw.RoundedBox(0, 0, 0, healthy_guard_btn:GetWide(), healthy_guard_btn:GetTall(), Color(50,50,50))
-	
-				--draw.RoundedBox( number cornerRadius, number x, number y, number width, number height, table color )
-				draw.RoundedBox(0, 0, 0, healthy_guard_btn:GetWide(), 1, Color(255,255,255,255)) -- верхушка
-	
-				draw.RoundedBox(0, 0, 0, 1, healthy_guard_btn:GetTall(), Color(255,255,255,255)) -- левушка
-	
-				draw.RoundedBox(0, healthy_guard_btn:GetWide() - 1, 0, 1, healthy_guard_btn:GetTall(), Color(255,255,255,255)) -- правушка
-	
-				draw.RoundedBox(0, 0, healthy_guard_btn:GetTall() - 1, healthy_guard_btn:GetWide(), 1, Color(255,255,255,255)) -- низушка
-	
-				draw.SimpleText(healthy_guard_text, "DermaLarge", 285/2, 5, Color(255,255,255), 1)
-			end
-			
-			healthy_guard_btn.DoClick = function()
-				local hp_multiplayer_list = ent.GuardianHealthMul
-
-                local DScrollPanel = vgui.Create( "DScrollPanel", BuyWindow )
-                DScrollPanel:SetPos(healthy_guard_btn.x, healthy_guard_btn.y)
-                DScrollPanel:SetSize(healthy_guard_btn:GetWide(),400)
-
-                for k,v in pairs(hp_multiplayer_list) do
-                    local DButton = DScrollPanel:Add( "DButton" )
-                    DButton:SetText("")
-                    DButton:Dock(TOP)
-                    DButton:SetSize(healthy_guard_btn:GetWide(), healthy_guard_btn:GetTall())
-                    DButton:DockMargin( 0, 0, 0, 0 )
-
-                    DButton.Paint = function()
-                        surface.SetDrawColor(30,30,30)
-                        surface.DrawRect(0,0, DScrollPanel:GetWide(), DScrollPanel:GetTall())
-
-						draw.RoundedBox(0, 0, 0, DButton:GetWide(), 1, Color(255,255,255)) -- верхушка
-			
-						draw.RoundedBox(0, 0, 0, 1, DButton:GetTall(), Color(255,255,255)) -- левушка
-			
-						draw.RoundedBox(0, DButton:GetWide() - 1, 0, 1, DButton:GetTall(), Color(255,255,255)) -- правушка
-			
-						draw.RoundedBox(0, 0, DButton:GetTall() - 1, DButton:GetWide(), 1, Color(255,255,255)) -- низушка
-
-                        draw.DrawText("x" .. v,"DermaDefaultBold", DScrollPanel:GetWide() / 2, 5, Color(255,255,255),1)
-                        draw.DrawText("Цена: " .. "x" .. v .. " от цены типа челика","DermaDefaultBold", DScrollPanel:GetWide() / 2, 22, Color(255,255,255),1)
-                    end
-
-                    DButton.DoClick = function()
-						healthy_guard = v
-						hp_index = k
-						healthy_guard_text = "x" .. v
-                        DScrollPanel:Remove()
-                    end
-                end
-			end
-
-			local signal_guard_btn = vgui.Create("DButton", BuyWindow)
-			signal_guard_btn:SetText("")
-			signal_guard_btn:SetSize(285,50)
-			signal_guard_btn:SetPos(BuyWindow:GetWide()/2 + 50, 400)
-
-			signal_guard_btn.Paint = function()
-				draw.RoundedBox(0, 0, 0, signal_guard_btn:GetWide(), signal_guard_btn:GetTall(), Color(50,50,50))
-	
-				--draw.RoundedBox( number cornerRadius, number x, number y, number width, number height, table color )
-				draw.RoundedBox(0, 0, 0, signal_guard_btn:GetWide(), 1, Color(255,255,255,255)) -- верхушка
-	
-				draw.RoundedBox(0, 0, 0, 1, signal_guard_btn:GetTall(), Color(255,255,255,255)) -- левушка
-	
-				draw.RoundedBox(0, signal_guard_btn:GetWide() - 1, 0, 1, signal_guard_btn:GetTall(), Color(255,255,255,255)) -- правушка
-	
-				draw.RoundedBox(0, 0, signal_guard_btn:GetTall() - 1, signal_guard_btn:GetWide(), 1, Color(255,255,255,255)) -- низушка
-	
-				draw.SimpleText(sign_guard_text, "DermaLarge", 285/2, 5, Color(255,255,255), 1)
-			end
-			
-			signal_guard_btn.DoClick = function()
-				local sign_list = {
-					["включить"] = {
-						["Boolean"] = true,
-						["Price"] = ent.GuardianSignalPrice
-					},
-					["выключить"] = {
-						["Boolean"] = false,
-						["Price"] = 0
-					}
-				}
-
-                local DScrollPanel = vgui.Create( "DScrollPanel", BuyWindow )
-                DScrollPanel:SetPos(signal_guard_btn.x, signal_guard_btn.y)
-                DScrollPanel:SetSize(signal_guard_btn:GetWide(),400)
-
-                for k,v in pairs(sign_list) do
-                    local DButton = DScrollPanel:Add( "DButton" )
-                    DButton:SetText("")
-                    DButton:Dock(TOP)
-                    DButton:SetSize(signal_guard_btn:GetWide(), signal_guard_btn:GetTall())
-                    DButton:DockMargin( 0, 0, 0, 0 )
-
-                    DButton.Paint = function()
-                        surface.SetDrawColor(30,30,30)
-                        surface.DrawRect(0,0, DScrollPanel:GetWide(), DScrollPanel:GetTall())
-
-						draw.RoundedBox(0, 0, 0, DButton:GetWide(), 1, Color(255,255,255)) -- верхушка
-			
-						draw.RoundedBox(0, 0, 0, 1, DButton:GetTall(), Color(255,255,255)) -- левушка
-			
-						draw.RoundedBox(0, DButton:GetWide() - 1, 0, 1, DButton:GetTall(), Color(255,255,255)) -- правушка
-			
-						draw.RoundedBox(0, 0, DButton:GetTall() - 1, DButton:GetWide(), 1, Color(255,255,255)) -- низушка
-
-                        draw.DrawText(k,"DermaDefaultBold", DScrollPanel:GetWide() / 2, 5, Color(255,255,255),1)
-                        draw.DrawText("Цена: " .. v["Price"] .. "$","DermaDefaultBold", DScrollPanel:GetWide() / 2, 22, Color(255,255,255),1)
-                    end
-
-                    DButton.DoClick = function()
-						sign_guard = v["Boolean"]
-						sign_guard_text = k
-						sign_guard_price = v["Price"]
-                        DScrollPanel:Remove()
-                    end
-                end
-			end
-
-			local MoneyText = vgui.Create( "DLabel", BuyWindow )
-			MoneyText:SetPos(BuyWindow:GetWide()/2 - 285/2, 500)
-			MoneyText:SetText( "" )
-			MoneyText:SetSize( 285, 50)
-			MoneyText.Paint = function()
-				surface.SetDrawColor(50,50,50,255)
-				surface.DrawRect(0,0, MoneyText:GetWide(),MoneyText:GetTall())
-				surface.SetDrawColor(200,220,220,255)
-
-				draw.RoundedBox(0, 0, 0, MoneyText:GetWide(), 1, Color(255,255,255,255)) -- верхушка
-	
-				draw.RoundedBox(0, 0, 0, 1, MoneyText:GetTall(), Color(255,255,255,255)) -- левушка
-	
-				draw.RoundedBox(0, MoneyText:GetWide() - 1, 0, 1, MoneyText:GetTall(), Color(255,255,255,255)) -- правушка
-	
-				draw.RoundedBox(0, 0, MoneyText:GetTall() - 1, MoneyText:GetWide(), 1, Color(255,255,255,255)) -- низушка
-
-				draw.SimpleText(math.floor(type_guard_price * healthy_guard) + weap_guard_price + sign_guard_price.. "$", "DermaLarge", MoneyText:GetWide()/2, 7, Color(255,255,255), 1)
-			end
-
-			local summon_guard = PR_CreateNewButton(butt, "призвать защитника", 285, 50, BuyWindow:GetWide()/2 - 285/2, 600, "", BuyWindow, Color(50,50,50), Color(255,255,255), 0, 10, 5, "DermaLarge")
-			summon_guard.DoClick = function()
-				if not IsValid(ent) then return end
-
-				local price_guard = ent:GetGuardianPrice(type_key, weap_key, hp_index, sign_guard)
-				if not price_guard then
-					PR_CreateErrorNotice("Сначала выбери тип челика")
-					return
-				end
-
-				if ent.MaxGuardianCount > ent:GetGuardianCount() then
-					if ply:GetNWInt("PR_money") >= price_guard then
-						net.Start("SpawnGuardianNPC")
-							net.WriteEntity(ent)
-							net.WriteString(type_key)
-							net.WriteString(weap_key)
-							net.WriteUInt(hp_index, 4)
-							net.WriteBool(sign_guard)
-						net.SendToServer()
-					else
-						PR_CreateErrorNotice("У тебя не хватает щекелей")
-					end
-				else
-					PR_CreateErrorNotice("Защитников уже максимальное количество")
-				end
-			end
-		else
-			PR_CreateErrorNotice("Защитников уже максимальное количество")
+	-- Охрана
+	local guard = Section(body, function()
+		if not IsValid(ent) or not ent:CanHaveGuardians() then return "Охрана" end
+		return "Охрана  " .. ent:GetGuardianCount() .. " / " .. ent.MaxGuardianCount
+	end)
+	local guardPaint = guard.Paint
+	guard.Paint = function(self, w, h)
+		guardPaint(self, w, h)
+		if IsValid(ent) and not ent:CanHaveGuardians() then
+			PR_UI.Text("Мародёрам охрана не положена", "big", w / 2, h / 2 - S(18), C.gold, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+			PR_UI.Text("Точку держи сам — и следи, чтобы свои же не утащили кассу", "normal", w / 2, h / 2 + S(18), C.muted, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
 		end
 	end
-	
-	local escapefromkazino = vgui.Create( "DButton", idkMenu)
-	escapefromkazino:SetPos( W - 100, H*0.0001 )
-	escapefromkazino:SetText( "" )
-	escapefromkazino:SetSize( 100, ScrH() )
-	escapefromkazino.Paint = function()
-		surface.SetDrawColor(120,0,0,150)
-		surface.DrawRect(0,0, escapefromkazino:GetWide(),escapefromkazino:GetTall())
-		surface.SetDrawColor(200,220,220,255)
-		draw.SimpleText( "X", "DermaLarge", 45, ScrH()/2, Color(255,255,255) )
-	end
-	escapefromkazino.DoClick = function()
-		idkMenu:Remove()
-	end
 
-	local InfoText = vgui.Create( "DLabel", idkMenu )
-	InfoText:SetPos( W*0.5, H*0.582 )
-	InfoText:SetText( "" )
-	InfoText:SetSize( 500, 200 )
-	InfoText.Paint = function()
-		if not IsValid(ent) then return end
-		surface.SetDrawColor(50,50,50,255)
-		surface.DrawRect(0,0, InfoText:GetWide(), InfoText:GetTall())
-		surface.SetDrawColor(200,220,220,255)
-		draw.SimpleText("Осталось: " .. math.max(math.Round(ent:GetNextIncome() - CurTime(), 0), 0) .. "с.", "DermaLarge", 35, 15, Color(255,255,255))
-		draw.SimpleText("Приход: " .. ent:GetIncomeAmount() .. "$", "DermaLarge", 35, 55, Color(255,255,255))
-		if ent:CanHaveGuardians() then
-			draw.SimpleText("Защитников: " .. ent:GetGuardianCount() .. "/" .. ent.MaxGuardianCount, "DermaLarge", 35, 100, Color(255,255,255))
-		else
-			draw.SimpleText("Охраны нет: точку держи сам", "DermaLarge", 35, 100, Color(255,200,120))
-		end
-		draw.SimpleText("Сейчас хранится: " .. ent:GetStoredMoney() .. "$", "DermaLarge", 35, 150, Color(255,255,255))
-	end
+	local form = vgui.Create("DPanel", guard)
+	form:Dock(FILL)
+	form.Paint = nil
+	BuildGuardForm(form, ent)
 
 	-- Закрыть меню, если игрок умер, точку убрали или её захватили
 	-- Первую секунду не сверяем фракцию: сетевые переменные могут прийти позже, чем команда открыть меню
 	local openedAt = CurTime()
-	local frameThink = idkMenu.Think
-	idkMenu.Think = function(self)
-		frameThink(self)
-		local lostPoint = CurTime() - openedAt > 1 and IsValid(ent) and ent:GetCaptureTeam() != ply:GetNWString("PR_fraction")
+	local frameThink = frame.Think
+	frame.Think = function(self)
+		if frameThink then frameThink(self) end
+
+		local lostPoint = CurTime() - openedAt > 1 and IsValid(ent) and ent:GetCaptureTeam() ~= ply:GetNWString("PR_fraction")
 		if not ply:Alive() or not IsValid(ent) or lostPoint then
-			idkMenu:Remove()
+			self:Remove()
 			return
 		end
-		-- Мародёрам охрана не положена: кнопку не показываем
-		guardSpawn:SetVisible(ent:CanHaveGuardians())
+
+		-- Мародёрам охрана не положена: форму найма не показываем
+		form:SetVisible(ent:CanHaveGuardians())
 	end
 end
 
-function ConfigAdminMenu()
-	local ply = LocalPlayer()
+----------------------------------------------------------------------------------------------------
+-- Меню настройки (админ)
+----------------------------------------------------------------------------------------------------
 
+PR_Capture_Points_List = PR_Capture_Points_List or {}
+
+local function RequestConfigs()
+	net.Start("GetPointsCfgs")
+	net.SendToServer()
+end
+
+net.Receive("GivePointsCfgs", function()
+	PR_Capture_Points_List.Config = net.ReadTable()
+	hook.Run("PR_PointConfigsUpdated")
+end)
+
+local function OpenAdminMenu()
 	local ent = net.ReadEntity()
 	if not IsValid(ent) then return end
 
-	PR_Capture_Points_List = PR_Capture_Points_List or {}
+	if IsValid(PR_PointAdminMenu) then PR_PointAdminMenu:Remove() end
 
-	net.Start("GetPointsCfgs")
-	net.SendToServer()
+	local frame, body = PR_UI.Popup("Настройка точки", 860, 600)
+	PR_PointAdminMenu = frame
 
-	local W, H 	= ScrW(), ScrH()
-	local idkMenu = vgui.Create( "DFrame" )
-	idkMenu:SetPos( W/2-500, H/2-250 )
-	idkMenu:SetSize( 1000, 500 )
-	idkMenu:SetTitle("")
-	idkMenu:SetDraggable( true )
-	idkMenu:ShowCloseButton( true )
-	idkMenu:MakePopup()
-
-	idkMenu.Paint = function()
-		surface.SetDrawColor( 100, 100, 100, 150 )
-		surface.DrawTexturedRect( 0, 0, W, H )
-
+	-- Что сейчас выбрано на этой точке
+	local top = vgui.Create("DPanel", body)
+	top:Dock(TOP)
+	top:SetTall(S(60))
+	top:DockMargin(0, 0, 0, S(12))
+	top.Paint = function(self, w, h)
 		if not IsValid(ent) then return end
-		local text = "Текущая точка: ".. ent:GetCurPoint() .. " (" .. ent:GetCaptureTeam() .. ")"
+		PR_UI.Box(0, 0, w, h, C.panel)
 
-		surface.SetFont( "DermaLarge" )
-		surface.SetTextPos( 100, 50 )
+		-- Владелец берём из выбранной записи: на точку он попадёт после «Установить точку»
+		local name = ent:GetCurPoint()
+		local cfg = (PR_Capture_Points_List.Config or {})[name]
+		local team = cfg and cfg.Team or ent:GetCaptureTeam()
+		local x = S(16)
+		if name ~= "" and DrawFlag(team, x, S(10), S(64), h - S(20)) then x = x + S(80) end
 
-		for char = 1, #text do
-			local col = HSVToColor( ( ( RealTime() * 100 ) - char * 15 ) % 360, 1, 1 )
-			surface.SetTextColor( col.r, col.g, col.b )	  -- Providing 3 numbers to surface.SetTextColor rather 
-		end
-		surface.DrawText(text)	-- than a single color is faster
-	end
-
-	local ConfigsButton = vgui.Create("DButton", idkMenu)
-	ConfigsButton:SetText("")
-	ConfigsButton:SetPos(100,100)
-	ConfigsButton:SetSize(225,40)
-
-	ConfigsButton.Paint = function()
-		surface.SetDrawColor(50, 50, 50, 255)
-		surface.DrawRect(0, 0, ConfigsButton:GetWide(), ConfigsButton:GetTall())
-
-		draw.DrawText("Выбрать точку", "DermaLarge", 18, 5, Color(255,255,255,255), 0)
-	end
-	
-	ConfigsButton.DoClick = function()
-		net.Start("GetPointsCfgs")
-		net.SendToServer()
-
-		if PR_Capture_Points_List.Config != {} and PR_Capture_Points_List.Config != nil then
-			local ConfigScroll = vgui.Create("DScrollPanel", idkMenu)
-			ConfigScroll:SetPos(100, 140)
-			ConfigScroll:SetSize(225,120)
-			
-			local CfgButton = ConfigScroll:Add( "DButton" )
-			CfgButton:SetText("")
-			CfgButton:Dock(TOP)
-			CfgButton:DockMargin( 0, 0, 0, -2 )
-
-			CfgButton.Paint = function()
-				surface.SetDrawColor(30,30,30,255)
-				surface.DrawRect(0,0, CfgButton:GetWide(), CfgButton:GetTall())
-
-				draw.DrawText("Закрыть","DermaDefaultBold", CfgButton:GetWide() / 2, 2, Color(255,255,255,255),1)
-			end
-
-			CfgButton.DoClick = function()
-				ConfigScroll:Remove()
-			end
-			
-			local NewCfgButton = ConfigScroll:Add( "DButton" )
-			NewCfgButton:SetText("")
-			NewCfgButton:Dock(TOP)
-			NewCfgButton:DockMargin( 0, 0, 0, -2 )
-
-			NewCfgButton.Paint = function()
-				surface.SetDrawColor(30,30,30,255)
-				surface.DrawRect(0,0, NewCfgButton:GetWide(), NewCfgButton:GetTall())
-
-				draw.DrawText("Новый","DermaDefaultBold", NewCfgButton:GetWide() / 2, 2, Color(255,255,255,255),1)
-			end
-
-			NewCfgButton.DoClick = function()
-				local SaveWindow = vgui.Create("DFrame")
-				SaveWindow:SetSize(300,200)
-				SaveWindow:Center()
-				SaveWindow:SetTitle("")
-				SaveWindow:SetVisible(true)
-				SaveWindow:SetDraggable(true)
-				SaveWindow:ShowCloseButton(true)
-				SaveWindow:MakePopup()
-				SaveWindow.Paint = function ()
-					draw.RoundedBox(4,0,0,SaveWindow:GetWide(), SaveWindow:GetTall(), Color(80,80,80,255))
-					draw.RoundedBox(4,0,0,SaveWindow:GetWide(), 21, Color(50,50,50,255))
-
-					draw.DrawText("Название?", "DermaDefaultBold", 150, 30, Color(255,255,255,255), 1)
-				end
-
-				local ConfigName = vgui.Create("DTextEntry", SaveWindow)
-				ConfigName:SetPos(20,85)
-				ConfigName:SetTall(20)
-				ConfigName:SetWide(260)
-				ConfigName:SetEnterAllowed(true)
-				
-				local SaveCfgButton = vgui.Create("DButton", SaveWindow)
-				SaveCfgButton:SetPos(75,150)
-				SaveCfgButton:SetSize(150,20)
-				SaveCfgButton:SetText("")
-
-				SaveCfgButton.Paint = function()
-					surface.SetDrawColor(50,50,50,255)
-					surface.DrawRect(0,0, SaveCfgButton:GetWide(), SaveCfgButton:GetTall())
-							
-					draw.DrawText("Сохранить","DermaDefaultBold", SaveCfgButton:GetWide() / 2, 2, Color(255,255,255,255),1)
-				end
-
-				SaveCfgButton.DoClick = function()
-					net.Start("CreateNewCfgs")
-						net.WriteString(ConfigName:GetValue())
-						net.WriteEntity(ent)
-					net.SendToServer()
-					ConfigScroll:Remove()
-					SaveWindow:Remove()
-				end
-			end
-
-			for k,v in pairs(PR_Capture_Points_List.Config) do
-				local CfgButton = ConfigScroll:Add( "DButton" )
-				CfgButton:SetText("")
-				CfgButton:Dock(TOP)
-				CfgButton:DockMargin( 0, 0, 0, -2 )
-
-				CfgButton.Paint = function()
-					surface.SetDrawColor(30,30,30,255)
-					surface.DrawRect(0,0, CfgButton:GetWide(), CfgButton:GetTall())
-
-					draw.DrawText(k,"DermaDefaultBold", CfgButton:GetWide() / 2, 2, Color(255,255,255,255),1)
-				end
-
-				CfgButton.DoClick = function()
-					net.Start("SetServerPointsCfgs")
-						net.WriteString(k)
-						net.WriteEntity(ent)
-					net.SendToServer()
-
-					ConfigScroll:Remove()
-				end
-			end
+		if name == "" then
+			PR_UI.Text("Запись не выбрана — выбери или создай слева", "big", x, h / 2, C.gold, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+		else
+			PR_UI.Text("«" .. name .. "»", "big", x, h / 2, C.text, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+			PR_UI.Text("владелец: " .. OwnerName(team), "normal", w - S(16), h / 2, C.muted, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
 		end
 	end
 
-	local SetButton = vgui.Create("DButton", idkMenu)
-	SetButton:SetText("")
-	SetButton:SetPos(700, 100)
-	SetButton:SetSize(238, 40)
+	-- Справа действия
+	local actions = vgui.Create("DPanel", body)
+	actions:Dock(RIGHT)
+	actions:SetWide(S(280))
+	actions:DockMargin(S(12), 0, 0, 0)
+	actions:DockPadding(S(16), S(16), S(16), S(16))
+	actions.Paint = function(self, w, h) PR_UI.Box(0, 0, w, h, C.panel) end
 
-	SetButton.Paint = function()
-		surface.SetDrawColor(50, 50, 50, 255)
-		surface.DrawRect(0, 0, SetButton:GetWide(), SetButton:GetTall())
-
-		draw.DrawText("Установить точку", "DermaLarge", 5, 5, Color(255,255,255,255), 0)
-	end
-	
-	SetButton.DoClick = function()
+	local set = PR_UI.Button(actions, "Установить точку", function()
 		net.Start("SetPoint")
-		net.WriteEntity(ent)
+			net.WriteEntity(ent)
 		net.SendToServer()
-		idkMenu:Remove()
-	end
+		frame:Remove()
+	end, {height = 52, font = "big", color = C.accent, hoverColor = C.accentDark, disabled = function()
+		return not IsValid(ent) or ent:GetCurPoint() == ""
+	end})
+	set:Dock(TOP)
 
-	-- Удалить точку и забыть её место на карте
-	local RemoveButton = vgui.Create("DButton", idkMenu)
-	RemoveButton:SetText("")
-	RemoveButton:SetPos(700, 150)
-	RemoveButton:SetSize(238, 40)
+	local setHint = vgui.Create("DLabel", actions)
+	setHint:Dock(TOP)
+	setHint:DockMargin(0, S(8), 0, S(20))
+	setHint:SetFont(PR_UI.Font("small"))
+	setHint:SetTextColor(C.muted)
+	setHint:SetWrap(true)
+	setHint:SetAutoStretchVertical(true)
+	setHint:SetText("Применить выбранную запись и запомнить, где точка стоит на этой карте. После рестарта она появится здесь же.")
 
-	RemoveButton.Paint = function()
-		surface.SetDrawColor(120, 30, 30, 255)
-		surface.DrawRect(0, 0, RemoveButton:GetWide(), RemoveButton:GetTall())
-
-		draw.DrawText("Убрать с карты", "DermaLarge", 5, 5, Color(255,255,255,255), 0)
-	end
-
-	RemoveButton.DoClick = function()
-		Derma_Query("Убрать точку «" .. ent:GetCurPoint() .. "» с карты?", "Точка захвата", "Да", function()
+	local remove = PR_UI.Button(actions, "Убрать с карты", function()
+		Confirm("Убрать точку «" .. ent:GetCurPoint() .. "» с карты?", "Убрать", function()
 			net.Start("PR_PointRemove")
 				net.WriteEntity(ent)
 			net.SendToServer()
-			if IsValid(idkMenu) then idkMenu:Remove() end
-		end, "Нет")
+			if IsValid(frame) then frame:Remove() end
+		end)
+	end, {height = 48, color = C.accentDark, hoverColor = C.accent})
+	remove:Dock(TOP)
+
+	local removeHint = vgui.Create("DLabel", actions)
+	removeHint:Dock(TOP)
+	removeHint:DockMargin(0, S(8), 0, 0)
+	removeHint:SetFont(PR_UI.Font("small"))
+	removeHint:SetTextColor(C.muted)
+	removeHint:SetWrap(true)
+	removeHint:SetAutoStretchVertical(true)
+	removeHint:SetText("Владелец и улучшения в записи останутся.")
+
+	-- Слева записи точек и создание новой
+	local list = Section(body, "Записи точек")
+
+	local create = vgui.Create("DPanel", list)
+	create:Dock(BOTTOM)
+	create:SetTall(S(44))
+	create:DockMargin(0, S(10), 0, 0)
+	create.Paint = nil
+
+	local nameEntry = vgui.Create("DTextEntry", create)
+	nameEntry:Dock(FILL)
+	nameEntry:DockMargin(0, 0, S(8), 0)
+	nameEntry:SetFont(PR_UI.Font("normal"))
+	nameEntry:SetPlaceholderText("Название новой точки")
+
+	local function CreateConfig()
+		local name = string.Trim(nameEntry:GetValue())
+		if name == "" then return end
+
+		net.Start("CreateNewCfgs")
+			net.WriteString(name)
+			net.WriteEntity(ent)
+		net.SendToServer()
+		RequestConfigs()
+		nameEntry:SetValue("")
 	end
-	
-	local escapefromkazino = vgui.Create( "DButton", idkMenu)
-	escapefromkazino:SetPos(950, 1)
-	escapefromkazino:SetText( "" )
-	escapefromkazino:SetSize( 50, 50 )
-	escapefromkazino.Paint = function()
-		surface.SetDrawColor(50,50,50,255)
-		surface.DrawRect(0,0, escapefromkazino:GetWide(),escapefromkazino:GetTall())
-		surface.SetDrawColor(200,220,220,255)
-		draw.SimpleText( "X", "DermaLarge", 17, 10, Color(255,255,255) )
+	nameEntry.OnEnter = CreateConfig
+
+	local createBtn = PR_UI.Button(create, "Создать", CreateConfig, {height = 44, color = C.accentDark, hoverColor = C.accent})
+	createBtn:Dock(RIGHT)
+	createBtn:SetWide(S(140))
+
+	local scroll = vgui.Create("DScrollPanel", list)
+	scroll:Dock(FILL)
+
+	local function Fill()
+		if not IsValid(scroll) then return end
+		scroll:Clear()
+
+		local configs = PR_Capture_Points_List.Config or {}
+		local names = table.GetKeys(configs)
+		table.sort(names)
+
+		if #names == 0 then
+			local empty = scroll:Add("DPanel")
+			empty:Dock(TOP)
+			empty:SetTall(S(60))
+			empty.Paint = function(self, w, h)
+				PR_UI.Text("Записей пока нет", "normal", w / 2, h / 2, C.muted, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+			end
+			return
+		end
+
+		for _, name in ipairs(names) do
+			local cfg = configs[name]
+			local row = scroll:Add("DButton")
+			row:SetText("")
+			row:Dock(TOP)
+			row:SetTall(S(56))
+			row:DockMargin(0, 0, 0, S(6))
+			row.Paint = function(self, w, h)
+				local current = IsValid(ent) and ent:GetCurPoint() == name
+				PR_UI.Box(0, 0, w, h, current and C.hover or (self:IsHovered() and C.panel2 or C.bg))
+				if current then PR_UI.Box(0, 0, S(4), h, C.accent) end
+
+				local x = S(14)
+				if DrawFlag(cfg.Team, x, S(10), S(52), h - S(20)) then x = x + S(64) end
+				PR_UI.Text(name, "normal", x, h * 0.33, C.text, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+				PR_UI.Text(OwnerName(cfg.Team), "small", x, h * 0.7, C.muted, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+				PR_UI.Text("монитор " .. (cfg.Monitor or 0) .. "  ·  комп " .. (cfg.System or 1), "small", w - S(14), h / 2, C.muted, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
+			end
+			row.DoClick = function()
+				surface.PlaySound("ui/buttonclick.wav")
+				net.Start("SetServerPointsCfgs")
+					net.WriteString(name)
+					net.WriteEntity(ent)
+				net.SendToServer()
+			end
+		end
 	end
-	escapefromkazino.DoClick = function()
-		idkMenu:Remove()
+
+	Fill()
+	RequestConfigs()
+
+	hook.Add("PR_PointConfigsUpdated", "PR_PointAdminMenu", Fill)
+	frame.OnRemove = function()
+		hook.Remove("PR_PointConfigsUpdated", "PR_PointAdminMenu")
+	end
+
+	local frameThink = frame.Think
+	frame.Think = function(self)
+		if frameThink then frameThink(self) end
+		if not IsValid(ent) then self:Remove() end
 	end
 end
 
-net.Receive( "GivePointsCfgs", function()
-	PR_Capture_Points_List = PR_Capture_Points_List or {}
-	PR_Capture_Points_List.Config = net.ReadTable()
-end)
-
--- Полоска прогресса у того, кто захватывает
-hook.Add("HUDPaint", "PR_CaptureProgress", function()
-	local lp = LocalPlayer()
-
-	for _, point in ipairs(ents.FindByClass("zahvat_ojka")) do
-		if point:GetCapturer() == lp then
-			local total = point:GetCaptureEnd() - point:GetCaptureStart()
-			local frac = total > 0 and math.Clamp((CurTime() - point:GetCaptureStart()) / total, 0, 1) or 0
-
-			local w, h = 400, 30
-			local x, y = ScrW() / 2 - w / 2, ScrH() * 0.75
-
-			draw.RoundedBox(0, x, y, w, h, Color(0, 0, 0, 200))
-			draw.RoundedBox(0, x + 2, y + 2, (w - 4) * frac, h - 4, Color(200, 40, 40, 230))
-			draw.SimpleText("Захват точки «" .. point:GetCurPoint() .. "»: " .. math.floor(frac * 100) .. "%", "DermaDefaultBold", ScrW() / 2, y + h / 2, Color(255, 255, 255), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-			break
-		end
-	end
-end)
-
-net.Receive("OpenIDKPanel", idkMenuOpen )
-
-net.Receive("OpenAdminPanel", ConfigAdminMenu )
+net.Receive("OpenIDKPanel", OpenOwnerMenu)
+net.Receive("OpenAdminPanel", OpenAdminMenu)
