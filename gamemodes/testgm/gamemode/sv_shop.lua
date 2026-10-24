@@ -37,6 +37,200 @@ end
 -- Патрули — недописанная фича (pr_point_for_patrol), их список пока остаётся в JSON
 PR_Patrols_List = util.JSONToTable(file.Read("pr_gamemode/patrols_list.txt", "DATA") or "") or {}
 
+----------------------------------------------------------------------------------------------------
+-- Стартовые товары (config/shop_defaults.lua): один раз добавляются в базу к уже существующим
+----------------------------------------------------------------------------------------------------
+
+include("config/shop_defaults.lua")
+
+-- Встроенные сущности движка, которых нет в scripted_ents
+local ENGINE_ENTITIES = {item_battery = true, item_healthkit = true, item_healthvial = true}
+
+function PR_IsWeaponInstalled(class)
+    return PR_WeaponExists(class)
+end
+
+function PR_IsEntityInstalled(class)
+    return PR_WeaponExists(class) or scripted_ents.GetStored(class) ~= nil or ENGINE_ENTITIES[class] == true
+end
+
+function PR_IsVehicleInstalled(class, mod)
+    if mod == "simfphys" then
+        return list.Get("simfphys_vehicles")[class] ~= nil
+    end
+    return scripted_ents.GetStored(class) ~= nil
+end
+
+local function ClassSet(entries, field)
+    local set = {}
+    for _, e in ipairs(entries or {}) do
+        if istable(e) and e[field] then set[e[field]] = true end
+    end
+    return set
+end
+
+local function SeedWeapons(D)
+    local list, added = PR_DB.LoadShopList("weapon"), 0
+
+    for frac, types in SortedPairs(D.Weapons) do
+        list[frac] = list[frac] or {}
+        local existing = ClassSet(list[frac], "ClassName")
+
+        for wtype, chain in SortedPairs(types) do
+            local prev, tier = nil, 0
+
+            for _, item in ipairs(chain) do
+                local class, name = item[1], item[2]
+
+                -- Тиры и «открывается после» считаем только по установленным стволам
+                if PR_IsWeaponInstalled(class) and tier < #D.TierPrice then
+                    tier = tier + 1
+
+                    if not existing[class] then
+                        table.insert(list[frac], {
+                            ["ClassName"] = class,
+                            ["Name"] = name,
+                            ["Type"] = wtype,
+                            ["Tier"] = tier,
+                            ["Price"] = math.Round(D.TierPrice[tier] * (D.TypePriceMul[wtype] or 1) / 10) * 10,
+                            ["Exp"] = D.TierExp[tier],
+                            ["NeedToUnlock"] = {prev or ""}
+                        })
+                        existing[class] = true
+                        added = added + 1
+                    end
+
+                    prev = class
+                end
+            end
+        end
+    end
+
+    PR_DB.SaveShopList("weapon", list)
+    return added
+end
+
+local function SeedEquipment(D)
+    local list, added = PR_DB.LoadShopList("equip"), 0
+    local existing = ClassSet(list, "ClassName")
+
+    for category, items in SortedPairs(D.Equipment) do
+        for _, item in ipairs(items) do
+            local class, name, price = item[1], item[2], item[3]
+
+            if not existing[class] and PR_IsEntityInstalled(class) then
+                table.insert(list, {
+                    ["ClassName"] = class,
+                    ["Name"] = name,
+                    ["Price"] = price,
+                    ["Tier"] = category,
+                    ["Type"] = PR_WeaponExists(class) and "weapon" or "entity"
+                })
+                existing[class] = true
+                added = added + 1
+            end
+        end
+    end
+
+    PR_DB.SaveShopList("equip", list)
+    return added
+end
+
+local function SeedVehicles(D)
+    local list, added = PR_DB.LoadShopList("vehicle"), 0
+
+    for frac, items in SortedPairs(D.Vehicles) do
+        list[frac] = list[frac] or {}
+        local existing = ClassSet(list[frac], "ClassName")
+
+        for _, item in ipairs(items) do
+            local class, name, vtype, price, mod = item[1], item[2], item[3], item[4], item[5]
+
+            if not existing[class] and PR_IsVehicleInstalled(class, mod) then
+                table.insert(list[frac], {
+                    ["ClassName"] = class,
+                    ["Name"] = name,
+                    ["Type"] = vtype,
+                    ["Price"] = price,
+                    ["Mod"] = mod
+                })
+                existing[class] = true
+                added = added + 1
+            end
+        end
+    end
+
+    PR_DB.SaveShopList("vehicle", list)
+    return added
+end
+
+local function SeedCloth(D)
+    local list, added = PR_DB.LoadShopList("cloth"), 0
+
+    for frac, items in SortedPairs(D.Cloth) do
+        list[frac] = list[frac] or {}
+        local existing = ClassSet(list[frac], "Model")
+
+        for _, item in ipairs(items) do
+            local model, price, level = item[1], item[2], item[3]
+
+            if not existing[model] and util.IsValidModel(model) then
+                table.insert(list[frac], {
+                    ["Model"] = model,
+                    ["Price"] = price,
+                    ["Level"] = level
+                })
+                existing[model] = true
+                added = added + 1
+            end
+        end
+    end
+
+    PR_DB.SaveShopList("cloth", list)
+    return added
+end
+
+-- Запускается после загрузки всех аддонов, когда оружие и техника уже зарегистрированы
+function PR_SeedShopDefaults()
+    local META_KEY = "shop_defaults_v1"
+    if PR_DB.GetMeta(META_KEY) == "1" then return end
+
+    local counts = {}
+    local ok = PR_DB.Transaction(function()
+        counts.weapons = SeedWeapons(PR_SHOP_DEFAULTS)
+        counts.equipment = SeedEquipment(PR_SHOP_DEFAULTS)
+        counts.vehicles = SeedVehicles(PR_SHOP_DEFAULTS)
+        counts.cloth = SeedCloth(PR_SHOP_DEFAULTS)
+        PR_DB.SetMeta(META_KEY, "1")
+    end)
+
+    if not ok then return end
+
+    for _, list in ipairs(LISTS) do
+        _G[list.global] = PR_DB.LoadShopList(list.kind)
+    end
+
+    MsgN(string.format("[PR] стартовые товары добавлены: оружие %d, снаряжение %d, техника %d, одежда %d",
+        counts.weapons, counts.equipment, counts.vehicles, counts.cloth))
+end
+
+hook.Add("InitPostEntity", "PR_SeedShopDefaults", PR_SeedShopDefaults)
+
+-- Поставил новые паки — "pr_shop_reseed" в консоли (админ или консоль сервера) добавит
+-- недостающее из стартового списка. Уже настроенные товары не трогаются.
+concommand.Add("pr_shop_reseed", function(ply)
+    if IsValid(ply) and not PR_IsAdmin(ply) then return end
+
+    PR_DB.SetMeta("shop_defaults_v1", "0")
+    PR_SeedShopDefaults()
+
+    for _, list in ipairs(LISTS) do
+        SendList(list)
+    end
+
+    PR_Log(ply, "перезапустил посев стартовых товаров")
+end)
+
 local function SendList(list, target)
     net.Start(list.send)
         net.WriteTable(_G[list.global] or {})
@@ -148,6 +342,11 @@ net.Receive("GiveWeapon", function(len, ply)
     local entry = FindEntry(PR_WS_List[frac], "ClassName", class)
     if not entry then return end
 
+    if not PR_IsWeaponInstalled(class) then
+        ply:ChatPrint("Это оружие не установлено на сервере")
+        return
+    end
+
     if not PR_IsInBuyZone(ply, "weapon") then
         ply:ChatPrint("Ты не в зоне покупки!")
         return
@@ -216,7 +415,7 @@ net.Receive("GiveEnity", function(len, ply)
         return
     end
 
-    if weapons.GetStored(class) then
+    if PR_WeaponExists(class) then
         ply:Give(class)
     else
         local item = ents.Create(class)
@@ -244,6 +443,11 @@ net.Receive("GiveVehicle", function(len, ply)
 
     local spot = PR_GetVehicleDeploys(entry["Type"])[spotName]
     if spot == nil then return end
+
+    if not PR_IsVehicleInstalled(class, entry["Mod"]) then
+        ply:ChatPrint("Эта техника не установлена на сервере")
+        return
+    end
 
     local price = Price(entry)
     if ply:GetNWInt("PR_money") < price then

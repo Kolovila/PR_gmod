@@ -76,6 +76,11 @@ PR_Cloth_List = PR_Cloth_List or {}
 PR_Capture_Points_List = PR_Capture_Points_List or {}
 PR_Patrols_List = PR_Patrols_List or {}
 
+-- Есть ли такое оружие в игре: Lua-оружие (weapons.GetStored) или встроенное оружие HL2 (список "Weapon")
+function PR_WeaponExists(class)
+    return isstring(class) and (weapons.GetStored(class) ~= nil or list.Get("Weapon")[class] ~= nil)
+end
+
 -- Открыто ли оружие: хватает любого купленного из NeedToUnlock (пустая строка = без условий)
 function PR_IsWeaponUnlocked(entry, purchased)
     local need = entry["NeedToUnlock"]

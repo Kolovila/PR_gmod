@@ -47,3 +47,14 @@ hook.Add("PhysgunPickup", "PR_Protect", function(ply, ent)
         end
     end
 end)
+
+-- Стандартный набор sandbox при спавне (оружие HL2, физган, тулган, камера) только админам.
+-- Обычный игрок получает кулаки, остальное — купленное оружие из пресета (init.lua, PR_GivePreset).
+hook.Add("PlayerLoadout", "PR_NoSandboxLoadout", function(ply)
+    if PR_IsAdmin(ply) then return end
+
+    ply:Give("weapon_fists")
+    ply:SelectWeapon("weapon_fists")
+
+    return true
+end)
