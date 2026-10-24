@@ -209,6 +209,12 @@ local SCHEMA = {
         map TEXT NOT NULL,
         x REAL NOT NULL, y REAL NOT NULL, z REAL NOT NULL,
         zone TEXT NOT NULL DEFAULT ''
+    )]],
+
+    -- Варианты патрулей (кто ходит, награды, шанс). data — JSON в формате config/patrols.lua
+    [[CREATE TABLE IF NOT EXISTS pr_patrol_types (
+        key TEXT PRIMARY KEY,
+        data TEXT NOT NULL
     )]]
 }
 
@@ -569,6 +575,26 @@ end
 
 function PR_DB.SetPatrolSpotZone(id, zone)
     PR_DB.Query("UPDATE pr_patrol_spots SET zone = ? WHERE id = ?", zone or "", id)
+end
+
+-- {["reshala"] = {name = ..., leader = ..., followers = ...}, ...}
+function PR_DB.GetPatrolTypes()
+    local types = {}
+
+    for _, row in ipairs(PR_DB.Query("SELECT * FROM pr_patrol_types") or {}) do
+        local data = Json(row.data)
+        if istable(data) then types[row.key] = data end
+    end
+
+    return types
+end
+
+function PR_DB.SavePatrolType(key, data)
+    PR_DB.Query("INSERT OR REPLACE INTO pr_patrol_types (key, data) VALUES (?, ?)", key, util.TableToJSON(data))
+end
+
+function PR_DB.DeletePatrolType(key)
+    PR_DB.Query("DELETE FROM pr_patrol_types WHERE key = ?", key)
 end
 
 ----------------------------------------------------------------------------------------------------

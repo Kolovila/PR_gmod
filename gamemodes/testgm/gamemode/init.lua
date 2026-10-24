@@ -7,6 +7,7 @@ AddCSLuaFile("player/sh_player_save.lua")
 AddCSLuaFile("cl_ui.lua")
 AddCSLuaFile("cl_shop.lua")
 AddCSLuaFile("cl_menu.lua")
+AddCSLuaFile("cl_patrols.lua")
 
 include("shared.lua")
 include("sv_util.lua")

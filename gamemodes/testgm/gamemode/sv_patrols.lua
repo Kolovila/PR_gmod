@@ -4,13 +4,19 @@
 -- На rp_desert_conflict нет AI-узлов и навмеша, поэтому сами NPC дорогу через полкарты не находят.
 -- Админ расставляет споты «Редактором патрулей» (entities/weapons/pr_patrol_tool.lua). Соседние
 -- споты, между которыми можно пройти по прямой, соединяются сами, и патруль идёт от спота к споту.
--- Варианты патрулей и общие настройки — config/patrols.lua.
+-- Общие настройки — config/patrols.lua. Варианты патрулей хранятся в базе (pr_patrol_types) и
+-- правятся в игре тем же редактором (cl_patrols.lua), стартовые берутся из config/patrols.lua.
 
 include("config/patrols.lua")
 
 util.AddNetworkString("PR_PatrolSpots")
 util.AddNetworkString("PR_PatrolSetZone")
 util.AddNetworkString("PR_PatrolSpotZone")
+util.AddNetworkString("PR_PatrolTypes")      -- админ просит / сервер присылает все варианты
+util.AddNetworkString("PR_PatrolSaveType")   -- админ сохраняет вариант
+util.AddNetworkString("PR_PatrolDeleteType") -- админ удаляет вариант
+util.AddNetworkString("PR_PatrolSpawnType")  -- админ выпускает вариант сейчас
+util.AddNetworkString("PR_PatrolTypeResult") -- итог для админа: ок/ошибка, ключ, текст
 
 PR_Patrol = PR_Patrol or {}
 PR_Patrol.Spots = PR_Patrol.Spots or {}   -- [id] = {Id, Pos, Zone}
@@ -31,9 +37,208 @@ local function RandRange(range)
 	return math.Rand(range[1], range[2])
 end
 
+-- Случайное из списка (или само значение, если это не список). Пустой список — nil
 local function Pick(value)
-	if istable(value) then return value[math.random(#value)] end
+	if istable(value) then
+		if #value == 0 then return nil end
+		return value[math.random(#value)]
+	end
 	return value
+end
+
+----------------------------------------------------------------------------------------------------
+-- Варианты патрулей: база + стартовые из конфига
+----------------------------------------------------------------------------------------------------
+
+local TYPES_META = "patrol_types_v1"
+
+-- Стартовые варианты попадают в базу один раз; дальше база — единственный источник
+local function LoadTypes()
+	if PR_DB.GetMeta(TYPES_META) ~= "1" then
+		PR_DB.Transaction(function()
+			local existing = PR_DB.GetPatrolTypes()
+			for key, data in pairs(PR_PATROL_DEFAULTS or {}) do
+				if not existing[key] then PR_DB.SavePatrolType(key, data) end
+			end
+			PR_DB.SetMeta(TYPES_META, "1")
+		end)
+	end
+
+	PR_PATROL_TYPES = PR_DB.GetPatrolTypes()
+end
+
+LoadTypes()
+
+local function NPCExists(class)
+	return isstring(class) and (list.Get("NPC")[class] ~= nil or scripted_ents.GetStored(class) ~= nil)
+end
+
+local function Num(value, lo, hi, default)
+	value = tonumber(value)
+	if not value or value ~= value then return default end
+	return math.Clamp(value, lo, hi)
+end
+
+-- Строка из редактора: без пробелов по краям, не длиннее max символов
+local function CleanText(value, max)
+	if not isstring(value) then return "" end
+	value = string.Trim(value)
+	local len = utf8.len(value)
+	if not len then return "" end
+	if len > max then value = string.sub(value, 1, utf8.offset(value, max + 1) - 1) end
+	return value
+end
+
+-- Список строк, которые есть в игре, без повторов
+local function CleanList(values, exists, max)
+	local out, seen = {}, {}
+	for _, v in ipairs(istable(values) and values or {values}) do
+		if isstring(v) and not seen[v] and exists(v) then
+			seen[v] = true
+			table.insert(out, v)
+			if #out >= max then break end
+		end
+	end
+	return out
+end
+
+local function CleanNPC(def, isLeader)
+	if not istable(def) then return end
+
+	local classes = CleanList(def.class, NPCExists, 8)
+	if #classes == 0 then return end
+
+	local reward = istable(def.reward) and def.reward or {}
+	local out = {
+		name = CleanText(def.name, 48),
+		class = classes,
+		weapons = CleanList(def.weapons, PR_WeaponExists, 12),
+		health = math.floor(Num(def.health, 1, 100000, 100)),
+		reward = {
+			money = math.floor(Num(reward.money, 0, 1000000, 0)),
+			exp = math.floor(Num(reward.exp, 0, 1000, 0))
+		}
+	}
+
+	if isLeader then
+		out.drop = CleanList(def.drop, PR_WeaponExists, 4)
+		out.dropGold = def.dropGold == true
+	else
+		out.count = math.floor(Num(def.count, 1, 10, 1))
+	end
+
+	return out
+end
+
+PR_PATROL_FORMATIONS = {"around", "wedge", "column"}
+
+-- Вариант из редактора: всё проверить и обрезать. Возвращает чистую таблицу или nil и причину
+function PR_Patrol.CleanType(data)
+	if not istable(data) then return nil, "пустые данные" end
+
+	local out = {
+		name = CleanText(data.name, 48),
+		weight = Num(data.weight, 0, 100, 1),
+		chance = Num(data.chance, 0, 1, 1),
+		maxAlive = math.floor(Num(data.maxAlive, 1, 5, 1)),
+		npcClass = isstring(data.npcClass) and string.match(data.npcClass, "^CLASS_[%w_]+$") and data.npcClass or "CLASS_PR_BANDITS",
+		formation = table.HasValue(PR_PATROL_FORMATIONS, data.formation) and data.formation or "around",
+		followers = {}
+	}
+	if out.name == "" then return nil, "нужно название" end
+
+	local announce = CleanText(data.announce, 120)
+	if announce ~= "" then out.announce = announce end
+
+	-- В тексте о смерти главного допустим только %s (ник убийцы), остальные % экранируем
+	local killed = CleanText(data.leaderKilled, 120)
+	if killed ~= "" then
+		killed = string.gsub(killed, "%%", "%%%%")
+		killed = string.gsub(killed, "%%%%s", "%%s", 1)
+		out.leaderKilled = killed
+	end
+
+	if istable(data.leader) then
+		out.leader = CleanNPC(data.leader, true)
+		if not out.leader then return nil, "у главного не выбран NPC (или его нет в игре)" end
+	end
+
+	for i, group in ipairs(istable(data.followers) and data.followers or {}) do
+		if i > 6 then break end
+		local clean = CleanNPC(group, false)
+		if not clean then return nil, "в группе свиты №" .. i .. " не выбран NPC (или его нет в игре)" end
+		table.insert(out.followers, clean)
+	end
+
+	if not out.leader and #out.followers == 0 then return nil, "в патруле нет ни одного NPC" end
+
+	return out
+end
+
+-- Все варианты — админам (или одному игроку)
+function PR_Patrol.SendTypes(target)
+	local recipients = {}
+	if IsValid(target) then
+		recipients = {target}
+	else
+		for _, ply in ipairs(player.GetHumans()) do
+			if PR_IsAdmin(ply) then table.insert(recipients, ply) end
+		end
+	end
+	if #recipients == 0 then return end
+
+	net.Start("PR_PatrolTypes")
+		net.WriteTable(PR_PATROL_TYPES)
+	net.Send(recipients)
+end
+
+local function NewTypeKey()
+	local n = 1
+	while PR_PATROL_TYPES["patrol_" .. n] do n = n + 1 end
+	return "patrol_" .. n
+end
+
+-- Сохранить вариант (key пустой — новый). Возвращает ключ или nil и причину
+function PR_Patrol.SaveType(key, data)
+	local clean, err = PR_Patrol.CleanType(data)
+	if not clean then return nil, err end
+
+	if not isstring(key) or #key > 32 or not string.match(key, "^[%w_]+$") then
+		key = NewTypeKey()
+	end
+
+	PR_DB.SavePatrolType(key, clean)
+	PR_PATROL_TYPES[key] = clean
+	PR_Patrol.SendTypes()
+	return key
+end
+
+function PR_Patrol.DeleteType(key)
+	if not PR_PATROL_TYPES[key] then return false end
+
+	PR_DB.DeletePatrolType(key)
+	PR_PATROL_TYPES[key] = nil
+	PR_Patrol.SendTypes()
+	return true
+end
+
+-- Места свиты относительно главного {вперёд, вправо} для n человек
+local function FormationSlots(formation, n)
+	if istable(formation) and #formation > 0 then return formation end
+
+	local slots = {}
+	for k = 1, n do
+		local pair, side = math.ceil(k / 2), (k % 2 == 1) and 1 or -1
+		if formation == "column" then
+			slots[k] = {-90 * k, 0}
+		elseif formation == "wedge" then
+			slots[k] = {-100 * pair, side * 90 * pair}
+		else
+			-- Вокруг главного: первые двое впереди, следующие по бокам и дальше назад
+			slots[k] = {110 - (pair - 1) * 120, side * (70 + (pair - 1) * 30)}
+		end
+	end
+	return slots
 end
 
 ----------------------------------------------------------------------------------------------------
@@ -487,7 +692,7 @@ local function KeepFormation(patrol, center, forward)
 	fwd:Normalize()
 	local right = Vector(fwd.y, -fwd.x, 0)
 
-	local slots = patrol.cfg.formation or {}
+	local slots = FormationSlots(patrol.cfg.formation, math.max(#patrol.members - 1, 1))
 	local i = 0
 
 	for _, npc in ipairs(patrol.members) do
@@ -730,6 +935,62 @@ net.Receive("PR_PatrolSpotZone", function(len, ply)
 	local zone = CleanZone(net.ReadString())
 	if zone and PR_Patrol.SetZone(id, zone) then
 		PR_Log(ply, "назвал спот патруля #" .. id .. " «" .. zone .. "»")
+	end
+end)
+
+-- Окно вариантов в редакторе: список, сохранить, удалить, выпустить сейчас
+local function TypeResult(ply, ok, key, text)
+	net.Start("PR_PatrolTypeResult")
+		net.WriteBool(ok)
+		net.WriteString(key or "")
+		net.WriteString(text or "")
+	net.Send(ply)
+end
+
+net.Receive("PR_PatrolTypes", function(len, ply)
+	if PR_IsAdmin(ply) then PR_Patrol.SendTypes(ply) end
+end)
+
+net.Receive("PR_PatrolSaveType", function(len, ply)
+	if not PR_IsAdmin(ply) or not PR_NetThrottle(ply, "PR_PatrolSaveType", 0.5) then return end
+
+	local key = net.ReadString()
+	local data = net.ReadTable()
+
+	local saved, err = PR_Patrol.SaveType(key ~= "" and key or nil, data)
+	if saved then
+		local name = PR_PATROL_TYPES[saved].name
+		PR_Log(ply, "сохранил патруль " .. saved .. " «" .. name .. "»")
+		TypeResult(ply, true, saved, "Патруль «" .. name .. "» сохранён")
+	else
+		TypeResult(ply, false, key, "Не сохранено: " .. tostring(err))
+	end
+end)
+
+net.Receive("PR_PatrolDeleteType", function(len, ply)
+	if not PR_IsAdmin(ply) or not PR_NetThrottle(ply, "PR_PatrolDeleteType", 0.5) then return end
+
+	local key = net.ReadString()
+	local name = PR_PATROL_TYPES[key] and PR_PATROL_TYPES[key].name or key
+	if PR_Patrol.DeleteType(key) then
+		PR_Log(ply, "удалил патруль " .. key .. " «" .. name .. "»")
+		TypeResult(ply, true, "", "Патруль «" .. name .. "» удалён")
+	end
+end)
+
+-- Выпустить сейчас: на спот, куда смотрит админ, иначе на случайный подходящий
+net.Receive("PR_PatrolSpawnType", function(len, ply)
+	if not PR_IsAdmin(ply) or not PR_NetThrottle(ply, "PR_PatrolSpawnType", 1) then return end
+
+	local key = net.ReadString()
+	local spotId = PR_Patrol.NearestSpot(ply:GetEyeTrace().HitPos, 3000)
+	local patrol, err = PR_Patrol.Spawn(key, spotId)
+
+	if patrol then
+		PR_Log(ply, "выпустил патруль " .. key)
+		TypeResult(ply, true, key, "«" .. patrol.cfg.name .. "» вышел на спот #" .. patrol.spot)
+	else
+		TypeResult(ply, false, key, "Не вышел: " .. tostring(err))
 	end
 end)
 

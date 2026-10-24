@@ -1,5 +1,7 @@
--- «Редактор патрулей»: админ расставляет споты, между которыми ходят патрули NPC (sv_patrols.lua).
+-- «Редактор патрулей»: админ расставляет споты, между которыми ходят патрули NPC (sv_patrols.lua),
+-- и правит сами патрули (окно вариантов — gamemode/cl_patrols.lua).
 -- ЛКМ — поставить спот на пол, куда смотришь. ПКМ — убрать ближайший. R — территория.
+-- Shift+R — окно патрулей: создать, поправить, удалить, выпустить сейчас.
 -- Пока редактор в руках, видны все споты: зелёные связаны с соседями, красные — ни с кем.
 -- Выдать: из спавн-меню (Оружие → TestPR) или командой pr_patrol_edit.
 
@@ -8,7 +10,7 @@ if SERVER then AddCSLuaFile() end
 SWEP.PrintName = "Редактор патрулей"
 SWEP.Author = "PR"
 SWEP.Category = "TestPR"
-SWEP.Instructions = "ЛКМ — спот, ПКМ — убрать ближайший, R — территория"
+SWEP.Instructions = "ЛКМ — спот, ПКМ — убрать ближайший, R — территория, Shift+R — патрули"
 SWEP.Spawnable = true
 SWEP.AdminOnly = true
 
@@ -84,10 +86,15 @@ end
 
 function SWEP:Reload()
 	if SERVER then return end
-	if IsValid(PR_PatrolEditor.Menu) or (PR_PatrolEditor.NextMenu or 0) > RealTime() then return end
+	if IsValid(PR_PatrolEditor.Menu) or IsValid(PR_PatrolEditor.TypesFrame) then return end
+	if (PR_PatrolEditor.NextMenu or 0) > RealTime() then return end
 
 	PR_PatrolEditor.NextMenu = RealTime() + 0.5
-	PR_PatrolEditor.OpenZoneMenu()
+	if self:GetOwner():KeyDown(IN_SPEED) then
+		PR_PatrolEditor.OpenTypes()
+	else
+		PR_PatrolEditor.OpenZoneMenu()
+	end
 end
 
 if SERVER then return end
@@ -176,14 +183,14 @@ function SWEP:DrawHUD()
 	local aimed = AimedSpot()
 	local zone = PR_PatrolEditor.Zone ~= "" and PR_PatrolEditor.Zone or "не задана"
 
-	local w, h = S(620), S(150)
+	local w, h = S(780), S(150)
 	local x, y = math.floor(ScrW() / 2 - w / 2), ScrH() - h - S(30)
 
 	PR_UI.Box(x, y, w, h, C.bg)
 	PR_UI.Box(x, y, S(4), h, C.accent)
 	PR_UI.Text("Редактор патрулей", "big", x + S(20), y + S(12), C.text)
 	PR_UI.Text("Спотов: " .. #spots .. (alone > 0 and ("  ·  без связи: " .. alone) or ""), "normal", x + w - S(16), y + S(16), alone > 0 and C.bad or C.good, TEXT_ALIGN_RIGHT)
-	PR_UI.Text("ЛКМ — поставить спот    ПКМ — убрать ближайший    R — территория", "normal", x + S(20), y + S(54), C.muted)
+	PR_UI.Text("ЛКМ — спот    ПКМ — убрать ближайший    R — территория    Shift+R — патрули", "normal", x + S(20), y + S(54), C.muted)
 	PR_UI.Text("Территория новых спотов: " .. zone, "normal", x + S(20), y + S(84), C.gold)
 	if aimed then
 		PR_UI.Text("Под прицелом спот #" .. aimed.id .. (aimed.zone ~= "" and ("  ·  " .. aimed.zone) or "") .. "  ·  связей: " .. #aimed.links,
@@ -241,6 +248,13 @@ function PR_PatrolEditor.OpenZoneMenu()
 		forAimed:Dock(TOP)
 		forAimed:DockMargin(0, 0, 0, S(8))
 	end
+
+	local types = PR_UI.Button(body, "Варианты патрулей…", function()
+		frame:Remove()
+		PR_PatrolEditor.OpenTypes()
+	end, {height = 44, color = C.panel2})
+	types:Dock(BOTTOM)
+	types:DockMargin(0, S(8), 0, 0)
 
 	-- Уже названные территории: клик подставляет название
 	local zones = {}
