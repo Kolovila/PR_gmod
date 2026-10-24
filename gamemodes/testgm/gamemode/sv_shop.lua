@@ -192,7 +192,7 @@ end
 
 -- Запускается после загрузки всех аддонов, когда оружие и техника уже зарегистрированы
 function PR_SeedShopDefaults()
-    local META_KEY = "shop_defaults_v1"
+    local META_KEY = "shop_defaults_v2"
     if PR_DB.GetMeta(META_KEY) == "1" then return end
 
     local counts = {}
@@ -221,7 +221,7 @@ hook.Add("InitPostEntity", "PR_SeedShopDefaults", PR_SeedShopDefaults)
 concommand.Add("pr_shop_reseed", function(ply)
     if IsValid(ply) and not PR_IsAdmin(ply) then return end
 
-    PR_DB.SetMeta("shop_defaults_v1", "0")
+    PR_DB.SetMeta("shop_defaults_v2", "0")
     PR_SeedShopDefaults()
 
     for _, list in ipairs(LISTS) do
@@ -339,7 +339,10 @@ net.Receive("GiveWeapon", function(len, ply)
     if not CanBuyNow(ply) then return end
 
     local frac = ply:GetNWString("PR_fraction")
-    local entry = FindEntry(PR_WS_List[frac], "ClassName", class)
+    local entry
+    for _, it in ipairs(PR_GetWeaponEntries(frac)) do
+        if it.entry["ClassName"] == class then entry = it.entry end
+    end
     if not entry then return end
 
     if not PR_IsWeaponInstalled(class) then

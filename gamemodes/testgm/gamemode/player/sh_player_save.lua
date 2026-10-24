@@ -157,6 +157,11 @@ if SERVER then
             end
         end
 
+        -- В старой версии мародёры назывались "admin"
+        if ply:GetNWString("PR_fraction") == "admin" then
+            ply:SetNWString("PR_fraction", "SCAV")
+        end
+
         ply.PurchasedModels = istable(data["PurchasedModels"]) and data["PurchasedModels"] or {}
         ply.PurchasedWeapons = istable(data["PurchasedWeapons"]) and data["PurchasedWeapons"] or {}
         ply.Preset = istable(data["Preset"]) and data["Preset"] or {}

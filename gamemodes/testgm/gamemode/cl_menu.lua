@@ -10,9 +10,10 @@ local C = PR_UI.Colors
 -- Вкладка «Группировка»
 ----------------------------------------------------------------------------------------------------
 
-local function FlagPath(frac)
-    return "test_gm_mat/flags/" .. string.lower(frac) .. ".png"
-end
+-- Пояснение под карточкой группировки (по строкам, чтобы влезало в карточку)
+local FRACTION_HINTS = {
+    SCAV = {"Любое оружие, только старая техника", "Свои — тоже враги"}
+}
 
 local function BuildFaction(parent)
     local ply = LocalPlayer()
@@ -30,15 +31,12 @@ local function BuildFaction(parent)
     grid:SetSpaceX(S(14))
     grid:SetSpaceY(S(14))
 
-    local list = table.Copy(PR_FRACTIONS)
-    if PR_IsAdmin(ply) then table.insert(list, "admin") end
-
-    for _, frac in ipairs(list) do
+    for _, frac in ipairs(PR_FRACTIONS) do
         local card = grid:Add("DButton")
-        card:SetSize(S(300), S(250))
+        card:SetSize(S(380), S(260))
         card:SetText("")
 
-        local flag = Material(FlagPath(frac), "smooth")
+        local flag = Material(PR_FractionFlag(frac), "smooth")
 
         card.Paint = function(self, w, h)
             local current = ply:GetNWString("PR_fraction") == frac
@@ -46,7 +44,7 @@ local function BuildFaction(parent)
             if current then PR_UI.Outline(0, 0, w, h, C.accent) PR_UI.Outline(1, 1, w - 2, h - 2, C.accent) end
 
             if not flag:IsError() then
-                local fw, fh = w - S(40), h - S(110)
+                local fw, fh = w - S(40), h - S(124)
                 local ratio = flag:Width() / math.max(flag:Height(), 1)
                 local dw, dh = math.min(fw, fh * ratio), math.min(fh, fw / ratio)
                 surface.SetDrawColor(255, 255, 255)
@@ -54,8 +52,11 @@ local function BuildFaction(parent)
                 surface.DrawTexturedRect((w - dw) / 2, S(20) + (fh - dh) / 2, dw, dh)
             end
 
-            PR_UI.Text(frac, "big", w / 2, h - S(70), C.text, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-            PR_UI.Text(current and "Ты здесь" or "Вступить", "normal", w / 2, h - S(34), current and C.good or C.muted, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+            PR_UI.Text(PR_FractionName(frac), "big", w / 2, h - S(86), C.text, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+            for i, line in ipairs(FRACTION_HINTS[frac] or {}) do
+                PR_UI.Text(line, "small", w / 2, h - S(62) + (i - 1) * S(18), C.gold, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+            end
+            PR_UI.Text(current and "Ты здесь" or "Вступить", "normal", w / 2, h - S(20), current and C.good or C.muted, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
         end
 
         card.DoClick = function()
@@ -66,7 +67,7 @@ local function BuildFaction(parent)
                 net.WriteString(frac)
             net.SendToServer()
 
-            PR_UI.Notify("Группировка: " .. frac)
+            PR_UI.Notify("Группировка: " .. PR_FractionName(frac))
         end
     end
 end
@@ -125,7 +126,7 @@ local function BuildProfile(parent)
     right:Dock(FILL)
     right.Paint = nil
 
-    Stat(left, "Группировка", function() return Frac() ~= "" and Frac() or "нет" end)
+    Stat(left, "Группировка", function() return PR_FractionName(Frac()) end)
     Stat(left, "Деньги", function() return PR_UI.Money(ply:GetNWInt("PR_money")) end)
     Stat(left, "Монеты", function() return ply:GetNWInt("PR_coin") .. " ©" end)
     left:DockPadding(0, 0, 0, 0)
@@ -202,7 +203,7 @@ function PR_Menu.Open()
         PR_UI.Text("PR", "huge", S(24), S(32), C.accent, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
 
         local frac = ply:GetNWString("PR_fraction")
-        local info = (frac ~= "" and frac or "без группировки") .. "   ·   " .. PR_UI.Money(ply:GetNWInt("PR_money"))
+        local info = PR_FractionName(frac) .. "   ·   " .. PR_UI.Money(ply:GetNWInt("PR_money"))
             .. "   ·   уровень " .. ply:GetNWInt("PR_level")
         PR_UI.Text(info, "normal", fw - S(80), S(32), C.text, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
     end

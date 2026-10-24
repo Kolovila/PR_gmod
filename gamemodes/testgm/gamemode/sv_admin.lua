@@ -16,8 +16,7 @@ net.Receive("SetFrac", function(len, ply)
     local frac = net.ReadString()
     if not PR_NetThrottle(ply, "SetFrac", 1) then return end
 
-    local allowed = PR_IsFraction(frac) or (frac == "admin" and PR_IsAdmin(ply))
-    if not allowed or ply:GetNWString("PR_fraction") == frac then return end
+    if not PR_IsFraction(frac) or ply:GetNWString("PR_fraction") == frac then return end
 
     ply:SetNWString("PR_fraction", frac)
     ply.PR_Outfit = nil -- форма прошлой группировки не переносится

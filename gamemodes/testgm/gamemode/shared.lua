@@ -11,11 +11,54 @@ team.SetUp(4, "WN", Color(0,255,255))
 
 DeriveGamemode("sandbox")
 
--- Группировки, за которые можно играть. Есть ещё служебная "admin", только для админов.
-PR_FRACTIONS = {"SSNK", "USA", "GBC", "WN"}
+-- Группировки, за которые можно играть
+PR_FRACTIONS = {"SSNK", "USA", "GBC", "WN", "SCAV"}
+
+-- Название для интерфейса (по умолчанию — сам ключ)
+PR_FRACTION_NAMES = {
+    SCAV = "Мародёры"
+}
+
+-- Мародёры: покупают любое оружие любой группировки, техника только своя (старьё),
+-- друг другу не союзники — убийство своего оплачивается как обычное
+PR_ALL_WEAPONS_FRACTIONS = {SCAV = true}
+PR_FREE_FOR_ALL_FRACTIONS = {SCAV = true}
 
 function PR_IsFraction(name)
     return table.HasValue(PR_FRACTIONS, name)
+end
+
+function PR_FractionName(key)
+    if not isstring(key) or key == "" then return "без группировки" end
+    return PR_FRACTION_NAMES[key] or key
+end
+
+function PR_FractionFlag(key)
+    return "test_gm_mat/flags/" .. string.lower(key or "") .. ".png"
+end
+
+-- Свои ли друг другу два игрока одной группировки (мародёры — нет)
+function PR_AreAllies(fracA, fracB)
+    return fracA ~= "" and fracA == fracB and not PR_FREE_FOR_ALL_FRACTIONS[fracA]
+end
+
+-- Оружие, доступное группировке: {{entry, index, faction}, ...}.
+-- У мародёров — стволы всех группировок без повторов (плюс их собственный список, если админ его завёл).
+function PR_GetWeaponEntries(frac)
+    local out = {}
+    local sources = PR_ALL_WEAPONS_FRACTIONS[frac] and PR_FRACTIONS or {frac}
+    local seen = {}
+
+    for _, source in ipairs(sources) do
+        for i, e in ipairs((PR_WS_List or {})[source] or {}) do
+            if istable(e) and isstring(e.ClassName) and not seen[e.ClassName] then
+                seen[e.ClassName] = true
+                table.insert(out, {entry = e, index = i, faction = source})
+            end
+        end
+    end
+
+    return out
 end
 
 -- Админ режима: админ сервера или выданный через табло флаг PR_admin

@@ -82,8 +82,8 @@ function ENT:Use(activator)
 	local frac = activator:GetNWString("PR_fraction")
 	local team = self:GetCaptureTeam()
 
-	-- Ненастроенная точка, или админ в группировке «admin»: меню настройки
-	if team == "" or frac == "admin" then
+	-- Ненастроенная точка, или админ жмёт Alt+E: меню настройки
+	if team == "" or (PR_IsAdmin(activator) and activator:KeyDown(IN_WALK)) then
 		if PR_IsAdmin(activator) then
 			net.Start("OpenAdminPanel")
 				net.WriteEntity(self)

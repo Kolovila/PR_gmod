@@ -3,6 +3,7 @@
 --
 -- Оружие разложено по происхождению:
 --   SSNK — советское и русское, USA — американское, GBC — западноевропейское, WN — остальной мир.
+--   Мародёры (SCAV) своего списка оружия не имеют: им доступны стволы всех группировок (shared.lua).
 -- Внутри каждого типа стволы идут по тирам: цену, опыт и «открывается после» сервер считает сам.
 
 PR_SHOP_DEFAULTS = {}
@@ -287,6 +288,21 @@ PR_SHOP_DEFAULTS.Vehicles = {
         {"sim_fphys_tank3", "Leopard 2A7", "tanks", 100000, "simfphys"},
         {"wac_hc_littlebird_mh6", "MH-6 Little Bird", "helicopters", 60000, "no_simfphys"}
     },
+    -- Мародёры: только старьё — Вторая мировая и холодная война, ничего современного
+    SCAV = {
+        {"sim_fphys_pwtrabant", "Трабант", "light_armor", 1500, "simfphys"},
+        {"sim_fphys_pwzaz", "ЗАЗ «Запорожец»", "light_armor", 1500, "simfphys"},
+        {"sim_fphys_jeep", "Багги", "light_armor", 3000, "simfphys"},
+        {"sim_fphys_jeep_armed2", "Багги с пулемётом", "light_armor", 8000, "simfphys"},
+        {"sim_fphys_pwgaz52", "ГАЗ-52", "support_vehicle", 4000, "simfphys"},
+        {"sim_fphys_pwliaz", "ЛиАЗ", "support_vehicle", 5000, "simfphys"},
+        {"sim_fphys_conscriptapc_armed", "Старый БТР", "bmp_and_btr", 25000, "simfphys"},
+        {"sim_fphys_tank2", "M4 Sherman", "tanks", 55000, "simfphys"},
+        {"sim_fphys_tank", "Tiger I", "tanks", 65000, "simfphys"},
+        {"gred_lfs_oh6", "OH-6 Cayuse", "helicopters", 55000, "no_simfphys"},
+        {"gred_lfs_ah1g", "AH-1G Cobra", "helicopters", 85000, "no_simfphys"},
+        {"gred_lfs_mi24a", "Ми-24А", "helicopters", 100000, "no_simfphys"}
+    },
     WN = {
         {"sim_fphys_jeep_armed", "Джип с тау-пушкой", "light_armor", 9000, "simfphys"},
         {"sim_fphys_pwavia", "Avia", "support_vehicle", 4000, "simfphys"},
@@ -313,6 +329,12 @@ PR_SHOP_DEFAULTS.Cloth = {
         {"models/player/arctic.mdl", 0, 1},
         {"models/player/gasmask.mdl", 2000, 3},
         {"models/player/combine_soldier.mdl", 6000, 6}
+    },
+    SCAV = {
+        {"models/player/guerilla.mdl", 0, 1},
+        {"models/player/group03/male_04.mdl", 0, 1},
+        {"models/player/leet.mdl", 1500, 3},
+        {"models/player/group03m/male_06.mdl", 3000, 5}
     },
     WN = {
         {"models/player/group03/male_07.mdl", 0, 1},

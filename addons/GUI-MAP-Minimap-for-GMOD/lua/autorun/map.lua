@@ -203,7 +203,9 @@ surface.CreateFont("MapFont2", {
 								else
 									point.img:SetPos(math.Clamp(b/MAP.SizeX * numa, 0, self:GetWide() ), self:GetTall() - math.Clamp(a/MAP.SizeY * numa, 0, self:GetTall()) - 5)
 									point.img:SetVisible(flag_point != "" and flag_point != "Ничья")
-									point.img:SetImage("test_gm_mat/mini_flags/" .. string.lower(flag_point) .. ".png")
+									local mini = "test_gm_mat/mini_flags/" .. string.lower(flag_point) .. ".png"
+									if not file.Exists("materials/" .. mini, "GAME") and PR_FractionFlag then mini = PR_FractionFlag(flag_point) end
+									point.img:SetImage(mini)
 
 									--draw.RoundedBox(100, math.Clamp(b/MAP.SizeX * numa, 0, self:GetWide() ), self:GetTall() - math.Clamp(a/MAP.SizeY * numa, 0, self:GetTall()) - 5, 8, 8, Color(0, 255, 0, 255))
 									--draw.SimpleText(flag_point,  "MapFont1", math.Clamp(b/MAP.SizeX * numa, 0, self:GetWide()) + 10, 

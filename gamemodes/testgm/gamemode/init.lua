@@ -66,7 +66,7 @@ hook.Add("PlayerSpawn", "PR_GivePreset", function(ply)
 end)
 
 -- Награда за убийство игрока: 100$ + 20$ за уровень фракции жертвы, опыт 10 + уровень жертвы.
--- За своего — штраф 100$.
+-- За своего — штраф 100$ (мародёры друг другу не свои, см. PR_AreAllies).
 hook.Add("PlayerDeath", "PR_KillReward", function(victim, inflictor, attacker)
 	victim:SetNWInt("PR_deaths", victim:GetNWInt("PR_deaths") + 1)
 
@@ -77,7 +77,7 @@ hook.Add("PlayerDeath", "PR_KillReward", function(victim, inflictor, attacker)
 	local victimFrac = victim:GetNWString("PR_fraction")
 	local victimLevel = victim:GetNWInt("PR_level_" .. victimFrac)
 
-	if victimFrac == attacker:GetNWString("PR_fraction") then
+	if PR_AreAllies(victimFrac, attacker:GetNWString("PR_fraction")) then
 		PR_AddMoney(attacker, -100)
 		return
 	end

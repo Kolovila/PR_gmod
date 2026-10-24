@@ -90,7 +90,7 @@ function GM:ScoreboardShow()
 							deathForKD = v:GetNWInt("PR_deaths")
 						end
 						
-						draw.SimpleText(v:GetName().. " - Уровень: ".. v:GetNWInt("PR_level") .. " - " .. v:GetNWString("PR_fraction") .. ": " .. v:GetNWInt("PR_level_" .. v:GetNWString("PR_fraction")),"DermaDefault",55,10, Color(255,255,255,255))
+						draw.SimpleText(v:GetName().. " - Уровень: ".. v:GetNWInt("PR_level") .. " - " .. PR_FractionName(v:GetNWString("PR_fraction")) .. ": " .. v:GetNWInt("PR_level_" .. v:GetNWString("PR_fraction")),"DermaDefault",55,10, Color(255,255,255,255))
 						draw.SimpleText("Убийств игроков: "..v:GetNWInt("PR_kills"),"DermaDefault",PlayerList:GetWide()-20,3, Color(255,255,255,255), TEXT_ALIGN_RIGHT)
 						draw.SimpleText("Смертей: "..v:GetNWInt("PR_deaths"),"DermaDefault",PlayerList:GetWide()-20,18, Color(255,255,255,255), TEXT_ALIGN_RIGHT)
 						draw.SimpleText("Убийств NPC: "..v:GetNWInt("PR_kills_npc"),"DermaDefault",PlayerList:GetWide()-160,3, Color(255,255,255,255), TEXT_ALIGN_RIGHT)
@@ -234,7 +234,7 @@ function GM:ScoreboardShow()
 						deathForKD = v:GetNWInt("PR_deaths")
 					end
 					
-					draw.SimpleText(v:GetName().. " - Уровень: ".. v:GetNWInt("PR_level") .. " - " .. v:GetNWString("PR_fraction") .. ": " .. v:GetNWInt("PR_level_" .. v:GetNWString("PR_fraction")),"DermaDefault",55,10, Color(255,255,255,255))
+					draw.SimpleText(v:GetName().. " - Уровень: ".. v:GetNWInt("PR_level") .. " - " .. PR_FractionName(v:GetNWString("PR_fraction")) .. ": " .. v:GetNWInt("PR_level_" .. v:GetNWString("PR_fraction")),"DermaDefault",55,10, Color(255,255,255,255))
 					draw.SimpleText("Убийств игроков: "..v:GetNWInt("PR_kills"),"DermaDefault",PlayerList:GetWide()-20,3, Color(255,255,255,255), TEXT_ALIGN_RIGHT)
 					draw.SimpleText("Смертей: "..v:GetNWInt("PR_deaths"),"DermaDefault",PlayerList:GetWide()-20,18, Color(255,255,255,255), TEXT_ALIGN_RIGHT)
 					draw.SimpleText("Убийств NPC: "..v:GetNWInt("PR_kills_npc"),"DermaDefault",PlayerList:GetWide()-160,3, Color(255,255,255,255), TEXT_ALIGN_RIGHT)

@@ -355,13 +355,17 @@ end
 
 -- Список товаров вида kind для фракции: {{entry = e, index = i}, ...}
 local function Entries(kind, frac)
+    if kind == "weapon" then
+        return PR_GetWeaponEntries(frac)
+    end
+
     local def = KINDS[kind]
     local source = _G[def.global] or {}
     local list = def.byFraction and (source[frac] or {}) or source
     local out = {}
 
     for i, e in ipairs(list) do
-        if istable(e) then table.insert(out, {entry = e, index = i}) end
+        if istable(e) then table.insert(out, {entry = e, index = i, faction = frac}) end
     end
 
     return out
@@ -389,7 +393,7 @@ function PR_Shop.Build(parent, kind)
     header.Paint = function(self, w, h)
         PR_UI.Text(def.title, "title", 0, h / 2, C.text, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
         if def.byFraction and not isAdmin then
-            PR_UI.Text("Товары группировки " .. page.faction, "small", S(220), h / 2, C.muted, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+            PR_UI.Text("Товары группировки " .. PR_FractionName(page.faction), "small", S(220), h / 2, C.muted, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
         end
     end
 
@@ -407,7 +411,7 @@ function PR_Shop.Build(parent, kind)
             combo:SetWide(S(160))
             combo:SetFont(PR_UI.Font("normal"))
             for _, f in ipairs(PR_FRACTIONS) do
-                combo:AddChoice(f, f, f == page.faction)
+                combo:AddChoice(PR_FractionName(f), f, f == page.faction)
             end
             combo.OnSelect = function(_, _, value)
                 page.faction = value
@@ -523,7 +527,7 @@ function PR_Shop.Build(parent, kind)
         details:Clear()
         if not it then return end
 
-        PR_Shop.BuildDetails(details, kind, it.entry, it.index, self)
+        PR_Shop.BuildDetails(details, kind, it.entry, it.index, self, it.faction)
     end
 
     page:Refill()
@@ -560,8 +564,8 @@ local function UnlockNames(e, frac)
     for _, class in ipairs(need) do
         if class ~= "" then
             local found
-            for _, other in ipairs((PR_WS_List or {})[frac] or {}) do
-                if other.ClassName == class then found = ItemName("weapon", other) end
+            for _, it in ipairs(PR_GetWeaponEntries(frac)) do
+                if it.entry.ClassName == class then found = ItemName("weapon", it.entry) end
             end
             table.insert(names, found or class)
         end
@@ -570,9 +574,11 @@ local function UnlockNames(e, frac)
     return table.concat(names, " или ")
 end
 
-function PR_Shop.BuildDetails(panel, kind, e, index, page)
+-- source — группировка, в чьём списке лежит товар (у мародёров оружие берётся из чужих списков)
+function PR_Shop.BuildDetails(panel, kind, e, index, page, source)
     local def = KINDS[kind]
     local frac = page.faction
+    source = source or frac
     local isAdmin = PR_IsAdmin(Me())
 
     local inner = vgui.Create("DPanel", panel)
@@ -710,14 +716,14 @@ function PR_Shop.BuildDetails(panel, kind, e, index, page)
         adminLabel:SetTall(S(22))
         adminLabel:SetFont(PR_UI.Font("small"))
         adminLabel:SetTextColor(C.muted)
-        adminLabel:SetText("Админ: " .. (e[def.keyField] or "?"))
+        adminLabel:SetText("Админ: " .. (e[def.keyField] or "?") .. (source ~= frac and (" · из списка " .. PR_FractionName(source)) or ""))
 
         ActionButton(info, "Изменить", function()
-            PR_Shop.OpenEditor(kind, {entry = e, index = index, faction = frac})
+            PR_Shop.OpenEditor(kind, {entry = e, index = index, faction = source})
         end)
         ActionButton(info, "Удалить", function()
             Derma_Query("Удалить «" .. ItemName(kind, e) .. "» из магазина?", "Магазин", "Удалить", function()
-                PR_Shop.SaveEdit(kind, {entry = e, index = index, faction = frac}, nil)
+                PR_Shop.SaveEdit(kind, {entry = e, index = index, faction = source}, nil)
             end, "Отмена")
         end, {hoverColor = C.accentDark})
     end
@@ -730,7 +736,7 @@ end
 -- Поля редактора: {ключ, подпись, тип (text | number | combo), варианты}
 local function FractionChoices()
     local out = {}
-    for _, f in ipairs(PR_FRACTIONS) do table.insert(out, {f, f}) end
+    for _, f in ipairs(PR_FRACTIONS) do table.insert(out, {f, PR_FractionName(f)}) end
     return out
 end
 
