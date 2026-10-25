@@ -37,6 +37,11 @@ function ENT:Initialize()
 	self.Guardians = {}
 end
 
+-- Точек на карте немного: их знают все клиенты, даже далёкие (мини-карта показывает каждую)
+function ENT:UpdateTransmitState()
+	return TRANSMIT_ALWAYS
+end
+
 function ENT:SpawnFunction(ply, tr, ClassName)
 	if not tr.Hit then return end
 

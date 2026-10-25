@@ -264,7 +264,8 @@ function T.addFlipSteps(getTank)
 		local tank = getTank()
 		if not S.flipped or not (tank and IsValid(tank.ent)) then return true end
 		if tank.rightTries then S.rightingTried = true end
-		S.flipMaxSpeed = math.max(S.flipMaxSpeed, tank.ent:GetVelocity():Length())
+		-- Скорость — только пока работает поднималка (до неё танк ещё может падать после броска теста)
+		if S.rightingTried then S.flipMaxSpeed = math.max(S.flipMaxSpeed, tank.ent:GetVelocity():Length()) end
 		if tank.ent:GetUp().z > 0.8 then
 			S.flipUprightSince = S.flipUprightSince or CurTime()
 			return CurTime() - S.flipUprightSince >= 1

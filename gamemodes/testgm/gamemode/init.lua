@@ -8,6 +8,11 @@ AddCSLuaFile("cl_ui.lua")
 AddCSLuaFile("cl_shop.lua")
 AddCSLuaFile("cl_menu.lua")
 AddCSLuaFile("cl_patrols.lua")
+AddCSLuaFile("cl_minimap.lua")
+AddCSLuaFile("config/minimap.lua")
+
+-- Снимок карты для мини-карты: клиенты скачивают его с сервера (или с sv_downloadurl)
+resource.AddFile("materials/test_gm_mat/minimap/rp_desert_conflict.jpg")
 
 include("shared.lua")
 include("sv_util.lua")
@@ -17,6 +22,7 @@ include("sv_shop.lua")
 include("sv_admin.lua")
 include("sv_sandbox.lua")
 include("sv_patrols.lua")
+include("sv_minimap.lua")
 
 -- Игрок, которому засчитывается убийство. Водитель техники тоже считается.
 function PR_KillerPlayer(attacker)

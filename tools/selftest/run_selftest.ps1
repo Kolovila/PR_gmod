@@ -13,9 +13,11 @@ $Suites = @{
     core     = @('pr_selftest_sv.lua', 'core')
     patrol   = @('pr_selftest_sv.lua', 'patrol')
     armor    = @('pr_selftest_sv.lua', 'armor')
+    minimap  = @('pr_selftest_sv.lua', 'minimap')
     vehicles = @('pr_selftest_vehicles_sv.lua', '')
     tank     = @('pr_selftest_vehicles_sv.lua', 'tank')
     air      = @('pr_selftest_vehicles_sv.lua', 'air')
+    mapshot  = @('pr_mapshot_sv.lua', '')   # map picture for the minimap: then stitch_mapshot.ps1
 }
 if (-not $Suites.ContainsKey($Suite)) { "UNKNOWN_SUITE $Suite (known: $($Suites.Keys -join ', '))"; exit 3 }
 
@@ -71,6 +73,9 @@ robocopy "$R\gamemodes\testgm" "$GM\gamemodes\testgm" /MIR /NFL /NDL /NJH /NJS /
 foreach ($a in 'VJ-Base', 'GUI-MAP-Minimap-for-GMOD', 'eft_weapons') {
     robocopy "$R\addons\$a" "$GM\addons\$a" /E /NFL /NDL /NJH /NJS /NP | Out-Null
 }
+# The mode's own content (icons, flags, the minimap picture, the font)
+robocopy "$R\materials" "$GM\materials" /E /NFL /NDL /NJH /NJS /NP | Out-Null
+robocopy "$R\resource" "$GM\resource" /E /NFL /NDL /NJH /NJS /NP | Out-Null
 "DEPLOYED to $G"
 
 New-Item -ItemType Directory -Force "$GM\lua\autorun\server", "$GM\lua\autorun\client", "$GM\data" | Out-Null

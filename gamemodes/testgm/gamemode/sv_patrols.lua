@@ -410,6 +410,7 @@ function PR_Patrol.LoadSpots()
 		PR_Patrol.Spots[spot.Id] = spot
 	end
 	PR_Patrol.RebuildLinks()
+	hook.Run("PR_PatrolSpotsChanged")
 end
 
 -- Ближайший спот к pos (не дальше maxDist, если задан)
@@ -448,9 +449,11 @@ function PR_Patrol.SendSpots(target)
 	net.Send(recipients)
 end
 
+-- Споты или их территории изменились: связи, редактор у админов, территории на мини-карте
 local function SpotsChanged()
 	PR_Patrol.RebuildLinks()
 	PR_Patrol.SendSpots()
+	hook.Run("PR_PatrolSpotsChanged")
 end
 
 function PR_Patrol.AddSpot(pos, zone)
@@ -478,6 +481,7 @@ function PR_Patrol.SetZone(id, zone)
 	spot.Zone = zone or ""
 	PR_DB.SetPatrolSpotZone(id, spot.Zone)
 	PR_Patrol.SendSpots()
+	hook.Run("PR_PatrolSpotsChanged")
 	return true
 end
 

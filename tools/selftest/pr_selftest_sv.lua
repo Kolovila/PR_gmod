@@ -13,6 +13,7 @@ util.AddNetworkString("PR_SELFTEST_GUARD")
 util.AddNetworkString("PR_SELFTEST_PTYPE_SAVE")
 util.AddNetworkString("PR_SELFTEST_PTYPE_CMD")
 util.AddNetworkString("PR_SELFTEST_PTYPES_OPEN")
+util.AddNetworkString("PR_SELFTEST_MINIMAP")
 
 local T = include("pr_selftest_lib.lua")
 local S, log, check, step, waitFor, shot = T.S, T.log, T.check, T.step, T.waitFor, T.shot
@@ -1156,6 +1157,134 @@ step(1, function()
 		end
 		return true
 	end)())
+end)
+
+
+----------------------------------------------------------------------------------------------------
+-- Мини-карта: союзник вдали (движок его клиенту не шлёт) — виден, враг рядом — нет; далёкая точка
+-- захвата с названием и владельцем; территория из редактора и «где я»; карта рисуется
+----------------------------------------------------------------------------------------------------
+T.section("minimap")
+
+net.Receive("PR_SELFTEST_MINIMAP", function()
+	S.minimapState = net.ReadTable()
+end)
+
+-- Есть ли в присланном клиенту списке союзников бот ply рядом с его настоящим местом
+local function allyListed(st, ply)
+	if not IsValid(ply) then return false end
+	for _, a in ipairs(st and st.allies or {}) do
+		local idx, x, y = string.match(a, "^(%d+)@(-?%d+),(-?%d+)$")
+		if tonumber(idx) == ply:EntIndex() and Vector(tonumber(x), tonumber(y), 0):Distance(Vector(ply:GetPos().x, ply:GetPos().y, 0)) < 200 then
+			return true
+		end
+	end
+	return false
+end
+
+local function askMinimap(cmd)
+	net.Start("PR_SELFTEST_MINIMAP")
+		net.WriteString(cmd)
+	net.Send(S.host)
+end
+
+step(1, function()
+	net.Start("PR_SELFTEST_CLOSE") net.Send(S.host)
+	PR_Patrol.NextSpawn = math.huge
+	PR_Patrol.ClearAll()
+	check("minimap config for this map", istable(PR_MINIMAPS) and PR_MINIMAPS[string.lower(game.GetMap())] ~= nil)
+
+	local base = T.FIXED_BASES[1]
+	S.host:SetNWString("PR_fraction", "USA")
+	S.host:SetMoveType(MOVETYPE_WALK)
+	S.host:SetPos(base + Vector(0, 0, 10))
+	-- Лицом на восток: на поворачивающейся карте север уходит влево, на «север сверху» — нет
+	S.host:SetEyeAngles(Angle(0, 0, 0))
+	-- Свой далеко (вне видимости клиента), чужой рядом
+	if IsValid(S.b2) then
+		S.b2:SetNWString("PR_fraction", "USA")
+		S.b2:SetPos(T.HARD_SPOTS[2] + Vector(0, 0, 10))
+	end
+	if IsValid(S.b1) then
+		S.b1:SetNWString("PR_fraction", "SSNK")
+		S.b1:SetPos(base + Vector(600, 0, 10))
+	end
+
+	-- Далёкая точка: «Тест-точка» за USA; рядом — ничья
+	local function Point(pos, name, team)
+		local p = ents.Create("zahvat_ojka")
+		p:SetPos(pos)
+		p:Spawn()
+		p:Activate()
+		p:SetCurPoint(name)
+		p:SetCaptureTeam(team)
+		return p
+	end
+	S.mapPoints = {
+		Point(T.HARD_SPOTS[1], "Тест-точка", "USA"),
+		Point(base + Vector(-700, -900, 0), "Ничья-тест", "Ничья")
+	}
+	-- Третий бот — союзник рядом: стрелка с именем (дальний — значок на краю)
+	S.botsBefore = #player.GetBots()
+	RunConsoleCommand("bot")
+
+	-- Территория из редактора патрулей — спот прямо под хостом (рядом могут быть споты Тест-А/Б/В
+	-- из секции patrol: их названия — тоже территории)
+	S.mapSpot = PR_Patrol.AddSpot(base, "Тест-территория")
+end)
+
+waitFor(5, function() return #player.GetBots() > (S.botsBefore or 0) end, "near ally bot")
+
+step(0, function()
+	local bots = player.GetBots()
+	S.b3 = bots[#bots]
+	if IsValid(S.b3) then
+		S.b3:SetNWString("PR_fraction", "USA")
+		S.b3:SetPos(T.FIXED_BASES[1] + Vector(500, 350, 10))
+		S.b3:SetEyeAngles(Angle(0, 180, 0))
+	end
+end)
+
+waitFor(6, function()
+	if not S.minimapAsked or CurTime() > S.minimapAsked then
+		S.minimapAsked = CurTime() + 1
+		askMinimap("state")
+	end
+	-- Союзников сервер шлёт раз в полсекунды: ждём список уже после перестановки ботов
+	local st = S.minimapState
+	return st and st.zone == "Тест-территория" and allyListed(st, S.b2)
+end, "minimap data on the client")
+
+step(0, function()
+	local st = S.minimapState or {}
+	log(string.format("minimap: visible %s, drawn %.2f s ago, points [%s], allies [%s], zones [%s], zone %s, b2 dormant %s",
+		tostring(st.visible), st.drawnAgo or -1, table.concat(st.points or {}, ", "), table.concat(st.allies or {}, ", "),
+		table.concat(st.zones or {}, ", "), tostring(st.zone), tostring(st.b2Dormant)))
+	check("minimap drawn", st.visible == true and (st.drawnAgo or 99) < 1)
+	check("far capture point known with name and owner", table.HasValue(st.points or {}, "Тест-точка=USA"))
+	check("far ally position reaches the client", allyListed(st, S.b2), table.concat(st.allies or {}, ", "))
+	local enemyListed = false
+	for _, a in ipairs(st.allies or {}) do
+		if IsValid(S.b1) and tonumber(string.match(a, "^(%d+)@")) == S.b1:EntIndex() then enemyListed = true end
+	end
+	check("enemy is not sent as an ally", not enemyListed, table.concat(st.allies or {}, ", "))
+	check("territory from the patrol editor on the minimap", table.HasValue(st.zones or {}, "Тест-территория"))
+	check("minimap knows which territory you are in", st.zone == "Тест-территория", st.zone)
+	shot("minimap")
+	askMinimap("northup")
+end)
+
+step(1, function()
+	shot("minimap_north_up")
+	askMinimap("rotate")
+end)
+
+step(1, function()
+	for _, p in ipairs(S.mapPoints or {}) do
+		if IsValid(p) then p:Remove() end
+	end
+	if S.mapSpot then PR_Patrol.RemoveSpot(S.mapSpot) end
+	if IsValid(S.b3) then S.b3:Kick("selftest") end
 end)
 
 T.section("common")

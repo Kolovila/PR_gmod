@@ -159,6 +159,81 @@ hook.Add("DrawOverlay", "PR_SelfTestShot", function()
 	end
 end)
 
+-- Снимок карты сверху для мини-карты (pr_mapshot_sv.lua): ортокамера под самым небом, по плитке
+-- за кадр, каждая — в data/pr_selftest/map_<ряд>_<столбец>.png. Ряд 0 — север (большие y)
+local mapshot
+net.Receive("PR_SELFTEST_MAPSHOT", function()
+	mapshot = {
+		minX = net.ReadFloat(), maxX = net.ReadFloat(), minY = net.ReadFloat(), maxY = net.ReadFloat(),
+		z = net.ReadFloat(), n = net.ReadUInt(8), px = net.ReadUInt(16), i = 0, wait = 5
+	}
+	log("mapshot start")
+end)
+
+-- Без тумана: иначе дальние части карты сверху выходят серыми
+hook.Add("SetupWorldFog", "PR_SelfTestMapshot", function()
+	if mapshot then render.FogMode(MATERIAL_FOG_NONE) return true end
+end)
+hook.Add("SetupSkyboxFog", "PR_SelfTestMapshot", function()
+	if mapshot then render.FogMode(MATERIAL_FOG_NONE) return true end
+end)
+
+hook.Add("PostRender", "PR_SelfTestMapshot", function()
+	local m = mapshot
+	if not m then return end
+	if m.wait > 0 then m.wait = m.wait - 1 return end
+
+	local n = m.n
+	local r, c = math.floor(m.i / n), m.i % n
+	local tw, th = (m.maxX - m.minX) / n, (m.maxY - m.minY) / n
+	local cx, cy = m.minX + (c + 0.5) * tw, m.maxY - (r + 0.5) * th
+	render.RenderView({
+		origin = Vector(cx, cy, m.z), angles = Angle(90, 90, 0),
+		x = 0, y = 0, w = m.px, h = m.px,
+		ortho = {left = -tw / 2, right = tw / 2, top = -th / 2, bottom = th / 2},
+		znear = 1, zfar = 60000,
+		drawhud = false, drawviewmodel = false, drawmonitors = false, dopostprocess = false, bloomtone = false, drawviewer = false
+	})
+	local data = render.Capture({format = "png", x = 0, y = 0, w = m.px, h = m.px, alpha = false})
+	file.CreateDir("pr_selftest")
+	file.Write(string.format("pr_selftest/map_%d_%d.png", r, c), data or "")
+
+	m.i = m.i + 1
+	if m.i >= n * n then
+		mapshot = nil
+		net.Start("PR_SELFTEST_MAPSHOT_DONE")
+			net.WriteUInt(n * n, 8)
+		net.SendToServer()
+		log("mapshot done")
+	end
+end)
+
+-- Мини-карта: что знает клиент (точки, союзники, территории), рисуется ли; север сверху / поворот
+net.Receive("PR_SELFTEST_MINIMAP", function()
+	local cmd = net.ReadString()
+	if cmd == "northup" then RunConsoleCommand("pr_minimap_rotate", "0") return end
+	if cmd == "rotate" then RunConsoleCommand("pr_minimap_rotate", "1") return end
+
+	local M = PR_Minimap or {}
+	local points, allies, zones = {}, {}, {}
+	for _, p in ipairs(ents.FindByClass("zahvat_ojka")) do
+		table.insert(points, p:GetCurPoint() .. "=" .. p:GetCaptureTeam())
+	end
+	for index, a in pairs(M.allies or {}) do
+		table.insert(allies, string.format("%d@%d,%d", index, a.pos.x, a.pos.y))
+	end
+	for _, z in ipairs(M.zones or {}) do table.insert(zones, z.name) end
+	local b2 = player.GetBots()[2]
+	net.Start("PR_SELFTEST_MINIMAP")
+		net.WriteTable({
+			visible = M.Visible and M.Visible() or false,
+			drawnAgo = M.lastDraw and RealTime() - M.lastDraw or -1,
+			points = points, allies = allies, zones = zones, zone = M.currentZone or "",
+			b2Dormant = IsValid(b2) and b2:IsDormant() or "?"
+		})
+	net.SendToServer()
+end)
+
 hook.Add("InitPostEntity", "PR_SelfTestClient", function()
 	timer.Simple(10, function()
 		log("purchased tables: " .. tostring(istable(PR_PurchasedWeapons)) .. " " .. tostring(istable(PR_PurchasedModels)))

@@ -158,3 +158,6 @@ function PR_IsWeaponUnlocked(entry, purchased)
 
     return false
 end
+
+-- Мини-карта: снимки карт и их границы (нужны клиенту, cl_minimap.lua)
+include("config/minimap.lua")
