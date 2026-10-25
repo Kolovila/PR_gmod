@@ -51,7 +51,7 @@ step(0, function()
 
 	local vehicles = {}
 	if T.enabled("tank") then
-		table.insert(vehicles, {name = "Танк охраны", class = {"gred_simfphys_t72m2_custom"}, count = 1, crew = 2, reward = {money = 4000, exp = 10}})
+		table.insert(vehicles, {name = "Танк охраны", class = {"wt_king_tiger"}, count = 1, crew = 2, reward = {money = 4000, exp = 10}})
 	end
 	if T.enabled("air") then
 		table.insert(vehicles, {name = "Вертолёт охраны", class = {"gred_lfs_mi24a"}, count = 1, crew = 1, reward = {money = 2500, exp = 8}})
@@ -94,7 +94,10 @@ step(0, function()
 		gred.PR_SelftestWrapped = true
 		local startShooting, createBullet = gred.TankStartShooting, gred.CreateBullet
 		gred.TankStartShooting = function(vehicle, ...)
-			if S.tank and vehicle == S.tank.ent then S.cannonShots = S.cannonShots + 1 end
+			if S.tank and vehicle == S.tank.ent then
+				S.cannonShots = S.cannonShots + 1
+				if S.measureShot and not S.firstShotErr then S.firstShotErr = S.MuzzleError and S.MuzzleError(vehicle) end
+			end
 			return startShooting(vehicle, ...)
 		end
 		gred.CreateBullet = function(ply, pos, ang, cal, filter, ...)
@@ -162,51 +165,84 @@ step(0, function()
 	end
 end)
 
+-- Насколько ствол смотрит мимо цели (градусы). Ось дула у танков разная (у Луны — Up, у Гредвича —
+-- Forward или другая): берём ближайшую к направлению на цель из шести
+local function MuzzleError(veh)
+	local id = veh:LookupAttachment("cannon_muzzle")
+	if not id or id <= 0 then id = veh:LookupAttachment("muzzle") end
+	local att = id and id > 0 and veh:GetAttachment(id)
+	if not (att and IsValid(S.b1)) then return end
+	local want = (PR_Patrol.AimPoint(S.b1) - att.Pos):GetNormalized()
+	local best = 180
+	for _, axis in ipairs({att.Ang:Forward(), att.Ang:Up(), att.Ang:Right()}) do
+		for _, sign in ipairs({1, -1}) do
+			best = math.min(best, math.deg(math.acos(math.Clamp((axis * sign):Dot(want), -1, 1))))
+		end
+	end
+	return best
+end
+S.MuzzleError = MuzzleError
+
+-- Цель — игрок в технике: бот за рулём танка Луны в 1200 от патрульного танка
 step(0, function()
 	local tank = S.tank
 	if not (alive(tank) and IsValid(S.b1)) then return end
-	local p = T.clearPointFrom(tank.ent:GetPos(), 900, tank.ent:WorldSpaceCenter() + Vector(0, 0, 60))
-	log("tank target point " .. tostring(p))
-	if p then S.b1:SetPos(p + Vector(0, 0, 5)) end
-	tank.forceTarget = S.b1
-	S.tankShotBefore = tank.ent.NextShoot or 0
-	S.cannonBefore = S.cannonShots
-	lookAt(tank.ent:WorldSpaceCenter())
+	local p = T.openFirePoint(tank.ent:GetPos(), 1200) or T.openFirePoint(tank.ent:GetPos(), 900)
+	log("tank target vehicle at " .. tostring(p))
+	if not (p and simfphys and list.Get("simfphys_vehicles")["sim_fphys_tank"]) then return end
+	local yaw = (tank.ent:GetPos() - p):Angle().y + 90
+	S.targetVeh = simfphys.SpawnVehicleSimple("sim_fphys_tank", p + Vector(0, 0, 30), Angle(0, yaw, 0))
 end)
 
--- Башня T-72 Гредвича поворачивается 11.9°/с: на разворот до 180° нужно ~15 секунд, плюс выстрел
-waitFor(20, function()
-	return not alive(S.tank) or S.cannonShots > (S.cannonBefore or 0)
-end, "tank cannon shot")
+waitFor(5, function() return IsValid(S.targetVeh) and IsValid(S.targetVeh:GetDriverSeat()) end, "target vehicle ready")
 
 step(0, function()
 	local tank = S.tank
+	check("target vehicle spawned", IsValid(S.targetVeh) and IsValid(S.targetVeh:GetDriverSeat()))
+	if not (alive(tank) and IsValid(S.targetVeh)) then return end
+	S.b1:EnterVehicle(S.targetVeh:GetDriverSeat())
+	S.tankHits = 0
+	hook.Add("EntityTakeDamage", "PR_SelftestTankHits", function(victim, dmg)
+		if IsValid(S.targetVeh) and (victim == S.targetVeh or victim:GetParent() == S.targetVeh
+			or (isfunction(victim.GetBaseEnt) and victim:GetBaseEnt() == S.targetVeh)) then
+			S.tankHits = S.tankHits + 1
+			if S.inVehicleAtHit == nil then S.inVehicleAtHit = IsValid(S.b1) and IsValid(S.b1:GetVehicle()) end
+		end
+	end)
+	tank.forceTarget = S.b1
+	S.tankShotBefore = tank.ent.NextShoot or 0
+	S.cannonBefore = S.cannonShots
+	S.firstShotErr, S.measureShot, S.inVehicleAtHit = nil, true, nil
+	lookAt(tank.ent:WorldSpaceCenter())
+end)
+
+-- Башня King Tiger поворачивается медленно (6.5 на тик), плюс ствол и выстрел, плюс полёт снаряда
+waitFor(35, function()
+	return not alive(S.tank) or not IsValid(S.targetVeh) or (S.tankHits or 0) > 0
+end, "tank hits the player's vehicle")
+
+step(0, function()
+	local tank = S.tank
+	hook.Remove("EntityTakeDamage", "PR_SelftestTankHits")
+	S.measureShot = false
 	if not alive(tank) then
 		check("tank alive for aiming", false, PR_Patrol.VehicleInfo(tank))
 		return
 	end
 	local veh = tank.ent
-	if tank.aimAng then
-		log(string.format("tank aim: want %s, expected local %s", tostring(tank.aimAng), tostring(veh:WorldToLocalAngles(tank.aimAng))))
-	end
-	-- Дуло: у танков Луны «muzzle» (стреляет по Up), у Гредвича «cannon_muzzle» (по Forward)
-	local id = veh:LookupAttachment("cannon_muzzle")
-	if not id or id <= 0 then id = veh:LookupAttachment("muzzle") end
-	local att = id and id > 0 and veh:GetAttachment(id)
-	if att and IsValid(S.b1) then
-		local want = (S.b1:WorldSpaceCenter() - att.Pos):GetNormalized()
-		local errUp = math.deg(math.acos(math.Clamp(att.Ang:Up():Dot(want), -1, 1)))
-		local errFwd = math.deg(math.acos(math.Clamp(att.Ang:Forward():Dot(want), -1, 1)))
-		log(string.format("tank aim error: up %.1f, forward %.1f", errUp, errFwd))
-		check("tank turret aims at the target", math.min(errUp, errFwd) < 12, string.format("%.1f / %.1f", errUp, errFwd))
-	else
-		check("tank has a cannon muzzle", false)
-	end
-	log("cannon shots " .. tostring(S.cannonShots - (S.cannonBefore or 0)))
+	log(string.format("tank: target in vehicle at the first hit %s, cannon shots %d, first shot off by %s°, hits %d, aim tolerance %.1f°",
+		tostring(S.inVehicleAtHit), S.cannonShots - (S.cannonBefore or 0), tostring(S.firstShotErr and math.Round(S.firstShotErr, 1)),
+		S.tankHits or 0, tank.aimTolerance or -1))
 	check("tank fired its cannon", S.cannonShots > (S.cannonBefore or 0) or (veh.NextShoot or 0) > (S.tankShotBefore or 0))
+	check("tank fires only with the gun on target", S.firstShotErr ~= nil and S.firstShotErr < 4, S.firstShotErr)
+	check("tank hits a player in a vehicle", (S.tankHits or 0) > 0 and S.inVehicleAtHit == true, tostring(S.tankHits) .. " / " .. tostring(S.inVehicleAtHit))
+	local err = MuzzleError(veh)
+	check("tank turret aims at the target", err ~= nil and err < 12, err)
 	lookAt(veh:WorldSpaceCenter())
 	shot("veh_tank_aim")
 	tank.forceTarget = nil
+	if IsValid(S.b1) and IsValid(S.b1:GetVehicle()) then S.b1:ExitVehicle() end
+	if IsValid(S.targetVeh) then S.targetVeh:Remove() end
 end)
 
 T.addFlipSteps(function() return S.tank end)
@@ -246,7 +282,7 @@ step(0, function()
 	local text = T.patrolLogSince(S.logMark)
 	check("patrol log: patrol spawn written", string.find(text, "патруль «Тест: броня» вышел на спот", 1, true) ~= nil)
 	-- «уничтожена» или «без экипажа — взорвана» (если удар сперва убил экипаж) — и кому награда
-	local line = string.match(text, "«Танк охраны» %(gred_simfphys_t72m2_custom%) патруля «Тест: броня» [^\n]*награда: [^\n]*")
+	local line = string.match(text, "«Танк охраны» %(wt_king_tiger%) патруля «Тест: броня» [^\n]*награда: [^\n]*")
 	check("patrol log: destroyed tank and who did it", line ~= nil and string.find(line, "награда: " .. S.host:Nick(), 1, true) ~= nil, line)
 	if S.rightingTried then
 		check("patrol log: rollover written", string.find(text, "перевернулся", 1, true) ~= nil and string.find(text, "снова на гусеницах", 1, true) ~= nil)
@@ -296,6 +332,8 @@ step(0, function()
 	end
 	if S.heli then S.heli.forceTarget = S.b1 end
 	if S.oh6 then S.oh6.forceTarget = S.b1 end
+	-- Попадания по цели считаем с этого места: до того цель сидела в машине под огнём танка
+	S.oh6Hits, S.oh6WorldHits = 0, 0
 	S.airStart = {heli = S.heliShots, oh6 = S.oh6Shots, hits = S.oh6Hits}
 end)
 
@@ -319,7 +357,9 @@ step(2, function()
 	S.heliShotsBack = S.heliShots
 end)
 
-waitFor(12, function() return S.heliShots > (S.heliShotsBack or 0) end, "gunner fires at the found target")
+-- Если Ми-24 как раз ушёл на заход своим оружием (пике, отход носом от цели, уход вверх),
+-- стрелку из носовой турели цель не достать, пока он не вернётся на место сбоку — до ~20 с
+waitFor(25, function() return S.heliShots > (S.heliShotsBack or 0) end, "gunner fires at the found target")
 
 step(0, function()
 	local back = S.heliShots - (S.heliShotsBack or 0)

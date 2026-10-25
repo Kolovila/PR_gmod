@@ -183,6 +183,27 @@ function T.openPointNear(pos)
 	return best, bestClutter
 end
 
+-- Место под цель-машину в dist от танка, видное без оговорок: прямые свободны с трёх высот у танка
+-- (дуло может оказаться ниже или выше) до трёх высот машины-цели. Иначе танк честно не стрелял
+-- через пригорок, а тест считал это промахом
+function T.openFirePoint(pos, dist)
+	for yaw = 0, 330, 30 do
+		local p = pos + Angle(0, yaw, 0):Forward() * dist
+		local down = util.TraceLine({start = p + Vector(0, 0, 100), endpos = p - Vector(0, 0, 400), mask = MASK_SOLID_BRUSHONLY})
+		if down.Hit and not down.StartSolid and math.abs(down.HitPos.z - pos.z) < 80 then
+			local clear = true
+			for _, fh in ipairs({60, 90, 120}) do
+				for _, th in ipairs({30, 50, 80}) do
+					if util.TraceLine({start = pos + Vector(0, 0, fh), endpos = down.HitPos + Vector(0, 0, th), mask = MASK_SOLID_BRUSHONLY}).Hit then
+						clear = false
+					end
+				end
+			end
+			if clear then return down.HitPos end
+		end
+	end
+end
+
 ----------------------------------------------------------------------------------------------------
 -- Мелочи
 ----------------------------------------------------------------------------------------------------

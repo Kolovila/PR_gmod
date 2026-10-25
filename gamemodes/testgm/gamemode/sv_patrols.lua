@@ -895,6 +895,55 @@ function PR_Patrol.Center(patrol)
 end
 
 -- Враг для техники: ближайший видимый игрок (не экипаж, не notarget) или защитник точки
+-- Во что стрелять: в игрока, а если он в технике — в саму машину. Иначе целились в игрока,
+-- который сидит в люке на крыше, и снаряд с малейшим завышением уходил поверх
+local function AimBody(target)
+	if target:IsPlayer() then
+		local seat = target:GetVehicle()
+		if IsValid(seat) then
+			local base = seat:GetParent()
+			local body = IsValid(base) and base or seat
+			return body, body
+		end
+	end
+	return target
+end
+
+-- Куда целиться: середина, а если её закрывает низкое укрытие — верх (крыша машины, голова)
+function PR_Patrol.AimPoints(target)
+	local body, vehicle = AimBody(target)
+	local mins, maxs = body:OBBMins(), body:OBBMaxs()
+	local top = body:LocalToWorld(Vector((mins.x + maxs.x) / 2, (mins.y + maxs.y) / 2, mins.z + (maxs.z - mins.z) * 0.8))
+	return {body:WorldSpaceCenter(), top}, vehicle
+end
+
+function PR_Patrol.AimPoint(target)
+	return PR_Patrol.AimPoints(target)[1]
+end
+
+-- Видно ли цель (стены, дома и прочее). Не мешают сама цель, стреляющий и обе машины целиком —
+-- с колёсами и башнями (у simfphys это отдельные сущности на машине)
+local function PartOf(e, vehicle)
+	if not IsValid(vehicle) then return false end
+	if e == vehicle or e:GetParent() == vehicle then return true end
+	return isfunction(e.GetBaseEnt) and e:GetBaseEnt() == vehicle
+end
+
+-- Видимая точка цели (середина или верх) или nil
+local function VisiblePoint(from, target, shooter)
+	local points, vehicle = PR_Patrol.AimPoints(target)
+	local tr
+	for _, to in ipairs(points) do
+		tr = util.TraceLine({
+			start = from, endpos = to, mask = MASK_SOLID_BRUSHONLY,
+			filter = function(e) return e ~= target and not PartOf(e, shooter) and not PartOf(e, vehicle) end
+		})
+		if not tr.Hit then return to end
+	end
+	-- Что заслоняет (для pr_patrol_debug)
+	return nil, tr and string.format("%s@%d", tostring(tr.Entity), from:Distance(tr.HitPos))
+end
+
 function PR_Patrol.VehicleTarget(entry, from, range)
 	if IsValid(entry.forceTarget) then return entry.forceTarget end
 	if (entry.targetAt or 0) > CurTime() then
@@ -904,11 +953,9 @@ function PR_Patrol.VehicleTarget(entry, from, range)
 	entry.targetAt = CurTime() + 1
 
 	local best, bestD = nil, range * range
-	local function Consider(ent, pos)
-		local d = pos:DistToSqr(from)
-		if d >= bestD then return end
-		local tr = util.TraceLine({start = from, endpos = pos, mask = MASK_SOLID_BRUSHONLY})
-		if tr.Hit then return end
+	local function Consider(ent)
+		local d = PR_Patrol.AimPoint(ent):DistToSqr(from)
+		if d >= bestD or not VisiblePoint(from, ent, entry.ent) then return end
 		best, bestD = ent, d
 	end
 
@@ -919,12 +966,12 @@ function PR_Patrol.VehicleTarget(entry, from, range)
 	end
 
 	for _, ply in ipairs(player.GetAll()) do
-		if Enemy(ply) then Consider(ply, ply:WorldSpaceCenter()) end
+		if Enemy(ply) then Consider(ply) end
 	end
 
 	-- Защитники точек любых группировок — тоже враги бандитов
 	for _, npc in ipairs(ents.FindByClass("npc_*")) do
-		if Enemy(npc) then Consider(npc, npc:WorldSpaceCenter()) end
+		if Enemy(npc) then Consider(npc) end
 	end
 
 	-- Враг на миг скрылся (за домом, за краном) — помним его ещё 4 секунды, а не мечемся
@@ -1029,10 +1076,24 @@ local function CrewAim(entry, target)
 		return
 	end
 
-	-- От центра машины вверх по миру (а не по машине: перевёрнутая смотрела бы в землю)
-	local from = entry.ent:WorldSpaceCenter() + Vector(0, 0, 60)
-	local to = target:WorldSpaceCenter()
+	-- Целимся от дула пушки (танк), иначе от центра машины вверх по миру (а не по машине:
+	-- перевёрнутая смотрела бы в землю). От центра корпуса на 500 юнитов ошибка была в градусы
+	local ent = entry.ent
+	local from = ent:WorldSpaceCenter() + Vector(0, 0, 60)
+	if entry.kind == "ground" then
+		if entry.muzzleId == nil then
+			local id = ent:LookupAttachment("cannon_muzzle")
+			if not id or id <= 0 then id = ent:LookupAttachment("muzzle") end
+			entry.muzzleId = (id and id > 0) and id or false
+		end
+		local att = entry.muzzleId and ent:GetAttachment(entry.muzzleId)
+		if att then from = att.Pos end
+	end
+	local visible, blocker = VisiblePoint(from, target, ent)
+	local to = visible or PR_Patrol.AimPoint(target)
 	entry.aimAng = (to - from):Angle()
+	-- Насколько можно промахнуться углом: цель ~70 юнитов (на 1000 — 4°, на 3000 — 1.3°)
+	entry.aimTolerance = math.Clamp(math.deg(math.atan(70 / math.max(from:Distance(to), 1))), 0.6, 4)
 
 	if entry.aimTarget ~= target then
 		entry.aimTarget = target
@@ -1040,9 +1101,10 @@ local function CrewAim(entry, target)
 	end
 
 	-- Огонь, когда враг виден и прошло время довернуть пушку (у simfphys-танков точнее — по углу башни)
-	local clear = not util.TraceLine({start = from, endpos = to, mask = MASK_SOLID_BRUSHONLY}).Hit
+	local clear = visible ~= nil
 	local turned = CurTime() - (entry.aimSince or CurTime()) > 3 or entry.ent.sm_pp_yaw ~= nil
 	entry.fire = clear and turned
+	entry.aimDebug = string.format("see=%s%s turned=%s", tostring(clear), blocker and ("(" .. blocker .. ")") or "", tostring(turned))
 end
 
 hook.Add("StartCommand", "PR_PatrolCrew", function(ply, cmd)
@@ -1246,6 +1308,23 @@ end
 
 -- Вертолёт атакует со стороны: в 900 по горизонтали и на 600 выше цели (~34° вниз).
 -- Свой ИИ LFS зависает почти над целью, а турели стрелка (Ми-24: до 60° вниз) оттуда не достать
+-- Каков вертолёт: размах винта и тяга. Запасы высоты, упреждение и скорость захода — по ним:
+-- Ми-24 (винт 395, слабая тяга 0.6) не OH-6 (винт 173, тяга 2) — с запасами OH-6 он цеплял склон
+-- концом винта и не успевал вывернуть из пике
+local function AirSpec(entry, ent)
+	if entry.spec then return entry.spec end
+	local rotor = math.Clamp(isfunction(ent.GetRotorRadius) and ent:GetRotorRadius() or 150, 80, 500)
+	local thrust = isfunction(ent.GetThrustEfficiency) and ent:GetThrustEfficiency() or ent.ThrustEfficiencyHeli or 1
+	local heavy = thrust < 1
+	entry.spec = {
+		rotor = rotor,
+		clear = 250 + rotor * 0.6,          -- под винтом не меньше
+		lookahead = heavy and 3 or 2,       -- на сколько секунд полёта смотреть вперёд
+		diveSpeed = heavy and 380 or 520    -- быстрее на заходе не разгоняться
+	}
+	return entry.spec
+end
+
 -- Сторону берём ближайшую к вертолёту, откуда цель видно (не за домом или краном); пересчёт раз в секунду
 local function StandOffPoint(entry, target, from)
 	local now = CurTime()
@@ -1269,7 +1348,7 @@ local function StandOffPoint(entry, target, from)
 		for _, off in ipairs({Vector(250, 0, 0), Vector(-250, 0, 0), Vector(0, 250, 0), Vector(0, -250, 0)}) do
 			top = math.max(top, TopAt(p.x + off.x, p.y + off.y, ceil, tpos.z))
 		end
-		p.z = math.min(math.max(tpos.z + 600, top + 450), ceil - 250)
+		p.z = math.min(math.max(tpos.z + 600, top + (entry.spec and entry.spec.clear or 350) + 100), ceil - 250)
 		return p
 	end
 
@@ -1294,12 +1373,12 @@ end
 -- Высота захода: на 450 выше цели и на 400 выше крыш и склонов на пути к ней. С запасом над
 -- порогом «мало места снизу» (250): иначе над крышами он то и дело срывался в уход вверх и
 -- тут же снова нырял, так и не доходя до цели
-local function StrafeAltitude(pos, tpos)
+local function StrafeAltitude(pos, tpos, clear)
 	local ceil = CeilingAt(tpos)
-	local z = tpos.z + 450
+	local z = tpos.z + clear + 200
 	for _, f in ipairs({0, 0.25, 0.5, 0.75}) do
 		local x, y = pos.x + (tpos.x - pos.x) * f, pos.y + (tpos.y - pos.y) * f
-		z = math.max(z, TopAt(x, y, ceil, tpos.z) + 400)
+		z = math.max(z, TopAt(x, y, ceil, tpos.z) + clear + 150)
 	end
 	return math.min(z, ceil - 250)
 end
@@ -1316,13 +1395,14 @@ local function StrafePoint(entry, ent, target)
 		away.z = 0
 		local p = tpos + away * 1500
 		local ceil = CeilingAt(tpos)
-		p.z = math.min(math.max(tpos.z + 700, TopAt(p.x, p.y, ceil, tpos.z) + 500), ceil - 250)
+		p.z = math.min(math.max(tpos.z + 700, TopAt(p.x, p.y, ceil, tpos.z) + AirSpec(entry, ent).clear + 200), ceil - 250)
 		entry.breakPos = p
 		entry.breakUntil = now + 6
 		return p
 	end
 
-	local climb = math.Clamp(StrafeAltitude(pos, tpos) - pos.z, -400, 400)
+	local spec = AirSpec(entry, ent)
+	local climb = math.Clamp(StrafeAltitude(pos, tpos, spec.clear) - pos.z, -400, 400)
 	-- Только что уходил от препятствия — пока не снижаемся, а то нырнёт в него же
 	if entry.holdAltUntil and CurTime() < entry.holdAltUntil then climb = math.max(climb, 0) end
 
@@ -1334,15 +1414,15 @@ local function StrafePoint(entry, ent, target)
 
 	local dive = math.Clamp(math.NormalizeAngle((tpos - ent:WorldSpaceCenter()):Angle().p), 0, 40)
 	local forwardSpeed = ent:WorldToLocal(pos + ent:GetVelocity()).x
+	-- Разогнался — нос почти ровно, пока не сбросит скорость (из пике на 500 тяжёлый не выходит)
+	if forwardSpeed > spec.diveSpeed then dive = math.min(dive, 5) end
 	-- true: заход на цель (нос на неё), а не отход
 	return ent:LocalToWorld(Vector(50 * dive + 5 * forwardSpeed, 0, climb)), true
 end
 
 -- Свой ИИ LFS облетает препятствия, но мы его точки подменяем — значит, и смотреть вперёд нам.
--- Если за 2 секунды полёта по ходу что-то есть, под брюхом меньше 250 или лопасти уже чиркают
--- (LFS ломает винт после ~20 касаний) — тормозим и набираем высоту, пока не станет чисто
-local AIR_LOOKAHEAD = 2
-local AIR_MIN_CLEAR = 250
+-- Если за 2–3 секунды полёта по ходу что-то есть, под винтом меньше запаса (AirSpec) или лопасти
+-- уже чиркают (LFS ломает винт после ~20 касаний) — тормозим и набираем высоту, пока не станет чисто
 
 local function AirTraceFilter(ent)
 	if isfunction(ent.GetCrosshairFilterEnts) then
@@ -1358,12 +1438,15 @@ local function NeedsPullUp(entry, ent)
 
 	local pos = ent:WorldSpaceCenter()
 	local filter = AirTraceFilter(ent)
-	local r = math.Clamp(isfunction(ent.GetRotorRadius) and ent:GetRotorRadius() or 150, 80, 260)
-	local ahead = ent:GetVelocity() * AIR_LOOKAHEAD
+	local spec = AirSpec(entry, ent)
+	local r = spec.rotor
+	local ahead = ent:GetVelocity() * spec.lookahead
 	if ahead:Length() < 300 then ahead = ahead:GetNormalized() * 300 end
 
 	local front = util.TraceHull({start = pos, endpos = pos + ahead, mins = Vector(-r, -r, -40), maxs = Vector(r, r, 40), filter = filter, mask = MASK_SOLID_BRUSHONLY})
-	local below = util.TraceLine({start = pos, endpos = pos - Vector(0, 0, AIR_MIN_CLEAR), filter = filter, mask = MASK_SOLID_BRUSHONLY})
+	-- Под всем винтом, а не одной точкой: склон сбоку винт заденет раньше, чем брюхо
+	local rb = r * 0.7
+	local below = util.TraceHull({start = pos, endpos = pos - Vector(0, 0, spec.clear), mins = Vector(-rb, -rb, 0), maxs = Vector(rb, rb, 10), filter = filter, mask = MASK_SOLID_BRUSHONLY})
 	if (front.Hit and not front.HitSky) or below.Hit or ent.RotorHit then
 		entry.pullUntil = now + 1.5
 		entry.holdAltUntil = now + 4.5
@@ -1946,7 +2029,13 @@ local function WrapGredwitch()
 
 			-- result — где башня сейчас (Гредвич доворачивает со скоростью танка): стрелять, когда встала
 			if isangle(result) then
-				entry.gredAligned = math.abs(math.AngleDifference(want.y + (SeatTab.TraverseOffset or 0), result.y)) < 4
+				-- Гредвич сперва доворачивает башню, а ствол поднимает/опускает уже потом: стрелять,
+				-- только когда сошлись и курс, и наклон (раньше смотрели лишь курс — стрелял мимо)
+				local tol = entry.aimTolerance or 4
+				local dy = math.AngleDifference(want.y + (SeatTab.TraverseOffset or 0), result.y)
+				local dp = math.AngleDifference(want.p, result.p)
+				entry.gredAligned = math.abs(dy) < tol and math.abs(dp) < tol
+				entry.gredDebug = string.format("dy=%.1f dp=%.1f tol=%.1f", dy, dp, tol)
 			end
 			return result
 		end
@@ -2073,7 +2162,8 @@ local function DriveGround(patrol, v)
 		local want = veh:WorldToLocalAngles(v.aimAng)
 		local dy = math.AngleDifference(want.y, veh.sm_pp_yaw)
 		local dp = math.AngleDifference(want.p, veh.sm_pp_pitch or want.p)
-		v.fire = math.abs(dy) < 4 and math.abs(dp) < 4
+		local tol = v.aimTolerance or 4
+		v.fire = math.abs(dy) < tol and math.abs(dp) < tol
 	elseif v.fire and v.gredAligned ~= nil then
 		-- Танки Гредвича: перехват наведения знает, встала ли башня на цель
 		v.fire = v.gredAligned
@@ -2223,7 +2313,7 @@ function PR_Patrol.VehicleInfo(v)
 		IsValid(ent) and #CrewSeats(v) or -1, crew, IsValid(ent) and isfunction(ent.GetDriver) and tostring(ent:GetDriver()) or "-",
 		IsValid(ent) and isfunction(ent.GetCurHealth) and tostring(ent:GetCurHealth()) or "-",
 		IsValid(ent) and tostring(ent:GetPos()) or "-", IsValid(ent) and ent:GetUp().z or -9, IsValid(ent) and math.Round(ent:GetVelocity():Length()) or -1,
-		heading, tostring(v.driveState or v.airMode), tostring(v.fire), tostring(v.lastFly), IsValid(ent) and tostring(ent.PR_AimWrapped) or "-", tostring(v.aimTarget),
+		heading, tostring(v.driveState or v.airMode), tostring(v.fire) .. " " .. tostring(v.aimDebug) .. " " .. tostring(v.gredDebug), tostring(v.lastFly), IsValid(ent) and tostring(ent.PR_AimWrapped) or "-", tostring(v.aimTarget),
 		IsValid(ent) and tostring(ent.sm_pp_yaw) or "-", IsValid(ent) and tostring(ent.sm_pp_pitch) or "-", tostring(v.lastError))
 end
 
