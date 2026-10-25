@@ -120,7 +120,12 @@ step(0, function()
 		if victim ~= S.b1 or not S.oh6 then return end
 		local attacker = dmg:GetAttacker()
 		if attacker == S.oh6.ent then S.oh6Hits = S.oh6Hits + 1
-		elseif attacker == game.GetWorld() then S.oh6WorldHits = S.oh6WorldHits + 1 end
+		elseif attacker == game.GetWorld() then
+			S.oh6WorldHits = S.oh6WorldHits + 1
+			local inflictor = dmg:GetInflictor()
+			log(string.format("world hit on the target: %d dmg, type %d, inflictor %s, alive %s", dmg:GetDamage(), dmg:GetDamageType(),
+				IsValid(inflictor) and inflictor:GetClass() or tostring(inflictor), tostring(victim:Alive())))
+		end
 	end)
 end)
 
@@ -356,6 +361,47 @@ step(0, function()
 	log(string.format("heli gunner shots %d, oh6 shots %d, hits %d, world hits %d", heliShots, oh6Shots, hits, S.oh6WorldHits))
 	check("heli gunner fired", heliShots > 0, heliShots)
 
+	-- Очередь стрелка ранит игрока. VIVO (Workshop 2531451625) считает пулевой урон по игроку только
+	-- через ScalePlayerDamage, а пули Гредвича бьют напрямую — VIVO их глотал, урона не было.
+	-- Смотрим, дошло ли попадание стрелка до ран VIVO; цель на это время смертна
+	S.vivo = istable(OJSWounds) and isfunction(OJSWounds.TakeDamage)
+	check("VIVO loaded", S.vivo)
+	if S.vivo and IsValid(S.b1) then
+		S.gunnerWounds, S.woundHp, S.woundPos, S.woundShots = 0, S.b1:Health(), S.b1:GetPos(), S.heliShots
+		if not OJSWounds.PR_SelftestWrapped then
+			OJSWounds.PR_SelftestWrapped = true
+			local takeDamage = OJSWounds.TakeDamage
+			OJSWounds.TakeDamage = function(self, ply, dmg, part, attacker, dmginfo, ...)
+				if S.gunnerWounds and ply == S.b1 and S.heli and attacker == crewOf(S.heli, 1) and dmginfo and dmginfo:IsBulletDamage() then
+					S.gunnerWounds = S.gunnerWounds + 1
+					-- Рана засчитана — дальше цель снова бессмертна: попадание в голову убивает, а
+					-- возрождённого бота режим переносит на точку появления
+					ply:GodEnable()
+				end
+				return takeDamage(self, ply, dmg, part, attacker, dmginfo, ...)
+			end
+		end
+		S.b1:GodDisable()
+	end
+end)
+
+-- До 40 с: если Ми-24 как раз ушёл на заход своим оружием, стрелку цель не достать, пока не вернётся
+waitFor(40, function() return not S.vivo or (S.gunnerWounds or 0) > 0 or not (IsValid(S.b1) and S.b1:Alive()) end, "gunner wounds the target")
+
+step(0, function()
+	if S.vivo and IsValid(S.b1) then
+		log(string.format("gunner bullet wounds %d (gunner shots meanwhile %d), target hp %d -> %d, alive %s", S.gunnerWounds,
+			S.heliShots - (S.woundShots or 0), S.woundHp, S.b1:Health(), tostring(S.b1:Alive())))
+		check("Mi-24 gunner's bullets wound a player (VIVO)", S.gunnerWounds > 0, S.gunnerWounds)
+		S.gunnerWounds = nil
+		S.b1:GodEnable()
+		-- Убили — поднимаем там же, где стоял
+		if not S.b1:Alive() then
+			S.b1:Spawn()
+			S.b1:GodEnable()
+			S.b1:SetPos(S.woundPos)
+		end
+	end
 	-- Ми-24 теряет цель (ушла за дом) — потом видит её снова
 	if S.heli then S.heli.forceTarget = nil end
 end)
