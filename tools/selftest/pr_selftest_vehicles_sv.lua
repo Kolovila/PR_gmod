@@ -53,12 +53,12 @@ step(0, function()
 	if T.enabled("tank") then
 		table.insert(vehicles, {name = "Танк охраны", class = {"wt_king_tiger"}, count = 1, crew = 2, reward = {money = 4000, exp = 10}})
 	end
-	if T.enabled("air") then
+	if T.enabled("air") or T.enabled("helistrike") then
 		table.insert(vehicles, {name = "Вертолёт охраны", class = {"gred_lfs_mi24a"}, count = 1, crew = 1, reward = {money = 2500, exp = 8}})
 		-- Без стрелка: бьёт курсовым пулемётом заходами
 		table.insert(vehicles, {name = "Вертушка", class = {"gred_lfs_oh6"}, count = 1, crew = 0, reward = {money = 1500, exp = 5}})
 	end
-	if T.enabled("plane") or T.enabled("dogfight") then
+	if T.enabled("plane") or T.enabled("dogfight") or T.enabled("strike") then
 		table.insert(vehicles, {name = "Штурмовик", class = {"gred_lfs_a10"}, count = 1, crew = 2, reward = {money = 3000, exp = 10}})
 	end
 
@@ -823,6 +823,253 @@ step(0, function()
 end)
 
 
+
+----------------------------------------------------------------------------------------------------
+-- Самолёт сел и не взлетает (носом в склон): через 8 с его возвращают в небо. В игре — только
+-- если рядом нет игроков; хост теста всегда рядом, поэтому recoverAnyway
+----------------------------------------------------------------------------------------------------
+step(0, function()
+	local v = S.plane
+	if not (v and IsValid(v.ent)) then return end
+	local center = S.armor and PR_Patrol.Center(S.armor) or v.ent:GetPos()
+	local spot = T.openPointNear(center) or center
+	v.forceTarget = nil
+	v.recoverAnyway = true
+	S.groundMark = T.patrolLogMark()
+	v.ent:SetPos(spot + Vector(0, 0, 120))
+	v.ent:SetAngles(Angle(0, 0, 0))
+	local phys = v.ent:GetPhysicsObject()
+	if IsValid(phys) then phys:SetVelocity(Vector(0, 0, 0)) phys:EnableMotion(false) end
+	log("plane put on the ground at " .. tostring(v.ent:GetPos()))
+end)
+
+waitFor(25, function()
+	local v = S.plane
+	return not (v and IsValid(v.ent)) or (T.patrolLogSince(S.groundMark) or ""):find("снова в небе", 1, true) ~= nil
+end, "grounded plane relaunched")
+
+waitFor(15, function()
+	local v = S.plane
+	return not (v and IsValid(v.ent)) or (not v.holdUntil and v.ent:GetVelocity():Length() > 600)
+end, "relaunched plane flying")
+
+step(0, function()
+	local v = S.plane
+	local relaunched = (T.patrolLogSince(S.groundMark) or ""):find("снова в небе", 1, true) ~= nil
+	check("plane stuck on the ground is relaunched into the sky", relaunched)
+	check("relaunched plane flies again", v and IsValid(v.ent) and not v.holdUntil and v.ent:GetVelocity():Length() > 600,
+		v and IsValid(v.ent) and math.Round(v.ent:GetVelocity():Length()))
+	if v then v.recoverAnyway = nil end
+end)
+
+----------------------------------------------------------------------------------------------------
+-- Цель — игрок в технике на открытом месте (бот в танке Луны). Общие для самолёта и вертолёта
+----------------------------------------------------------------------------------------------------
+local function spawnStrikeTarget()
+	local center = S.armor and PR_Patrol.Center(S.armor)
+	if not (center and IsValid(S.b1) and simfphys and list.Get("simfphys_vehicles")["sim_fphys_tank"]) then return end
+	local p = T.openPointNear(center) or center
+	-- Бот мог остаться «в машине», которую взорвали: высаживаем и ставим на ноги
+	if S.b1:InVehicle() then S.b1:ExitVehicle() end
+	S.b1:SetPos(p + Vector(200, 0, 10))
+	S.strikeVeh = simfphys.SpawnVehicleSimple("sim_fphys_tank", p + Vector(0, 0, 30), Angle(0, math.random(0, 359), 0))
+	S.strikeHits, S.strikeRocketHits, S.strikeHP0 = 0, 0, nil
+	log("strike target vehicle at " .. tostring(p))
+end
+
+local function watchStrike(shooter)
+	hook.Add("EntityTakeDamage", "PR_SelftestStrike", function(victim, dmg)
+		local veh = S.strikeVeh
+		if not IsValid(veh) or not (victim == veh or victim:GetParent() == veh or (isfunction(victim.GetBaseEnt) and victim:GetBaseEnt() == veh)) then return end
+		local a, i = dmg:GetAttacker(), dmg:GetInflictor()
+		local own = IsValid(a) and (a == shooter.ent or (a:IsPlayer() and a.PR_PatrolCrew == shooter))
+		if not own then return end
+		S.strikeHits = S.strikeHits + 1
+		if IsValid(i) and string.find(i:GetClass(), "rocket", 1, true) then S.strikeRocketHits = S.strikeRocketHits + 1 end
+	end)
+end
+
+-- Машина потеряла прочность (или уничтожена)
+local function strikeDamaged()
+	local veh = S.strikeVeh
+	if not IsValid(veh) then return true end
+	return S.strikeHP0 ~= nil and veh:GetCurHealth() < S.strikeHP0
+end
+
+local function strikeVehicleState()
+	local veh = S.strikeVeh
+	if not IsValid(veh) then return "уничтожена (убрана)" end
+	return string.format("hp %s/%s", tostring(veh:GetCurHealth()), tostring(veh:GetMaxHealth()))
+end
+
+----------------------------------------------------------------------------------------------------
+-- Штурмовик по технике: заходы «по технике», залп ракет, урон по машине
+----------------------------------------------------------------------------------------------------
+T.section("strike")
+
+waitFor(20, function() return S.plane and IsValid(S.plane.ent) and not S.plane.holdUntil end, "plane released for the strike")
+
+step(0, function()
+	-- Остальная авиация в стороне (forceTarget у неё мог остаться от прошлых проверок — он главнее)
+	for _, v in ipairs({S.heli, S.oh6}) do if v then v.ignoreTargets, v.forceTarget = true, nil end end
+	spawnStrikeTarget()
+end)
+
+waitFor(5, function() return IsValid(S.strikeVeh) and IsValid(S.strikeVeh:GetDriverSeat()) end, "strike target ready")
+
+step(0, function()
+	local v = S.plane
+	check("strike target vehicle spawned", IsValid(S.strikeVeh))
+	if not (v and IsValid(v.ent) and IsValid(S.strikeVeh)) then return end
+	S.b1:EnterVehicle(S.strikeVeh:GetDriverSeat())
+	check("target bot sits in the strike vehicle", S.b1:GetVehicle() == S.strikeVeh:GetDriverSeat(), tostring(S.b1:GetVehicle()))
+	-- Пушка на время проверки пустая: 30 мм убивал танк раньше, чем уходила хоть одна ракета
+	S.planeGunAmmo = v.ent:GetAmmoPrimary()
+	v.ent:SetAmmoPrimary(0)
+	S.strikeHP0 = S.strikeVeh:GetCurHealth()
+	S.strikeRockets0 = v.rocketsFired or 0
+	S.strikeAmmo0 = v.ent:GetAmmoSecondary()
+	S.strikeMark = T.patrolLogMark()
+	v.planeMode, v.planeRunYaw = nil, nil
+	v.forceTarget = S.b1
+	watchStrike(v)
+end)
+
+waitFor(75, function()
+	local v = S.plane
+	return not (v and IsValid(v.ent)) or not IsValid(S.strikeVeh) or ((v.rocketsFired or 0) > S.strikeRockets0 and strikeDamaged())
+end, "plane strikes the vehicle")
+
+step(1, function()
+	local v = S.plane
+	local lines = T.patrolLogSince(S.strikeMark) or ""
+	local rockets = v and (v.rocketsFired or 0) - (S.strikeRockets0 or 0) or 0
+	log(string.format("strike: plane rockets %d (ammo %s -> %s), hits on the vehicle %d (rockets %d), vehicle %s", rockets,
+		tostring(S.strikeAmmo0), v and IsValid(v.ent) and tostring(v.ent:GetAmmoSecondary()) or "-", S.strikeHits or 0, S.strikeRocketHits or 0, strikeVehicleState()))
+	for _, line in ipairs(string.Explode("\n", lines)) do
+		if line:find("заход по технике", 1, true) and line:find("dive", 1, true) then log("  " .. line) end
+	end
+	check("plane flies vehicle runs against a player in a vehicle", lines:find("заход по технике", 1, true) ~= nil)
+	check("plane fires rockets at the vehicle", rockets > 0, rockets)
+	check("plane's fire damages the vehicle (or destroys it)", strikeDamaged(), strikeVehicleState())
+	check("plane survives its strike", v and IsValid(v.ent) and not (isfunction(v.ent.IsDestroyed) and v.ent:IsDestroyed()))
+	if v and IsValid(v.ent) and S.planeGunAmmo then v.ent:SetAmmoPrimary(S.planeGunAmmo) end
+	if v then v.forceTarget = nil end
+	hook.Remove("EntityTakeDamage", "PR_SelftestStrike")
+	if IsValid(S.b1) and IsValid(S.b1:GetVehicle()) then S.b1:ExitVehicle() end
+	if IsValid(S.strikeVeh) then S.strikeVeh:Remove() end
+	for _, h in ipairs({S.heli, S.oh6}) do if h then h.ignoreTargets = nil end end
+end)
+
+----------------------------------------------------------------------------------------------------
+-- Ми-24 по технике: заходы с ракетами (подвес 8 — контейнеры и ракеты) и управляемые ракеты стрелка
+----------------------------------------------------------------------------------------------------
+T.section("helistrike")
+
+-- Свой патруль со свежим Ми-24 (вертолёт основного мог разбиться в раундах выше — тогда всё ниже
+-- падало бы следом). Две части: сначала без управляемых ракет стрелка (одна такая убивает танк
+-- сразу, и пилот не успевал выстрелить) — ракеты пилота; потом по новой цели — ракеты стрелка
+step(0, function()
+	local key, err = PR_Patrol.SaveType(nil, {
+		name = "Тест: Ми-24",
+		leader = {name = "Решала", class = {"npc_vj_mishawild_reshala1"}, weapons = {"weapon_vj_meft_reshala_ak101"}, health = 600},
+		vehicles = {{name = "Ми-24", class = {"gred_lfs_mi24a"}, count = 1, crew = 1, reward = {money = 2500, exp = 8}}}
+	})
+	S.hsType = key
+	check("Mi-24 strike patrol type saved", key ~= nil, err)
+	if not key then return end
+	S.hsPatrol = PR_Patrol.Spawn(key, S.spotB or S.spotA)
+	S.hs = S.hsPatrol and S.hsPatrol.vehicles[1]
+	if S.hsPatrol then S.hsPatrol.lingerUntil = CurTime() + 600 end
+end)
+
+waitFor(25, function() return S.hs and IsValid(S.hs.ent) and not S.hs.holdUntil and IsValid(crewOf(S.hs, 1)) end, "Mi-24 ready for the strike")
+
+step(0, function()
+	for _, v in ipairs({S.plane, S.oh6, S.heli}) do if v then v.ignoreTargets, v.forceTarget = true, nil end end
+	if S.hs and IsValid(S.hs.ent) then
+		S.hs.ent:SetLoadout(8)
+		S.hs.ent:SetMissiles(false)
+	end
+	spawnStrikeTarget()
+end)
+
+waitFor(5, function() return IsValid(S.strikeVeh) and IsValid(S.strikeVeh:GetDriverSeat()) end, "heli strike target ready")
+
+step(0, function()
+	local v = S.hs
+	check("heli strike target vehicle spawned", IsValid(S.strikeVeh))
+	if not (v and IsValid(v.ent) and IsValid(S.strikeVeh)) then return end
+	S.b1:EnterVehicle(S.strikeVeh:GetDriverSeat())
+	check("target bot sits in the heli strike vehicle", S.b1:GetVehicle() == S.strikeVeh:GetDriverSeat(), tostring(S.b1:GetVehicle()))
+	S.strikeHP0 = S.strikeVeh:GetCurHealth()
+	S.heliRockets0, S.heliMissiles0 = v.rocketsFired or 0, v.missilesFired or 0
+	log(string.format("Mi-24 loadout %d, ammo %d/%d", v.ent:GetLoadout(), v.ent:GetAmmoPrimary(), v.ent:GetAmmoSecondary()))
+	v.forceTarget = S.b1
+	watchStrike(v)
+end)
+
+waitFor(60, function()
+	local v = S.hs
+	return not (v and IsValid(v.ent)) or not IsValid(S.strikeVeh) or ((v.rocketsFired or 0) > S.heliRockets0 and strikeDamaged())
+end, "Mi-24 rocket runs on the vehicle")
+
+step(1, function()
+	local v = S.hs
+	local rockets = v and (v.rocketsFired or 0) - (S.heliRockets0 or 0) or 0
+	log(string.format("heli strike (rockets): rockets %d, hits on the vehicle %d (rockets %d), runs %s, vehicle %s", rockets,
+		S.strikeHits or 0, S.strikeRocketHits or 0, v and tostring(v.runs) or "-", strikeVehicleState()))
+	check("Mi-24 fires rockets at a vehicle on its runs", rockets > 0, rockets)
+	check("Mi-24 rockets damage the vehicle (or destroy it)", strikeDamaged(), strikeVehicleState())
+	check("Mi-24 rockets count as its own (owner set: kill credit, no friendly fire)", (S.strikeRocketHits or 0) > 0 or not IsValid(S.strikeVeh), S.strikeRocketHits)
+	hook.Remove("EntityTakeDamage", "PR_SelftestStrike")
+	if IsValid(S.b1) and IsValid(S.b1:GetVehicle()) then S.b1:ExitVehicle() end
+	if IsValid(S.strikeVeh) then S.strikeVeh:Remove() end
+	-- Часть вторая: управляемые ракеты стрелка
+	if v and IsValid(v.ent) then v.ent:SetMissiles(true) end
+	spawnStrikeTarget()
+end)
+
+waitFor(5, function() return IsValid(S.strikeVeh) and IsValid(S.strikeVeh:GetDriverSeat()) end, "missile target ready")
+
+step(0, function()
+	local v = S.hs
+	if not (v and IsValid(v.ent) and IsValid(S.strikeVeh)) then check("missile target vehicle spawned", false) return end
+	S.b1:EnterVehicle(S.strikeVeh:GetDriverSeat())
+	S.strikeHP0 = S.strikeVeh:GetCurHealth()
+	S.heliMissiles0 = v.missilesFired or 0
+	v.forceTarget = S.b1
+	watchStrike(v)
+	-- Куда легли управляемые ракеты: расстояние до машины в момент взрыва
+	S.missileMiss = {}
+	hook.Add("EntityRemoved", "PR_SelftestMissiles", function(e)
+		if IsValid(e) and e:GetClass() == "gb_rocket_nebel" and IsValid(S.strikeVeh) then
+			table.insert(S.missileMiss, math.Round(e:GetPos():Distance(S.strikeVeh:WorldSpaceCenter())))
+		end
+	end)
+end)
+
+waitFor(40, function()
+	local v = S.hs
+	return not (v and IsValid(v.ent)) or ((v.missilesFired or 0) > (S.heliMissiles0 or 0) and strikeDamaged())
+end, "Mi-24 gunner missiles hit the vehicle")
+
+step(1, function()
+	local v = S.hs
+	local missiles = v and (v.missilesFired or 0) - (S.heliMissiles0 or 0) or 0
+	log(string.format("heli strike (missiles): guided missiles %d, blew up this far from the vehicle: %s, vehicle %s", missiles,
+		table.concat(S.missileMiss or {}, ", "), strikeVehicleState()))
+	check("Mi-24 gunner launches guided missiles at a vehicle", missiles > 0, missiles)
+	check("guided missiles hit the vehicle (or destroy it)", strikeDamaged(), strikeVehicleState())
+	if v then v.forceTarget = nil end
+	hook.Remove("EntityTakeDamage", "PR_SelftestStrike")
+	hook.Remove("EntityRemoved", "PR_SelftestMissiles")
+	if IsValid(S.b1) and IsValid(S.b1:GetVehicle()) then S.b1:ExitVehicle() end
+	if IsValid(S.strikeVeh) then S.strikeVeh:Remove() end
+	for _, p in ipairs({S.plane, S.oh6, S.heli}) do if p then p.ignoreTargets = nil end end
+	if S.hsPatrol then PR_Patrol.Remove(S.hsPatrol) end
+end)
+
 ----------------------------------------------------------------------------------------------------
 -- Воздушный бой: штурмовик патруля против самолёта в воздухе (игрок на своём A-10). Цель — «дрон»:
 -- модель A-10 без своей физики полёта, летит по кругу над патрулём со скоростью 1200, каждые 8 с
@@ -857,7 +1104,9 @@ step(0, function()
 		if not IsValid(S.drone) then return end
 		local ph = S.drone:GetPhysicsObject()
 		if not IsValid(ph) then return end
-		if CurTime() > S.droneFlipAt then S.droneDir, S.droneFlipAt = -S.droneDir, CurTime() + 8 end
+		-- Разворот не мгновенный (так не может ни один самолёт): скорость по кругу за 2 с меняет знак
+		if CurTime() > S.droneFlipAt then S.droneWant, S.droneFlipAt = -(S.droneWant or 1), CurTime() + 8 end
+		S.droneDir = math.Approach(S.droneDir, S.droneWant or 1, FrameTime())
 		S.droneAngle = S.droneAngle + FrameTime() * 1200 / 3000 * S.droneDir
 		local a = S.droneAngle
 		local want = S.droneCenter + Vector(math.cos(a) * 3000, math.sin(a) * 3000, math.sin(a * 3) * 600)
@@ -880,6 +1129,22 @@ step(0, function()
 	S.dogfightShots0 = S.planeShots or 0
 	S.dogfightMark = T.patrolLogMark()
 	v.forceTarget = drone
+	-- Вертолёты против самолёта: не гонятся, держатся у патруля; стрелок Ми-24 бьёт по нему
+	S.heliDefense = {maxAway = 0, modes = {}, shots0 = S.heliShots or 0}
+	for _, h in ipairs({S.heli, S.oh6}) do
+		if h and IsValid(h.ent) then h.forceTarget = drone end
+	end
+	hook.Add("Think", "PR_SelftestHeliDefense", function()
+		local center = S.armor and PR_Patrol.Center(S.armor)
+		if not center then return end
+		for _, h in ipairs({S.heli, S.oh6}) do
+			if h and IsValid(h.ent) then
+				local p = h.ent:GetPos()
+				S.heliDefense.maxAway = math.max(S.heliDefense.maxAway, Vector(p.x - center.x, p.y - center.y, 0):Length())
+				S.heliDefense.modes[tostring(h.airMode)] = true
+			end
+		end
+	end)
 	log("drone at " .. tostring(drone:GetPos()) .. ", " .. dogfightState())
 end)
 
@@ -887,6 +1152,11 @@ end)
 waitFor(60, function()
 	return not (S.plane and IsValid(S.plane.ent)) or (S.droneHits or 0) >= 10
 end, "plane hits the air target")
+
+-- Штурмовик бывает быстрее: стрелку Ми-24 даём ещё до 20 с довернуть турель на самолёт
+waitFor(20, function()
+	return not (S.heli and IsValid(S.heli.ent)) or not S.heliDefense or (S.heliShots or 0) > S.heliDefense.shots0
+end, "Mi-24 gunner fires at the aircraft")
 
 step(0, function()
 	local v = S.plane
@@ -900,6 +1170,18 @@ step(0, function()
 	check("plane fires at the aircraft", shots > 0, shots)
 	check("plane hits the maneuvering aircraft again and again (10 hits in a minute)", (S.droneHits or 0) >= 10, S.droneHits)
 	check("plane doesn't ram the aircraft", (S.droneRams or 0) == 0, S.droneRams)
+	hook.Remove("Think", "PR_SelftestHeliDefense")
+	if S.heliDefense and (alive(S.heli) or alive(S.oh6)) then
+		local modes = table.concat(table.GetKeys(S.heliDefense.modes), ",")
+		log(string.format("helis vs the aircraft: modes %s, max away from the patrol %d, Mi-24 gunner shots %d", modes,
+			S.heliDefense.maxAway, (S.heliShots or 0) - S.heliDefense.shots0))
+		check("helicopters don't chase an aircraft (air defense near the patrol)", S.heliDefense.modes["air defense"] and S.heliDefense.maxAway < 4500,
+			modes .. " / " .. math.Round(S.heliDefense.maxAway))
+		if alive(S.heli) then
+			check("Mi-24 gunner fires at the aircraft", (S.heliShots or 0) > S.heliDefense.shots0, (S.heliShots or 0) - S.heliDefense.shots0)
+		end
+	end
+	for _, h in ipairs({S.heli, S.oh6}) do if h then h.forceTarget = nil end end
 	check("plane survives the dogfight", v and IsValid(v.ent) and not (isfunction(v.ent.IsDestroyed) and v.ent:IsDestroyed()), dogfightState())
 	hook.Remove("Think", "PR_SelftestDrone")
 	hook.Remove("EntityTakeDamage", "PR_SelftestDroneHits")
@@ -920,6 +1202,7 @@ step(1, function()
 		and not (S.oh6 and IsValid(S.oh6.ent)) and not (S.tank and IsValid(S.tank.ent)) and not (S.plane and IsValid(S.plane.ent)))
 	if S.armorType then PR_Patrol.DeleteType(S.armorType) end
 	if S.gepardType then PR_Patrol.DeleteType(S.gepardType) end
+	if S.hsType then PR_Patrol.DeleteType(S.hsType) end
 	for _, id in ipairs({S.spotA, S.spotB, S.spotC}) do
 		if id then PR_Patrol.RemoveSpot(id) end
 	end

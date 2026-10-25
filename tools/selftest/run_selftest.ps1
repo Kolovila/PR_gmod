@@ -20,6 +20,8 @@ $Suites = @{
     plane    = @('pr_selftest_vehicles_sv.lua', 'plane')
     gepard   = @('pr_selftest_vehicles_sv.lua', 'gepard')
     dogfight = @('pr_selftest_vehicles_sv.lua', 'dogfight')
+    strike   = @('pr_selftest_vehicles_sv.lua', 'strike')
+    helistrike = @('pr_selftest_vehicles_sv.lua', 'helistrike')
     mapshot  = @('pr_mapshot_sv.lua', '')   # map picture for the minimap: then stitch_mapshot.ps1
 }
 if (-not $Suites.ContainsKey($Suite)) { "UNKNOWN_SUITE $Suite (known: $($Suites.Keys -join ', '))"; exit 3 }

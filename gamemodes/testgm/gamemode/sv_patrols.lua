@@ -909,6 +909,22 @@ local function AimBody(target)
 	return target
 end
 
+-- Цель в воздухе: под ней (или под её машиной) нет земли на h
+local function AirTarget(target, h)
+	local pos = AimBody(target):WorldSpaceCenter()
+	return not util.TraceLine({start = pos, endpos = pos - Vector(0, 0, h), mask = MASK_SOLID_BRUSHONLY}).Hit
+end
+
+-- Кто враг для техники: "air" — в воздухе (самолёт, вертолёт), "vehicle" — техника на земле,
+-- "infantry" — пеший. От этого зависит, чем и как бьют самолёты и вертолёты
+local function TargetKind(target, airHeight)
+	if AirTarget(target, airHeight or 500) then return "air" end
+	local _, vehicle = AimBody(target)
+	if IsValid(vehicle) or target:IsVehicle() or target.IsSimfphyscar or target.LFS or target.LVS then return "vehicle" end
+	return "infantry"
+end
+PR_Patrol.TargetKind = TargetKind
+
 -- Куда целиться: середина, а если её закрывает низкое укрытие — верх (крыша машины, голова)
 function PR_Patrol.AimPoints(target)
 	local body, vehicle = AimBody(target)
@@ -945,7 +961,9 @@ local function VisiblePoint(from, target, shooter)
 end
 
 function PR_Patrol.VehicleTarget(entry, from, range)
+	-- Для автотеста: forceTarget — бить только его, ignoreTargets — никого не искать
 	if IsValid(entry.forceTarget) then return entry.forceTarget end
+	if entry.ignoreTargets then return nil end
 	if (entry.targetAt or 0) > CurTime() then
 		if IsValid(entry.target) then return entry.target end
 		return nil
@@ -1226,6 +1244,14 @@ local function VehicleSpotNear(spot, used)
 	end
 end
 
+-- Точка внутри карты с запасом (границы — config/minimap.lua). За краем — горы и стена неба:
+-- вертолёт, уходя вверх от препятствия, вылетал за край и ломал там винт
+local function ClampToMap(pos, margin)
+	local cfg = PR_MINIMAPS and PR_MINIMAPS[string.lower(game.GetMap())]
+	if not cfg then return pos end
+	return Vector(math.Clamp(pos.x, cfg.minX + margin, cfg.maxX - margin), math.Clamp(pos.y, cfg.minY + margin, cfg.maxY - margin), pos.z)
+end
+
 -- Небо (или потолок) над точкой
 local function CeilingAt(pos)
 	local tr = util.TraceLine({start = pos + Vector(0, 0, 64), endpos = pos + Vector(0, 0, 16000), mask = MASK_SOLID_BRUSHONLY})
@@ -1273,6 +1299,24 @@ local function AirSpawnPos(pos, taken, from)
 			end
 		end
 	end
+end
+
+-- Курс самолёта на старте: его отпускают сразу на скорости, и носом в склон он разбивался или
+-- садился на брюхо и больше не взлетал (у игрока A-10 так простоял на земле 5 минут). Берём первый
+-- из курсов, на котором ближайшие 5000 по носу (и чуть вниз) пусто; иначе — где пусто дольше всего
+local function ClearHeading(pos, yaws)
+	local best, bestFree = yaws[1], -1
+	for _, yaw in ipairs(yaws) do
+		local fwd = Angle(0, yaw, 0):Forward()
+		local free = 1
+		for _, drop in ipairs({0, 700}) do
+			local tr = util.TraceLine({start = pos, endpos = pos + fwd * 5000 - Vector(0, 0, drop), mask = MASK_SOLID_BRUSHONLY})
+			if tr.Hit and not tr.HitSky then free = math.min(free, tr.Fraction) end
+		end
+		if free >= 1 then return yaw end
+		if free > bestFree then best, bestFree = yaw, free end
+	end
+	return best
 end
 
 local function ApplyVehicleHealth(ent, health)
@@ -1488,6 +1532,7 @@ local AIR_TILT_RATE = 90
 
 local function LimitTilt(entry, ent, point, maxTilt, urgent)
 	maxTilt = maxTilt or AIR_MAX_TILT
+	point = ClampToMap(point, 1500)
 	local lpos = ent:WorldToLocal(point)
 	local lvel = ent:WorldToLocal(ent:GetPos() + ent:GetVelocity())
 	local p = lpos.x * 0.02 - lvel.x * 0.1
@@ -1521,49 +1566,113 @@ end
 --              пустой, и бомбы; берём только курсовые: ракеты 1, 4, 5, пушки 6–9, на 8 ещё ракеты)
 --   ammo     — есть ли чем стрелять вперёд;  fire — нажать огонь
 local PILOT_WEAPONS = {
+	-- Подвесы Ми-24: 1 — ракеты; 4, 5 — ракеты и бомбы; 6, 7, 9 — пушечные контейнеры;
+	-- 8 — контейнеры и ракеты; 2, 3 — одни бомбы (их ИИ бросать не умеет, такие не ставим)
 	gred_lfs_mi24a = {
 		loadouts = {1, 4, 5, 6, 7, 8, 9},
-		ammo = function(ent)
-			local loadout = ent:GetLoadout()
-			if loadout < 1 or loadout == 2 or loadout == 3 then return false end
-			return ent:GetAmmoPrimary() > 0 or (loadout == 8 and ent:GetAmmoSecondary() > 0)
-		end,
-		fire = function(ent)
-			local loadout = ent:GetLoadout()
-			if ent:GetAmmoPrimary() > 0 and loadout ~= 2 and loadout ~= 3 then ent:PrimaryAttack(loadout, ent:GetAmmoPrimary()) end
-			if loadout == 8 and ent:GetAmmoSecondary() > 0 then ent:SecondaryAttack(ent:GetAmmoSecondary(), loadout) end
-		end
+		gun = {
+			ammo = function(ent) return ent:GetLoadout() >= 6 and ent:GetAmmoPrimary() > 0 end,
+			fire = function(ent) ent:PrimaryAttack(ent:GetLoadout(), ent:GetAmmoPrimary()) end
+		},
+		rockets = {
+			ammo = function(ent)
+				local l = ent:GetLoadout()
+				return ((l == 1 or l == 4 or l == 5) and ent:GetAmmoPrimary() > 0) or (l == 8 and ent:GetAmmoSecondary() > 0)
+			end,
+			fire = function(ent)
+				local l = ent:GetLoadout()
+				if l == 8 then ent:SecondaryAttack(ent:GetAmmoSecondary(), l) else ent:PrimaryAttack(l, ent:GetAmmoPrimary()) end
+			end
+		}
 	},
 	gred_lfs_ah1g = {
-		ammo = function(ent) return ent:GetAmmoPrimary() > 0 or ent:GetAmmoSecondary() > 0 end,
-		fire = function(ent)
-			if ent:GetAmmoPrimary() > 0 then ent:PrimaryAttack() end
-			if ent:GetAmmoSecondary() > 0 then ent:SecondaryAttack() end
-		end
+		gun = {ammo = function(ent) return ent:GetAmmoPrimary() > 0 end, fire = function(ent) ent:PrimaryAttack() end},
+		rockets = {ammo = function(ent) return ent:GetAmmoSecondary() > 0 end, fire = function(ent) ent:SecondaryAttack() end}
+	},
+	-- Ракеты A-10 своему ИИ LFS не даёт (SecondaryAttack: if self:GetAI() then return end) —
+	-- стреляем ими сами, «без ИИ», как и остальным курсовым оружием
+	gred_lfs_a10 = {
+		gun = {ammo = function(ent) return ent:GetAmmoPrimary() > 0 end, fire = function(ent) ent:PrimaryAttack() end},
+		rockets = {ammo = function(ent) return ent:GetAmmoSecondary() > 0 end, fire = function(ent) ent:SecondaryAttack() end}
 	}
 }
 
+-- Ракет за один заход, дальше — только пушка (иначе Ми-24 высыпал бы все 64 в первый же)
+local SALVO = 8
+
+-- Чем бить цель такого вида (по порядку): технику — ракетами и пушкой, самолёт — пушкой,
+-- пехоту — пушкой, а ракетами, только если пушки нет (Ми-24 с одними ракетами)
+local function PilotWeapons(entry, ent, kind)
+	local weapons = PILOT_WEAPONS[entry.class]
+	if not weapons then return {} end
+	local gun = weapons.gun and weapons.gun.ammo(ent) and weapons.gun or nil
+	local rockets = weapons.rockets and weapons.rockets.ammo(ent) and (entry.salvo or 0) < (entry.salvoCap or SALVO) and weapons.rockets or nil
+	if kind == "vehicle" then return {rockets, gun} end
+	if kind == "air" then return {gun} end
+	return {gun or rockets}
+end
+
 -- Нос смотрит на цель (≤ 6°) и её видно
-local function NoseOnTarget(ent, target)
+-- На сколько градусов нос отклонён от цели и видно ли её
+local function NoseOff(ent, target)
 	local from = ent:WorldSpaceCenter()
 	local to = target:WorldSpaceCenter()
-	if ent:GetForward():Dot((to - from):GetNormalized()) < math.cos(math.rad(6)) then return false end
-	return not util.TraceLine({start = from, endpos = to, filter = ent, mask = MASK_SOLID_BRUSHONLY}).Hit
+	local off = math.deg(math.acos(math.Clamp(ent:GetForward():Dot((to - from):GetNormalized()), -1, 1)))
+	return off, not util.TraceLine({start = from, endpos = to, filter = ent, mask = MASK_SOLID_BRUSHONLY}).Hit
 end
+
+local function NoseOnTarget(ent, target)
+	local off, clear = NoseOff(ent, target)
+	return clear and off <= 6
+end
+
+-- Ракеты при пуске доворачиваем на цель (до 10°) — как лётчик доводит нос на последнем метре.
+-- Вертолёт LFS наклоняет нос только движением: чтобы смотреть на технику в 2500 на 13° вниз, ему
+-- надо пикировать, а у холмов он уходит вверх — без доводки ракеты по технике почти не шли
+local ROCKET_AIM_ASSIST = 10
 
 -- Огонь курсовым оружием. На время выстрела машина «без ИИ» и стреляет за неё бот экипажа
 -- (а без экипажа — сама машина): ракетам и пулям нужен хозяин, иначе урон шёл бы от «мира»
 -- мимо правила «свои своих не бьют» и без счёта убийств
-local function FirePilot(ent, entry, target)
-	if not NoseOnTarget(ent, target) then return end
+-- kind — вид цели (TargetKind): от него зависит, чем бить; aimed — наведение уже проверено
+-- вызывающим (у самолёта — своё, с упреждением). Возвращает, сколько ракет ушло
+-- hover — вертолёт бьёт с места (по технике): ракеты, когда цель прямо по курсу (±8°) и ниже носа
+-- не больше чем на 40° (место у цели — в 900 и на 600 выше, это ~34°) — зависший вертолёт смотрит
+-- носом почти ровно, ракету доворачиваем вниз, как если бы он клюнул носом
+local HOVER_ASSIST = 45
 
-	local weapons = PILOT_WEAPONS[entry.class]
-	if not weapons then
+local function FirePilot(ent, entry, target, kind, aimed, hover)
+	entry.pilotTries = (entry.pilotTries or 0) + 1
+	kind = kind or entry.targetKind or "infantry"
+	-- По технике ракеты — когда нос в пределах доводки (10°), пушка — только когда на цели (6°)
+	local off, clear = 0, true
+	local assist = hover and HOVER_ASSIST or ROCKET_AIM_ASSIST
+	if not aimed then
+		off, clear = NoseOff(ent, target)
+		if not clear then return 0 end
+		if hover then
+			local l = ent:WorldToLocal(target:WorldSpaceCenter())
+			local yaw = math.deg(math.atan2(l.y, l.x))
+			local down = math.deg(math.atan2(-l.z, math.max(l.x, 1)))
+			if l.x <= 0 or math.abs(yaw) > 8 or down < -5 or down > 40 then return 0 end
+		elseif off > (kind == "vehicle" and ROCKET_AIM_ASSIST or 6) then
+			return 0
+		end
+	end
+	entry.pilotNose = (entry.pilotNose or 0) + 1
+
+	if not PILOT_WEAPONS[entry.class] then
 		-- Остальные (OH-6): обычное «нажать огонь»
 		if isfunction(ent.HandleWeapons) then ent:HandleWeapons(true) end
-		return
+		return 0
 	end
-	if not weapons.ammo(ent) then return end
+	local list = {}
+	local weapons = PILOT_WEAPONS[entry.class]
+	for _, w in pairs(PilotWeapons(entry, ent, kind)) do
+		if off <= 6 or w == weapons.rockets then list[#list + 1] = w end
+	end
+	entry.pilotDebug = string.format("pilot %s: tries %d, nose on %d, weapons %d", kind, entry.pilotTries, entry.pilotNose, #list)
+	if #list == 0 then return 0 end
 
 	local shooter = IsValid(entry.crew[1]) and entry.crew[1] or ent
 	local tab = ent:GetTable()
@@ -1572,20 +1681,34 @@ local function FirePilot(ent, entry, target)
 	tab.GetDriver = function() return shooter end
 	local created = {}
 	hook.Add("OnEntityCreated", "PR_PatrolPilotFire", function(e) created[#created + 1] = e end)
-	local ok, err = pcall(weapons.fire, ent)
+	local ok, err = pcall(function() for _, w in ipairs(list) do w.fire(ent) end end)
 	hook.Remove("OnEntityCreated", "PR_PatrolPilotFire")
 	tab.GetAI, tab.GetDriver = ownAI, ownDriver
 	if not ok then error(err, 0) end
 
 	-- Ракеты Гредвича не сталкиваются только с корпусом и стартуют с места, а вертолёт на заходе
 	-- летит быстрее: он догонял свои ракеты, и они рвались на нём. Даём им скорость вертолёта
-	-- и не даём задеть ни одну его часть
-	if #created == 0 then return end
+	-- и не даём задеть ни одну его часть. Взрыв ракета записывает на поле Owner (не SetOwner),
+	-- а без него — на себя: убийства не засчитывались, и правило «свои своих не бьют» её не узнавало
+	if #created == 0 then return 0 end
 	local parts = AirTraceFilter(ent)
 	parts = istable(parts) and parts or {ent}
 	local vel = ent:GetVelocity()
+	local rockets = 0
 	for _, rocket in ipairs(created) do
-		if IsValid(rocket) and not rocket:IsPlayer() then
+		-- Только сами ракеты (у снарядов Гредвича есть Launch), не служебные сущности запрета столкновений
+		if IsValid(rocket) and isfunction(rocket.Launch) then
+			rockets = rockets + 1
+			rocket.Owner = shooter
+			-- Доводка на цель (у самолёта наведение своё, с упреждением — его не трогаем)
+			if not aimed then
+				local want = (PR_Patrol.AimPoint(target) - rocket:GetPos()):GetNormalized()
+				local rphys = rocket:GetPhysicsObject()
+				if rocket:GetForward():Dot(want) > math.cos(math.rad(assist + 3)) then
+					rocket:SetAngles(want:Angle())
+					if IsValid(rphys) then rphys:SetVelocity(want * rphys:GetVelocity():Length()) end
+				end
+			end
 			for _, part in ipairs(parts) do
 				if IsValid(part) and part ~= rocket then constraint.NoCollide(rocket, part, 0, 0) end
 			end
@@ -1593,11 +1716,14 @@ local function FirePilot(ent, entry, target)
 			if IsValid(phys) then phys:AddVelocity(vel) end
 		end
 	end
+	entry.salvo = (entry.salvo or 0) + rockets
+	entry.rocketsFired = (entry.rocketsFired or 0) + rockets
+	return rockets
 end
 
 local function HasPilotAmmo(ent, entry)
 	local weapons = PILOT_WEAPONS[entry.class]
-	return weapons ~= nil and weapons.ammo(ent)
+	return weapons ~= nil and ((weapons.gun and weapons.gun.ammo(ent)) or (weapons.rockets and weapons.rockets.ammo(ent))) and true or false
 end
 
 -- Вертолёт со стрелком: стрелок работает с места сбоку от цели, а раз в 8–14 секунд, пока есть
@@ -1610,14 +1736,16 @@ local function PilotRun(entry, ent)
 		if breaking then entry.runBroke = true end
 		if (entry.runBroke and not breaking) or now - entry.runStarted > 25 then
 			entry.runActive, entry.runBroke = false, false
-			entry.nextRun = now + math.Rand(8, 14)
+			-- По технике заходы чаще: ракеты — его главное оружие против неё
+			entry.nextRun = now + (entry.targetKind == "vehicle" and math.Rand(4, 7) or math.Rand(8, 14))
 			return false
 		end
 		return true
 	end
 
-	entry.nextRun = entry.nextRun or now + 6
+	entry.nextRun = entry.nextRun or now + (entry.targetKind == "vehicle" and 3 or 6)
 	if now < entry.nextRun or not HasPilotAmmo(ent, entry) then return false end
+	entry.salvo, entry.salvoCap = 0, SALVO
 	entry.runActive, entry.runBroke, entry.runStarted, entry.breakUntil = true, false, now, nil
 	entry.runs = (entry.runs or 0) + 1
 	return true
@@ -1659,11 +1787,6 @@ end
 ----------------------------------------------------------------------------------------------------
 local PLANE_ORBIT = 6000         -- круг над патрулём
 local PLANE_ALTITUDE = 3000      -- выше патруля
-local PLANE_ATTACK_HEIGHT = 2500 -- подлёт: выше цели
-local PLANE_DIVE_FROM = 9000     -- начинать пике не дальше (по горизонтали)
-local PLANE_DIVE_ANGLE = 18      -- и когда цель на столько градусов ниже горизонта
-local PLANE_DIVE_MIN = 2500      -- и не ближе: иначе не успеть навести и выйти
-local PLANE_EXTEND = 7000        -- отход перед новым заходом
 
 local function PlaneHeading(ent)
 	local vel = ent:GetVelocity()
@@ -1722,13 +1845,6 @@ local function TerrainAhead(ent, ceil)
 	return top
 end
 
--- Внутри карты с запасом (границы — из config/minimap.lua)
-local function InsideMap(pos, margin)
-	local cfg = PR_MINIMAPS and PR_MINIMAPS[string.lower(game.GetMap())]
-	if not cfg then return true end
-	return pos.x > cfg.minX + margin and pos.x < cfg.maxX - margin and pos.y > cfg.minY + margin and pos.y < cfg.maxY - margin
-end
-
 local function PlaneThrottle(ent, k)
 	if isfunction(ent.GetMaxRPM) then ent.TargetRPM = ent:GetMaxRPM() * k end
 	if isfunction(ent.RaiseLandingGear) then ent:RaiseLandingGear() end
@@ -1760,82 +1876,122 @@ local function PlaneEscort(patrol, entry, ent)
 	return PlaneSteer(ent, (point - pos):Angle().y, AltitudePitch(pos, z))
 end
 
--- Куда отойти, чтобы следующий заход шёл с той стороны, откуда цель видно на всём пике (с 5000
--- и с 3000 по горизонтали, под 25°). Сначала — повороты поменьше от прямой назад, сторона случайная;
--- никуда не видно — просто в сторону
-local function PlaneRunYaw(ent, target, tpos, backYaw)
+-- С какой стороны заходить: откуда цель видно на всём пике — с точки входа (far), с середины и с
+-- 2500, под углом пике angle. baseYaw — направление от цели, offsets — какие отклонения от него
+-- пробовать по порядку (сторона случайная); никуда не видно — первое из них
+local PLANE_SIDES_FIRST = {0, 30, -30, 60, -60, 100, -100, 140, -140, 180}
+local PLANE_SIDES_NEXT = {60, -60, 100, -100, 30, -30, 140, -140, 0, 180}
+
+local function PlaneRunYaw(ent, target, tpos, baseYaw, offsets, angle, far)
 	local filter = function(e) return e ~= target and not PartOf(e, ent) end
 	local sign = math.random(0, 1) * 2 - 1
-	for _, off in ipairs({60, -60, 100, -100, 30, -30, 140, -140, 0, 180}) do
-		local yaw = backYaw + off * sign
+	local slope = math.tan(math.rad(angle or 25))
+	far = far or 5000
+	for _, off in ipairs(offsets) do
+		local yaw = baseYaw + off * sign
 		local dir = Angle(0, yaw, 0):Forward()
 		local clear = true
-		for _, d in ipairs({5000, 3000}) do
-			local from = tpos + dir * d + Vector(0, 0, d * 0.47)
+		for _, d in ipairs({far, far * 0.65, 2500}) do
+			local from = tpos + dir * d + Vector(0, 0, d * slope)
 			if util.TraceLine({start = from, endpos = tpos, filter = filter, mask = MASK_SOLID_BRUSHONLY}).Hit then clear = false break end
 		end
 		if clear then return yaw, true end
 	end
-	return backYaw + sign * math.Rand(50, 100), false
+	return baseYaw + offsets[1] * sign, false
 end
 
-local function PlaneAttack(entry, ent, target)
+-- Заход по наземной цели. Пехота — пушкой, полого (20°); техника — круче (25°), залп ракет и
+-- пушка, с упреждением на её скорость. Заход через точку входа: сначала выйти туда, откуда цель
+-- видна под нужным углом на нужной высоте, развернуться на неё и только потом пике. Раньше
+-- самолёт шёл прямо на цель слишком высоко, к развороту она оказывалась круче 35° под ним, и он
+-- раз за разом уходил на новый круг (у игрока — 20 уходов на 6 пике за 3 минуты)
+local PLANE_RUNS = {
+	infantry = {angle = 20, height = 1700, rockets = 0},
+	vehicle = {angle = 25, height = 2100, rockets = 6},
+}
+local ROCKET_SPEED = 5000 -- примерно, для упреждения (у Hydra разгон ~700 за тик, сопротивление воздуха)
+
+local function PlaneAttack(entry, ent, target, kind)
+	local run = PLANE_RUNS[kind] or PLANE_RUNS.infantry
 	local now = CurTime()
 	local pos = ent:GetPos()
+	local body = AimBody(target)
 	local tpos = PR_Patrol.AimPoint(target)
 	local ceil = CeilingAt(pos)
 	local flat = Vector(tpos.x - pos.x, tpos.y - pos.y, 0)
 	local dist = flat:Length()
 	local toTarget = flat:Angle().y
-	local attackZ = math.min(math.max(tpos.z + PLANE_ATTACK_HEIGHT, TopAt(tpos.x, tpos.y, ceil, tpos.z) + 1500), ceil - 500)
-	-- Подлёт и отход — ещё и не ниже 1500 над землёй по ходу
-	local cruiseZ = math.min(math.max(attackZ, TerrainAhead(ent, ceil) + 1500), ceil - 400)
+	local below = math.deg(math.atan2(pos.z - tpos.z, math.max(dist, 1)))
+
+	-- Высота захода над целью: по профилю, но не ниже 1000 над рельефом по ходу и под небом
+	local h = math.max(run.height, TerrainAhead(ent, ceil) + 1000 - tpos.z)
+	h = math.Clamp(h, 1200, math.max(ceil - 500 - tpos.z, 1200))
+	-- Точка входа не дальше 6000: если рельеф заставляет идти выше, пике круче (до 35°), а не длиннее —
+	-- с 9–11 км самолёт к цели не доворачивал
+	local ipDist = math.min(h / math.tan(math.rad(run.angle)), 6000)
+	local angle = math.min(math.deg(math.atan2(h, ipDist)), 35)
+
+	-- Сторона захода; первый раз — со стороны самолёта, потом каждый раз другая
+	if not entry.planeRunYaw then
+		entry.planeRunYaw = PlaneRunYaw(ent, target, tpos, (pos - tpos):Angle().y, PLANE_SIDES_FIRST, run.angle, ipDist)
+	end
+	local runDir = Angle(0, entry.planeRunYaw, 0):Forward()
+	local ip = tpos + runDir * ipDist
+	ip.z = tpos.z + h
+	-- Разворот на цель — за 2500 до точки входа: к ней самолёт обычно летит от цели, и если
+	-- разворачиваться у самой точки, за разворот он подходит слишком близко (цель уже круче 30°)
+	local outer = ip + runDir * 2500
+	local toOuter = Vector(outer.x - pos.x, outer.y - pos.y, 0)
 
 	local was = entry.planeMode or "approach"
 	local mode = was
-	-- В пике нос смотрит в землю у цели: там проверка по ходу короче (2 с), выход задаёт высота над целью
 	local danger, why
 	if mode == "dive" then danger, why = PlaneDanger(ent, 2, 700, tpos) else danger, why = PlaneDanger(ent) end
 	if danger and mode ~= "pull up" then
-		-- После выхода из пике — отход, после ухода от холма на подлёте — снова подлёт
-		entry.planeAfter = mode == "dive" and "extend" or mode
+		entry.planeAfter = mode == "dive" and "approach" or mode
 		mode, entry.planeUntil = "pull up", now + 2.5
 	elseif danger and mode == "pull up" then
-		-- Земля по ходу ещё есть — тянуть дальше
 		entry.planeUntil = math.max(entry.planeUntil or 0, now + 1)
 	end
-	if mode == "pull up" and now > (entry.planeUntil or 0) then mode = entry.planeAfter or "extend" end
-	-- Отход — пока не отлетит подальше или не упрётся в край карты
-	if mode == "extend" and (dist > PLANE_EXTEND or not InsideMap(pos, 4500)) then mode = "approach" end
-	if mode == "approach" and dist < PLANE_DIVE_FROM then
-		local below = math.deg(math.atan2(pos.z - tpos.z, dist))
-		-- Слишком близко или цель уже круто внизу (не довернул вовремя) — на новый заход
-		if dist < PLANE_DIVE_MIN or below > 35 then
-			mode = "extend"
-		elseif below >= PLANE_DIVE_ANGLE and math.abs(math.AngleDifference(toTarget, PlaneHeading(ent))) < 20 then
-			mode = "dive"
+	if mode == "pull up" and now > (entry.planeUntil or 0) then mode = entry.planeAfter or "approach" end
+
+	local headingOff = math.abs(math.AngleDifference(toTarget, PlaneHeading(ent)))
+	if mode == "approach" then
+		-- Дальше точки разворота — разворот на цель; уже летит на цель издалека — тоже: дальше
+		-- по прямой, пока цель не окажется под нужным углом
+		if toOuter:Length() < 1500 or (headingOff < 20 and dist > ipDist * 0.9 and below <= angle + 2) then
+			mode, entry.planeTurnSince = "turn in", now
 		end
 	end
-	-- Пике до 1100 над целью (в крутом — раньше: на 50 за каждый градус круче 25°) или 2000 до неё —
-	-- потом выход
+	if mode == "turn in" then
+		if headingOff < 20 and below >= angle - 4 and below <= 40 and dist > 2500 then
+			mode = "dive"
+		elseif below > 40 or dist < ipDist * 0.45 or now - (entry.planeTurnSince or now) > 15 then
+			-- Проскочил или слишком круто — новый заход с другой стороны
+			mode = "approach"
+			entry.planeRunYaw = PlaneRunYaw(ent, target, tpos, (pos - tpos):Angle().y, PLANE_SIDES_NEXT, angle, ipDist)
+		end
+	end
+	-- Пике до 1100 над целью (в крутом — раньше: на 50 за каждый градус круче 25°) или 2000 до неё
 	local diveFloor = 1100 + math.max(0, math.NormalizeAngle(ent:GetVelocity():Angle().p) - 25) * 50
 	if mode == "dive" and (pos.z - tpos.z < diveFloor or pos:Distance(tpos) < 2000) then
-		mode, entry.planeUntil, entry.planeAfter = "pull up", now + 3, "extend"
+		mode, entry.planeUntil, entry.planeAfter = "pull up", now + 3, "approach"
 	end
-	-- Отход — туда, откуда следующий заход увидит цель. Раньше самолёт заходил одной линией, и если
-	-- с неё цель закрыта холмом, пике раз за разом кончалось без выстрела
-	if mode == "extend" and was ~= "extend" then
-		entry.planeExtendYaw, entry.planeRunClear = PlaneRunYaw(ent, target, tpos, toTarget + 180)
+	-- Вышел из пике — следующий заход с другой стороны
+	if mode == "pull up" and was == "dive" then
+		entry.planeRunYaw = PlaneRunYaw(ent, target, tpos, (pos - tpos):Angle().y, PLANE_SIDES_NEXT, angle, ipDist)
 	end
+	if mode == "dive" and was ~= "dive" then entry.salvo, entry.salvoCap = 0, run.rockets end
+
 	entry.planeMode = mode
 	entry.airMode = "plane " .. mode
 	if mode ~= was then
-		local aimed = was == "dive" and entry.planeBestAim and string.format(", нос до цели не ближе %.1f° (тангаж %.1f°, курс %.1f°)%s", entry.planeBestAim,
-			entry.planeBestPitch or 0, entry.planeBestYaw or 0, entry.planeFired and ", стрелял" or entry.planeNoFire and ", " .. entry.planeNoFire or "") or ""
-		local run = mode == "extend" and string.format(", отход на %d° от прямой назад%s", math.AngleDifference(entry.planeExtendYaw, toTarget + 180),
-			entry.planeRunClear and "" or " (цель отовсюду закрыта)") or ""
-		PR_Patrol.Log(string.format("%s: заход %s → %s (до цели %d, выше цели %d, скорость %d%s%s%s)", VehicleLabel(entry), was, mode,
-			pos:Distance(tpos), pos.z - tpos.z, ent:GetVelocity():Length(), danger and ", " .. why or "", aimed, run))
+		local aimed = was == "dive" and entry.planeBestAim and string.format(", нос до цели не ближе %.1f°%s%s", entry.planeBestAim,
+			entry.planeFired and ", стрелял" or entry.planeNoFire and ", " .. entry.planeNoFire or "",
+			(entry.salvo or 0) > 0 and ", ракет " .. entry.salvo or "") or ""
+		PR_Patrol.Log(string.format("%s: заход по %s %s → %s (до цели %d, выше цели %d, скорость %d%s%s)", VehicleLabel(entry),
+			kind == "vehicle" and "технике" or "пехоте", was, mode, pos:Distance(tpos), pos.z - tpos.z, ent:GetVelocity():Length(),
+			danger and ", " .. why or "", aimed))
 		entry.planeBestAim, entry.planeFired, entry.planeNoFire = nil, nil, nil
 	end
 
@@ -1844,36 +2000,35 @@ local function PlaneAttack(entry, ent, target)
 		return PlaneSteer(ent, PlaneHeading(ent), -35)
 	elseif mode == "dive" then
 		PlaneThrottle(ent, 0.5)
-		local aim = (tpos - ent:WorldSpaceCenter()):Angle()
-		-- Огонь: нос на цели (≤ 5°), ближе 6000 и цель видно
-		local dir = aim:Forward()
-		local off = math.deg(math.acos(math.Clamp(ent:GetForward():Dot(dir), -1, 1)))
-		if not entry.planeBestAim or off < entry.planeBestAim then
-			local nose = ent:GetAngles()
-			entry.planeBestAim = off
-			entry.planeBestPitch = math.AngleDifference(nose.p, aim.p)
-			entry.planeBestYaw = math.AngleDifference(nose.y, aim.y)
-		end
-		if off <= 5 and pos:Distance(tpos) < 6000 then
-			local los = util.TraceLine({start = ent:WorldSpaceCenter(), endpos = tpos, filter = function(e) return e ~= target and not PartOf(e, ent) end, mask = MASK_SOLID_BRUSHONLY})
+		local muzzle = ent:WorldSpaceCenter()
+		-- Упреждение на скорость цели (по технике — под ракеты)
+		local aimPos = tpos
+		if kind == "vehicle" then aimPos = tpos + body:GetVelocity() * (muzzle:Distance(tpos) / ROCKET_SPEED) end
+		local aim = (aimPos - muzzle):Angle()
+		local off = math.deg(math.acos(math.Clamp(ent:GetForward():Dot(aim:Forward()), -1, 1)))
+		if not entry.planeBestAim or off < entry.planeBestAim then entry.planeBestAim = off end
+		local range = pos:Distance(tpos)
+		if off <= 5 and range < 6000 then
+			local los = util.TraceLine({start = muzzle, endpos = tpos, filter = function(e) return e ~= target and not PartOf(e, ent) and not PartOf(e, body) end, mask = MASK_SOLID_BRUSHONLY})
 			if los.Hit then
-				-- Для журнала: чем закрыта цель
 				entry.planeNoFire = string.format("цель закрыта (%s в %d от цели)", los.HitSky and "небо" or "стена/земля", los.HitPos:Distance(tpos))
 			else
+				-- Ракеты — только точно (≤ 2.5°) и с 2000–5500; пушка — с 5°
+				local useRockets = kind == "vehicle" and off <= 2.5 and range > 2000 and range < 5500
 				local before = ent.NextPrimary
-				FirePilot(ent, entry, target)
-				if ent.NextPrimary == before and not entry.planeFired then entry.planeNoFire = "не выстрелил: " .. (NoseOnTarget(ent, target) and "оружие" or "нос мимо центра цели") end
-				if ent.NextPrimary ~= before then entry.planeFired = true end
+				FirePilot(ent, entry, target, useRockets and "vehicle" or "infantry", true)
+				if ent.NextPrimary ~= before or (entry.salvo or 0) > 0 then entry.planeFired = true end
 			end
 		end
 		-- Не круче 40°: из более крутого самолёт не успевал выйти
 		return PlaneSteer(ent, aim.y, math.Clamp(math.NormalizeAngle(aim.p), 0, 40))
-	elseif mode == "extend" then
-		PlaneThrottle(ent, 1)
-		return PlaneSteer(ent, entry.planeExtendYaw or toTarget + 180, AltitudePitch(pos, cruiseZ))
+	elseif mode == "turn in" then
+		PlaneThrottle(ent, 0.8)
+		return PlaneSteer(ent, toTarget, math.min(AltitudePitch(pos, ip.z), 15))
 	end
-	PlaneThrottle(ent, 0.9)
-	return PlaneSteer(ent, toTarget, AltitudePitch(pos, cruiseZ))
+	-- К точке разворота снижаемся не круче 15°: круче — земля по ходу, и уход вверх
+	PlaneThrottle(ent, 1)
+	return PlaneSteer(ent, toOuter:Angle().y, math.min(AltitudePitch(pos, ip.z), 15))
 end
 
 ----------------------------------------------------------------------------------------------------
@@ -1883,12 +2038,6 @@ end
 -- нос на ней; совсем близко — отворот, чтобы не столкнуться; земля по ходу — вверх
 ----------------------------------------------------------------------------------------------------
 local PLANE_BREAK_DIST = 700 -- ближе — отворот
-
--- Цель в воздухе: под ней (или под её машиной) нет земли на h
-local function AirTarget(target, h)
-	local pos = AimBody(target):WorldSpaceCenter()
-	return not util.TraceLine({start = pos, endpos = pos - Vector(0, 0, h), mask = MASK_SOLID_BRUSHONLY}).Hit
-end
 
 local function PlaneDogfight(entry, ent, target)
 	local now = CurTime()
@@ -1912,7 +2061,11 @@ local function PlaneDogfight(entry, ent, target)
 	local tooClose = dist < PLANE_BREAK_DIST or (closing > 0 and dist < math.min(closing, 2000))
 
 	local was = entry.planeMode
-	local mode = (was == "break" and now < (entry.planeUntil or 0)) and "break" or "dogfight"
+	-- Отворот держим 2 с и дальше, пока цель ближе 1500 или мы ещё сближаемся (до 5 с): после
+	-- ровно 2 с самолёт бывал в 700 от цели, снова брал её на нос и таранил
+	local breaking = was == "break" and (now < (entry.planeUntil or 0)
+		or (now < (entry.planeUntil or 0) + 3 and (dist < 1500 or (closing > 0 and dist < closing * 1.5))))
+	local mode = breaking and "break" or "dogfight"
 	if mode == "dogfight" and tooClose then
 		-- Отворот вбок — в сторону, куда цель НЕ движется, и по высоте — от неё (выше нас — уходим
 		-- вниз, ниже — вверх). Со случайной стороной самолёт поворачивал ей наперерез и таранил
@@ -1946,11 +2099,7 @@ local function PlaneDogfight(entry, ent, target)
 	-- Огонь: нос на упреждённой точке (≤ 4°), ближе 7000 и её видно
 	local off = math.deg(math.acos(math.Clamp(ent:GetForward():Dot(toLead:Forward()), -1, 1)))
 	if off <= 4 and dist < 7000 and not util.TraceLine({start = muzzle, endpos = lead, mask = MASK_SOLID_BRUSHONLY}).Hit then
-		if PILOT_WEAPONS[entry.class] then
-			FirePilot(ent, entry, target)
-		elseif isfunction(ent.HandleWeapons) then
-			ent:HandleWeapons(true)
-		end
+		FirePilot(ent, entry, target, "air", true)
 		entry.planeFired = true
 	end
 
@@ -1987,16 +2136,20 @@ local function SetupAI(patrol, entry)
 			-- Самолёт по врагу — своими заходами (у ИИ LFS на этой карте не хватает высоты)
 			if IsValid(target) and not entry.heli and entry.class and string.StartWith(entry.class, "lvs_") then return baseRunAI(self, ...) end
 			if IsValid(target) and not entry.heli then
-				-- Враг в воздухе — воздушный бой (уже в бою — пока цель хоть немного над землёй)
+				-- Враг в воздухе — воздушный бой (уже в бою — пока цель хоть немного над землёй),
+				-- на земле — заходы: по технике с ракетами, по пехоте пушкой
 				local fighting = entry.planeMode == "dogfight" or entry.planeMode == "break"
-				if AirTarget(target, fighting and 250 or 500) then return PlaneDogfight(entry, self, target) end
+				local kind = TargetKind(target, fighting and 250 or 500)
+				if kind ~= entry.targetKind then entry.planeRunYaw = nil end
+				entry.targetKind = kind
+				if kind == "air" then return PlaneDogfight(entry, self, target) end
 				if fighting then entry.planeMode = nil end
-				return PlaneAttack(entry, self, target)
+				return PlaneAttack(entry, self, target, kind)
 			end
 
 			-- Самолёт без врагов кружит над патрулём
 			if not entry.heli then
-				entry.breakUntil, entry.planeMode = nil, nil
+				entry.breakUntil, entry.planeMode, entry.planeRunYaw, entry.targetKind = nil, nil, nil, nil
 				entry.airMode = "escort"
 				return PlaneEscort(patrol, entry, self)
 			end
@@ -2009,10 +2162,42 @@ local function SetupAI(patrol, entry)
 			end
 
 			if IsValid(target) then
+				local kind = TargetKind(target, 500)
+				if kind ~= entry.targetKind then entry.nextRun = nil end
+				entry.targetKind = kind
+
+				-- Враг в воздухе: не гонимся (самолёт быстрее, а погоня уводит в горы и за край карты).
+				-- Держимся у патруля, нос — на цель: бьют стрелок и пилот, когда нос на ней
+				-- Турель Ми-24 бьёт только вниз (0–60° под горизонт, ±30° вбок), поэтому держимся чуть выше
+				-- цели (но не выше 3000 над патрулём и под небом)
+				if kind == "air" then
+					entry.runActive, entry.breakUntil = false, nil
+					entry.airMode = "air defense"
+					entry.faceTarget = target
+					FirePilot(self, entry, target, "air")
+					local point = EscortPoint(patrol, entry, self)
+					local center = PR_Patrol.Center(patrol) or self:GetPos()
+					local want = math.min(target:WorldSpaceCenter().z + 300, center.z + 3000, CeilingAt(point) - 300)
+					if want > point.z then point = Vector(point.x, point.y, want) end
+					return LimitTilt(entry, self, point)
+				end
+
 				-- Вертолёт со стрелком держится сбоку, чтобы турель доставала; время от времени — заход
+				-- (по технике — чаще и с ракетами)
 				local gunner = isfunction(self.GetGunnerSeat) and IsValid(self:GetGunnerSeat())
-				if gunner and IsValid(entry.crew[1]) and not PilotRun(entry, self) then
-					entry.airMode = "stand off"
+				local weapons = PILOT_WEAPONS[entry.class]
+				-- По технике с ракетами — бить с места, а не заходами: на заходе у холмов и домов
+				-- вертолёт то и дело уходил вверх и нос на цель не наводился (0 ракет за 9 заходов)
+				local hoverRockets = kind == "vehicle" and weapons and weapons.rockets and weapons.rockets.ammo(self)
+				if hoverRockets then
+					entry.runActive = false
+					if CurTime() > (entry.salvoResetAt or 0) then
+						entry.salvo, entry.salvoCap, entry.salvoResetAt = 0, SALVO, CurTime() + 8
+					end
+					FirePilot(self, entry, target, "vehicle", false, true)
+				end
+				if (gunner and IsValid(entry.crew[1]) or hoverRockets) and (hoverRockets or not PilotRun(entry, self)) then
+					entry.airMode = hoverRockets and "rocket attack" or "stand off"
 					entry.faceTarget = target
 					local point = StandOffPoint(entry, target, self:GetPos())
 					-- Только что уходил от препятствия — пока не снижаемся
@@ -2022,8 +2207,9 @@ local function SetupAI(patrol, entry)
 					return LimitTilt(entry, self, point)
 				end
 
-				-- Заход курсовым оружием (вертолёт без стрелка — только так)
-				FirePilot(self, entry, target)
+				-- Заход курсовым оружием (вертолёт без стрелка — только так); чем бить — по виду цели
+				if not entry.salvoCap then entry.salvo, entry.salvoCap = 0, SALVO end
+				FirePilot(self, entry, target, kind)
 				local point, diving = StrafePoint(entry, self, target)
 				entry.airMode = diving and "dive" or "break off"
 				entry.faceTarget = diving and target or nil
@@ -2052,6 +2238,8 @@ local function SetupAI(patrol, entry)
 	if weapons and weapons.loadouts and isfunction(ent.GetLoadout) and not table.HasValue(weapons.loadouts, ent:GetLoadout()) then
 		ent:SetLoadout(weapons.loadouts[math.random(#weapons.loadouts)])
 	end
+	-- Управляемые ракеты стрелка (Ми-24) — если стрелок будет
+	if isfunction(ent.SetMissiles) and (entry.def.crew or 0) >= 1 then ent:SetMissiles(true) end
 
 	-- Вертолёт появляется в воздухе, а мотор раскручивается несколько секунд — без этого он
 	-- успевает рухнуть. Держим на месте (каждый тик, LFS сам будит физику), пока мотор не заработает
@@ -2112,12 +2300,15 @@ function PR_Patrol.SpawnVehicles(patrol, spot, infantry)
 			elseif kind == "air" or kind == "aiground" then
 				local pos, yaw
 				if kind == "air" then
-					-- Самолёт — подальше и носом от патруля: отпускаем его сразу на скорости
+					-- Самолёт — подальше от вертолётов и носом туда, где пусто (по кругу вокруг патруля,
+					-- а не наружу: снаружи у долины склоны)
 					local heli = InheritsFrom(class, "lunasflightschool_basescript_heli") or InheritsFrom(class, "lvs_base_helicopter")
 					local outward
 					pos, outward = AirSpawnPos(spot.Pos, airUsed, heli and 300 or 1500)
-					yaw = heli and math.random(0, 359) or outward
-					if pos then table.insert(airUsed, pos) end
+					if pos then
+						table.insert(airUsed, pos)
+						yaw = heli and math.random(0, 359) or ClearHeading(pos + Vector(0, 0, 20), {outward + 90, outward - 90, outward + 180, outward})
+					end
 				else
 					pos, yaw = VehicleSpotNear(spot, used)
 					if pos then table.insert(used, pos) end
@@ -2628,13 +2819,102 @@ local function WatchAir(v)
 	end
 end
 
+-- Самолёт сел (разбился о склон, но цел) и стоит: сам LFS-ИИ с земли не взлетает. Если 8 с
+-- скорость меньше 150 (летящий самолёт так медленно не летает; высоту не смотрим — на склоне
+-- под серединой самолёта бывает обрыв), а рядом никого из игроков и не видно — снова в небо
+-- над патрулём (держим, пока мотор не раскрутится, и отпускаем на скорости, как при появлении)
+local function RecoverGroundedPlane(patrol, v)
+	local ent = v.ent
+	if v.kind ~= "air" or v.heli then return end
+	local speed, height = ent:GetVelocity():Length(), HeightAboveGround(ent)
+	if v.holdUntil or speed > 150 then
+		v.groundedSince = nil
+		return
+	end
+	v.groundedSince = v.groundedSince or CurTime()
+	v.groundDebug = string.format("grounded %.0f s, speed %d, height %d", CurTime() - v.groundedSince, speed, height)
+	if CurTime() - v.groundedSince < 8 then return end
+	if not v.recoverAnyway and (PlayersNear(ent:GetPos(), Settings().safeDistance) or SeenByPlayer(ent:GetPos())) then
+		v.groundDebug = v.groundDebug .. ", players see it"
+		return
+	end
+
+	local taken = {}
+	for _, other in ipairs(patrol.vehicles or {}) do
+		if other ~= v and other.kind == "air" and IsValid(other.ent) then table.insert(taken, other.ent:GetPos()) end
+	end
+	local center = PR_Patrol.Center(patrol) or ent:GetPos()
+	local pos, outward = AirSpawnPos(center, taken, 1500)
+	if not pos then
+		v.groundDebug = v.groundDebug .. ", no place in the sky"
+		return
+	end
+	local from = ent:GetPos()
+	local yaw = ClearHeading(pos + Vector(0, 0, 20), {outward + 90, outward - 90, outward + 180, outward})
+	ent:SetPos(pos + Vector(0, 0, 20))
+	ent:SetAngles(Angle(0, yaw, 0))
+	v.holdPos, v.holdUntil, v.spawnedAt, v.groundedSince = ent:GetPos(), CurTime() + 15, CurTime(), nil
+	v.planeMode, v.planeRunYaw = nil, nil
+	PR_Patrol.Log(string.format("%s: сел у %s и не взлетает — снова в небе у %s", VehicleLabel(v), PosText(from), PosText(pos)))
+end
+
+-- Стрелок Ми-24 по технике — управляемыми ракетами (4 на вылет, раз в 6 с, когда наведён).
+-- Пуск в аддоне отключён (закомментирован в HandleWeapons); сама ракета ведётся на то, во что
+-- стрелок смотрел при пуске. Хозяин — стрелок: убийство засчитывается, своих не бьёт
+local function GunnerMissiles(entry, target)
+	local ent = entry.ent
+	if not (entry.heli and entry.fire and IsValid(target) and entry.targetKind == "vehicle") then return end
+	if not (isfunction(ent.AltSecondaryAttack) and isfunction(ent.GetMissiles) and ent:GetMissiles()) then return end
+	entry.missilesLeft = entry.missilesLeft or (tonumber(ent.MaxMissiles) or 0)
+	if entry.missilesLeft <= 0 or CurTime() < (entry.nextMissile or 0) then return end
+	local gunner = entry.crew[1]
+	local seat = isfunction(ent.GetGunnerSeat) and ent:GetGunnerSeat()
+	if not (IsValid(gunner) and IsValid(seat) and gunner:GetVehicle() == seat) then return end
+	entry.nextMissile = CurTime() + 6
+
+	local tab = ent:GetTable()
+	local ownDriver = rawget(tab, "GetDriver")
+	tab.GetDriver = function() return gunner end
+	local created = {}
+	hook.Add("OnEntityCreated", "PR_PatrolGunnerMissile", function(e) created[#created + 1] = e end)
+	-- В AltSecondaryAttack у аддона отладочный print(Driver) — на каждый пуск строка в консоль
+	local realPrint = print
+	print = function() end
+	local ok, err = pcall(ent.AltSecondaryAttack, ent, gunner, seat)
+	print = realPrint
+	hook.Remove("OnEntityCreated", "PR_PatrolGunnerMissile")
+	tab.GetDriver = ownDriver
+	if not ok then error(err, 0) end
+	-- Ракета ведётся на то, что попалось на луч взгляда стрелка, а луч не пропускает только корпус
+	-- вертолёта — цеплял винт или колёса, и ракеты ложились за 700–1900 от цели. Наводим на саму
+	-- цель (машину), в её середину
+	local body = AimBody(target)
+	local launched = 0
+	for _, e in ipairs(created) do
+		if IsValid(e) and isfunction(e.Launch) then
+			launched = launched + 1
+			e.Owner = gunner
+			e.target = body
+			e.targetOffset = body:WorldToLocal(body:WorldSpaceCenter())
+		end
+	end
+	if launched > 0 then
+		entry.missilesLeft = entry.missilesLeft - 1
+		entry.missilesFired = (entry.missilesFired or 0) + 1
+		PR_Patrol.Log(string.format("%s: стрелок пустил управляемую ракету по технике (осталось %d)", VehicleLabel(entry), entry.missilesLeft))
+	end
+end
+
 local function CrewForAI(patrol, v)
 	WatchAir(v)
+	RecoverGroundedPlane(patrol, v)
 	HoldUntilEngine(v)
 	SeatCrew(v)
 	WrapGredwitch()
 	WrapLFSGunner(v)
-	CrewAim(v, PR_Patrol.VehicleTarget(v, v.ent:WorldSpaceCenter(), VEHICLE_RANGE * 1.5))
+	local target = PR_Patrol.VehicleTarget(v, v.ent:WorldSpaceCenter(), VEHICLE_RANGE * 1.5)
+	CrewAim(v, target)
+	GunnerMissiles(v, target)
 end
 
 local nextVehicleThink = 0
@@ -2673,7 +2953,7 @@ function PR_Patrol.VehicleInfo(v)
 		IsValid(ent) and #CrewSeats(v) or -1, crew, IsValid(ent) and isfunction(ent.GetDriver) and tostring(ent:GetDriver()) or "-",
 		IsValid(ent) and isfunction(ent.GetCurHealth) and tostring(ent:GetCurHealth()) or "-",
 		IsValid(ent) and tostring(ent:GetPos()) or "-", IsValid(ent) and ent:GetUp().z or -9, IsValid(ent) and math.Round(ent:GetVelocity():Length()) or -1,
-		heading, tostring(v.driveState or v.airMode), tostring(v.fire) .. " " .. tostring(v.aimDebug) .. " " .. tostring(v.gredDebug), tostring(v.lastFly), IsValid(ent) and tostring(ent.PR_AimWrapped) or "-", tostring(v.aimTarget),
+		heading, tostring(v.driveState or v.airMode), tostring(v.fire) .. " " .. tostring(v.aimDebug) .. " " .. tostring(v.gredDebug) .. (v.pilotDebug and " " .. v.pilotDebug or "") .. (v.groundDebug and " " .. v.groundDebug or ""), tostring(v.lastFly), IsValid(ent) and tostring(ent.PR_AimWrapped) or "-", tostring(v.aimTarget),
 		IsValid(ent) and tostring(ent.sm_pp_yaw) or "-", IsValid(ent) and tostring(ent.sm_pp_pitch) or "-", tostring(v.lastError))
 end
 
