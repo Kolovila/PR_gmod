@@ -297,8 +297,12 @@ function ENT:SpawnGuardian(class, weaponClass, hpMul, signal)
 	guard.SignalPoint = self:GetCurPoint()
 	guard.PR_GuardPoint = self
 
-	guard:Spawn()
-	guard:Activate()
+	-- NPC из EFT-пака при появлении печатают таблицы своей одёжки («table: 0x…») — глушим
+	local quietly = PR_Quietly or function(fn) fn() end
+	quietly(function()
+		guard:Spawn()
+		guard:Activate()
+	end)
 
 	-- Некоторые VJ-паки ставят свой класс в Initialize, возвращаем фракционный
 	guard.VJ_NPC_Class = {"CLASS_PR_" .. team}

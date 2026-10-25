@@ -1066,6 +1066,84 @@ step(1, function()
 	hook.Remove("EntityRemoved", "PR_SelftestMissiles")
 	if IsValid(S.b1) and IsValid(S.b1:GetVehicle()) then S.b1:ExitVehicle() end
 	if IsValid(S.strikeVeh) then S.strikeVeh:Remove() end
+end)
+
+-- Цель уничтожена, пока управляемая ракета летит: ракета не должна сыпать ошибками
+-- (было: gred_lfs_mi24a/init.lua:763 LocalToWorld — ×800 и «аддон создаёт ошибки»)
+step(0, function()
+	local v = S.hs
+	if not (v and IsValid(v.ent)) then return end
+	-- Без оружия пилота (подвес 0): иначе его ракеты убивали цель раньше, чем стрелок пускал свою
+	v.ent:SetLoadout(0)
+	v.missilesLeft, v.nextMissile = 4, 0
+	spawnStrikeTarget()
+	S.nullErrors = {}
+	hook.Add("OnLuaError", "PR_SelftestNullSafety", function(err)
+		err = tostring(err)
+		if err:find("gred_lfs_mi24a", 1, true) or err:find("base_rocket", 1, true) or err:find("base_bomb", 1, true) then
+			table.insert(S.nullErrors, err)
+		end
+	end)
+end)
+
+waitFor(5, function() return IsValid(S.strikeVeh) and IsValid(S.strikeVeh:GetDriverSeat()) end, "vanishing target ready")
+
+step(0, function()
+	local v = S.hs
+	if not (v and IsValid(v.ent) and IsValid(S.strikeVeh)) then return end
+	S.b1:EnterVehicle(S.strikeVeh:GetDriverSeat())
+	S.vanishMissiles0 = v.missilesFired or 0
+	v.forceTarget = S.b1
+	-- Как только ракета ушла — через полсекунды цель исчезает
+	hook.Add("OnEntityCreated", "PR_SelftestVanish", function(e)
+		if not IsValid(e) or e:GetClass() ~= "gb_rocket_nebel" then return end
+		hook.Remove("OnEntityCreated", "PR_SelftestVanish")
+		S.vanishMissile = e
+		timer.Simple(0.5, function()
+			if IsValid(S.b1) and S.b1:InVehicle() then S.b1:ExitVehicle() end
+			if IsValid(S.strikeVeh) then S.strikeVeh:Remove() end
+		end)
+	end)
+end)
+
+waitFor(40, function()
+	local v = S.hs
+	return not (v and IsValid(v.ent)) or ((v.missilesFired or 0) > (S.vanishMissiles0 or 0) and not IsValid(S.strikeVeh))
+end, "missile launched and its target gone")
+
+waitFor(10, function() return not IsValid(S.vanishMissile) end, "missile without a target comes down")
+
+step(0, function()
+	local v = S.hs
+	hook.Remove("OnEntityCreated", "PR_SelftestVanish")
+	if v then v.forceTarget = nil end
+	check("Mi-24 launched a missile at the vanishing target", v and (v.missilesFired or 0) > (S.vanishMissiles0 or 0))
+	check("missile whose target vanished comes down", not IsValid(S.vanishMissile))
+	-- Ракета, хозяина которой убрали до взрыва (вертолёт сбит, бот выкинут): было base_rocket:741 SetAttacker(NULL)
+	local center = S.armor and PR_Patrol.Center(S.armor) or S.host:GetPos()
+	local spot = T.openPointNear(center) or center
+	local owner = ents.Create("prop_physics")
+	owner:SetModel("models/props_junk/wood_crate001a.mdl")
+	owner:SetPos(spot + Vector(0, 0, 3000))
+	owner:Spawn()
+	local rocket = ents.Create("gb_rocket_hydra")
+	rocket:SetPos(spot + Vector(0, 0, 1200))
+	rocket:SetAngles(Angle(90, 0, 0))
+	rocket:Spawn()
+	rocket:Activate()
+	PR_Patrol.GiveRocketOwner(rocket, owner)
+	rocket:Launch()
+	owner:Remove()
+	S.orphanRocket = rocket
+end)
+
+waitFor(8, function() return not IsValid(S.orphanRocket) end, "orphan rocket explodes")
+
+step(1, function()
+	for _, e in ipairs(S.nullErrors or {}) do log("  null-safety error: " .. e) end
+	check("rocket whose owner is gone explodes without errors", not IsValid(S.orphanRocket) and #(S.nullErrors or {}) == 0, #(S.nullErrors or {}))
+	check("no Mi-24 or rocket Lua errors when a target or owner vanishes", #(S.nullErrors or {}) == 0, #(S.nullErrors or {}))
+	hook.Remove("OnLuaError", "PR_SelftestNullSafety")
 	for _, p in ipairs({S.plane, S.oh6, S.heli}) do if p then p.ignoreTargets = nil end end
 	if S.hsPatrol then PR_Patrol.Remove(S.hsPatrol) end
 end)

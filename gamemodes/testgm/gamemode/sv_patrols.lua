@@ -73,6 +73,18 @@ local function HeightAboveGround(ent)
 	return math.Round(pos.z - tr.HitPos.z)
 end
 
+-- Вызвать fn без вывода print в консоль: аддоны печатают отладку (NPC из EFT-пака — таблицы своей
+-- одёжки при появлении, Ми-24 — стрелка при пуске ракеты), это сотни строк «table: 0x…»
+local function Quietly(fn, ...)
+	local realPrint = print
+	print = function() end
+	local result = {pcall(fn, ...)}
+	print = realPrint
+	if not result[1] then error(result[2], 0) end
+	return unpack(result, 2)
+end
+PR_Quietly = Quietly
+
 local function Settings()
 	return PR_PATROL_SETTINGS
 end
@@ -635,8 +647,10 @@ local function SpawnMember(patrol, def, pos, role)
 
 	npc:SetPos(pos)
 	npc:SetAngles(Angle(0, math.random(0, 359), 0))
-	npc:Spawn()
-	npc:Activate()
+	Quietly(function()
+		npc:Spawn()
+		npc:Activate()
+	end)
 
 	-- VJ-паки в Initialize ставят свой класс и дружбу с игроками (vj_me_scav): перебиваем после спавна
 	npc.VJ_NPC_Class = {patrol.cfg.npcClass or "CLASS_PR_BANDITS"}
@@ -1378,9 +1392,12 @@ local function AirSpec(entry, ent)
 end
 
 -- Сторону берём ближайшую к вертолёту, откуда цель видно (не за домом или краном); пересчёт раз в секунду
-local function StandOffPoint(entry, target, from)
+-- dist — как далеко от цели (стрелку — 900, ракетам с места — 1800: оттуда цель под ~20–25° ниже
+-- носа; с 900 на холме она оказывалась на 40–60° под ним, и ракеты не шли)
+local function StandOffPoint(entry, target, from, dist)
 	local now = CurTime()
-	if entry.standTarget == target and entry.standAt and now < entry.standAt and entry.standPos then
+	dist = dist or 900
+	if entry.standTarget == target and entry.standDist == dist and entry.standAt and now < entry.standAt and entry.standPos then
 		return entry.standPos
 	end
 
@@ -1392,7 +1409,7 @@ local function StandOffPoint(entry, target, from)
 	-- Высота: на 600 выше цели и на 450 выше крыш и склонов вокруг места и на пути от него к цели
 	-- (считать только землю под самим местом мало: у холма вертолёт цеплял склон винтом)
 	local function Candidate(yaw)
-		local p = tpos + Angle(0, yaw, 0):Forward() * 900
+		local p = tpos + Angle(0, yaw, 0):Forward() * dist
 		local top = -math.huge
 		for _, f in ipairs({0, 0.25, 0.5, 0.75}) do
 			top = math.max(top, TopAt(p.x + (tpos.x - p.x) * f, p.y + (tpos.y - p.y) * f, ceil, tpos.z))
@@ -1413,7 +1430,7 @@ local function StandOffPoint(entry, target, from)
 		end
 	end
 
-	entry.standTarget, entry.standAt, entry.standPos = target, now + 1, p
+	entry.standTarget, entry.standDist, entry.standAt, entry.standPos = target, dist, now + 1, p
 	return p
 end
 
@@ -1597,6 +1614,27 @@ local PILOT_WEAPONS = {
 	}
 }
 
+-- Ракеты, которым мы дали хозяина (бот экипажа или сама машина). Взрыв пишет урон на Owner, и если
+-- хозяина уберут раньше (вертолёт сбит, бот выкинут), SetAttacker(NULL) падал с ошибкой
+-- (base_rocket:741) — тогда ракета снова «сама своя», как было у аддона
+local ownedRockets = {}
+local function GiveRocketOwner(rocket, owner)
+	rocket.Owner = owner
+	ownedRockets[rocket] = owner
+end
+PR_Patrol.GiveRocketOwner = GiveRocketOwner
+hook.Add("EntityRemoved", "PR_PatrolRocketOwners", function(ent)
+	if not next(ownedRockets) then return end
+	for rocket, owner in pairs(ownedRockets) do
+		if not IsValid(rocket) or rocket == ent then
+			ownedRockets[rocket] = nil
+		elseif owner == ent then
+			rocket.Owner = rocket
+			ownedRockets[rocket] = nil
+		end
+	end
+end)
+
 -- Ракет за один заход, дальше — только пушка (иначе Ми-24 высыпал бы все 64 в первый же)
 local SALVO = 8
 
@@ -1699,7 +1737,7 @@ local function FirePilot(ent, entry, target, kind, aimed, hover)
 		-- Только сами ракеты (у снарядов Гредвича есть Launch), не служебные сущности запрета столкновений
 		if IsValid(rocket) and isfunction(rocket.Launch) then
 			rockets = rockets + 1
-			rocket.Owner = shooter
+			GiveRocketOwner(rocket, shooter)
 			-- Доводка на цель (у самолёта наведение своё, с упреждением — его не трогаем)
 			if not aimed then
 				local want = (PR_Patrol.AimPoint(target) - rocket:GetPos()):GetNormalized()
@@ -2056,9 +2094,10 @@ local function PlaneDogfight(entry, ent, target)
 	local dist = pos:Distance(tpos)
 
 	-- Сближение: на встречных курсах ~3000 в секунду — отворот за 700 опаздывал, самолёт таранил цель.
-	-- Отворот, когда до столкновения меньше секунды (но не дальше 2000 — на встречных успеть выстрелить)
+	-- Отворот, когда до столкновения меньше 1,6 с (но не дальше 2500 — на встречных успеть выстрелить);
+	-- с 1 с самолёт не успевал отвернуть от почти неподвижной цели (зависший вертолёт) и таранил
 	local closing = (ent:GetVelocity() - tvel):Dot((tpos - pos):GetNormalized())
-	local tooClose = dist < PLANE_BREAK_DIST or (closing > 0 and dist < math.min(closing, 2000))
+	local tooClose = dist < PLANE_BREAK_DIST or (closing > 0 and dist < math.min(closing * 1.6, 2500))
 
 	local was = entry.planeMode
 	-- Отворот держим 2 с и дальше, пока цель ближе 1500 или мы ещё сближаемся (до 5 с): после
@@ -2199,7 +2238,7 @@ local function SetupAI(patrol, entry)
 				if (gunner and IsValid(entry.crew[1]) or hoverRockets) and (hoverRockets or not PilotRun(entry, self)) then
 					entry.airMode = hoverRockets and "rocket attack" or "stand off"
 					entry.faceTarget = target
-					local point = StandOffPoint(entry, target, self:GetPos())
+					local point = StandOffPoint(entry, target, self:GetPos(), hoverRockets and 1800 or 900)
 					-- Только что уходил от препятствия — пока не снижаемся
 					if entry.holdAltUntil and CurTime() < entry.holdAltUntil and point.z < self:GetPos().z then
 						point = Vector(point.x, point.y, self:GetPos().z)
@@ -2878,10 +2917,7 @@ local function GunnerMissiles(entry, target)
 	local created = {}
 	hook.Add("OnEntityCreated", "PR_PatrolGunnerMissile", function(e) created[#created + 1] = e end)
 	-- В AltSecondaryAttack у аддона отладочный print(Driver) — на каждый пуск строка в консоль
-	local realPrint = print
-	print = function() end
-	local ok, err = pcall(ent.AltSecondaryAttack, ent, gunner, seat)
-	print = realPrint
+	local ok, err = pcall(Quietly, ent.AltSecondaryAttack, ent, gunner, seat)
 	hook.Remove("OnEntityCreated", "PR_PatrolGunnerMissile")
 	tab.GetDriver = ownDriver
 	if not ok then error(err, 0) end
@@ -2893,9 +2929,24 @@ local function GunnerMissiles(entry, target)
 	for _, e in ipairs(created) do
 		if IsValid(e) and isfunction(e.Launch) then
 			launched = launched + 1
-			e.Owner = gunner
+			GiveRocketOwner(e, gunner)
 			e.target = body
 			e.targetOffset = body:WorldToLocal(body:WorldSpaceCenter())
+			-- Цель уничтожили, пока ракета летит: её наведение (self.target:LocalToWorld) падало
+			-- каждый тик (×800 ошибок, «аддон создаёт ошибки»). Тогда летит в последнюю точку цели
+			local steer = e.PhysicsUpdate
+			if isfunction(steer) then
+				e.PhysicsUpdate = function(self, phys)
+					local world = game.GetWorld()
+					if self.target ~= world and IsValid(self.target) then
+						self.PR_LastAim = self.target:LocalToWorld(self.targetOffset)
+					elseif self.target ~= world then
+						self.target = world
+						self.targetOffset = self.PR_LastAim or (self:GetPos() + self:GetForward() * 1000)
+					end
+					return steer(self, phys)
+				end
+			end
 		end
 	end
 	if launched > 0 then
