@@ -58,7 +58,7 @@ step(0, function()
 		-- Без стрелка: бьёт курсовым пулемётом заходами
 		table.insert(vehicles, {name = "Вертушка", class = {"gred_lfs_oh6"}, count = 1, crew = 0, reward = {money = 1500, exp = 5}})
 	end
-	if T.enabled("plane") then
+	if T.enabled("plane") or T.enabled("dogfight") then
 		table.insert(vehicles, {name = "Штурмовик", class = {"gred_lfs_a10"}, count = 1, crew = 2, reward = {money = 3000, exp = 10}})
 	end
 
@@ -385,8 +385,22 @@ step(0, function()
 	end
 end)
 
--- До 40 с: если Ми-24 как раз ушёл на заход своим оружием, стрелку цель не достать, пока не вернётся
-waitFor(40, function() return not S.vivo or (S.gunnerWounds or 0) > 0 or not (IsValid(S.b1) and S.b1:Alive()) end, "gunner wounds the target")
+-- 20 с ждём попадания из турели. С 2500–3000 на вираже 12,7 мм часто не попадает (это меткость ИИ,
+-- а здесь проверяется путь урона) — тогда очередь от имени стрелка теми же пулями с 500
+waitFor(20, function() return not S.vivo or (S.gunnerWounds or 0) > 0 or not (IsValid(S.b1) and S.b1:Alive()) end, "gunner wounds the target")
+
+step(0, function()
+	local gunner = S.heli and crewOf(S.heli, 1)
+	if not S.vivo or (S.gunnerWounds or 0) > 0 or not IsValid(S.b1) or not IsValid(gunner) then return end
+	local target = S.b1:WorldSpaceCenter()
+	local from = target + Vector(350, 0, 350)
+	for _ = 1, 6 do
+		gred.CreateBullet(gunner, from, (target - from):Angle() + Angle(math.Rand(-0.5, 0.5), math.Rand(-0.5, 0.5), 0), "wac_base_12mm", {S.heli.ent})
+	end
+	log("gunner missed for 20 s: burst from 500 on the gunner's behalf")
+end)
+
+waitFor(3, function() return not S.vivo or (S.gunnerWounds or 0) > 0 or not (IsValid(S.b1) and S.b1:Alive()) end, "gunner burst wounds the target")
 
 step(0, function()
 	if S.vivo and IsValid(S.b1) then
@@ -566,6 +580,125 @@ end)
 -- Уборка
 ----------------------------------------------------------------------------------------------------
 
+
+----------------------------------------------------------------------------------------------------
+-- Гепард (зенитный танк Гредвича из Commission Pack #16): снаряды танка игрока его убивают.
+-- Как было у игрока: сначала пушка штурмовика (30 мм), потом танк T-72M2 — 125 мм HEATFS сбоку;
+-- хозяин снарядов — игрок (бот). У взрыва 30 мм Гредвича нет «чем били», и взрыв simfphys падал
+-- с ошибкой: Гепард горел и больше не убивался (sv_simfphys_compat.lua)
+----------------------------------------------------------------------------------------------------
+T.section("gepard")
+
+-- Свой патруль: в одном варианте не больше 4 групп техники, а у основного их и так 4
+step(0, function()
+	local key, err = PR_Patrol.SaveType(nil, {
+		name = "Тест: Гепард",
+		leader = {name = "Решала", class = {"npc_vj_mishawild_reshala1"}, weapons = {"weapon_vj_meft_reshala_ak101"}, health = 600},
+		vehicles = {{name = "Гепард", class = {"gred_simfphys_flakpanzerigepard_custom"}, count = 1, crew = 1, reward = {money = 3000, exp = 15}}}
+	})
+	S.gepardType = key
+	check("Gepard patrol type saved", key ~= nil, err)
+	if not key then return end
+	S.gepardPatrol = PR_Patrol.Spawn(key, S.spotB or S.spotA)
+	S.gepard = S.gepardPatrol and S.gepardPatrol.vehicles[1]
+	if S.gepardPatrol then S.gepardPatrol.lingerUntil = CurTime() + 600 end
+end)
+
+local function gepardState()
+	local g = S.gepard and S.gepard.ent
+	if not IsValid(g) then return "нет (убран)" end
+	return string.format("hp %s/%s, destroyed %s, dead %s", tostring(g.GetCurHealth and g:GetCurHealth()), tostring(g:GetMaxHealth()),
+		tostring(g.destroyed), tostring(S.gepard.dead))
+end
+
+waitFor(15, function()
+	local g = S.gepard and S.gepard.ent
+	return IsValid(g) and isfunction(g.IsInitialized) and g:IsInitialized() and g:GetCurHealth() > 0 and IsValid(crewOf(S.gepard, 1))
+end, "gepard ready")
+
+step(0, function()
+	local g = S.gepard and S.gepard.ent
+	check("gepard spawned with its crew", IsValid(g) and IsValid(crewOf(S.gepard, 1)), gepardState())
+	if not IsValid(g) then return end
+	log("gepard: " .. gepardState() .. ", armored " .. tostring(g.IsArmored) .. ", GRED_TANK " .. tostring(g.GRED_TANK))
+	S.gepardHits, S.gepardErrors = {}, {}
+	S.gepardLogMark = T.patrolLogMark()
+	-- Ошибки самого взрыва (simfphys, его обработчики у Гредвича, режим). VIVO и CW 2.0 сыплют своими,
+	-- когда бот экипажа гибнет и его выкидывают (таймер VIVO через 1,5 с после появления не
+	-- проверяет, что игрок ещё есть), — это не про взрыв
+	hook.Add("OnLuaError", "PR_SelftestGepardErrors", function(err)
+		err = tostring(err)
+		if err:find("fphysics", 1, true) or err:find("simfphys", 1, true) or err:find("gamemodes/testgm", 1, true) then
+			table.insert(S.gepardErrors, err)
+		end
+	end)
+	hook.Add("EntityTakeDamage", "PR_SelftestGepard", function(victim, dmg)
+		if victim ~= g then return end
+		local inflictor = dmg:GetInflictor()
+		local line = string.format("%.2f by %s/%s, type %d, dmg %.0f, hp %s", CurTime(), tostring(dmg:GetAttacker()),
+			IsValid(inflictor) and inflictor:GetClass() or tostring(inflictor), dmg:GetDamageType(), dmg:GetDamage(), tostring(g:GetCurHealth()))
+		local index = #S.gepardHits + 1
+		S.gepardHits[index] = line
+		-- Прочность после обработки урона
+		timer.Simple(0, function()
+			S.gepardHits[index] = line .. " -> " .. (IsValid(g) and tostring(g:GetCurHealth()) or "removed")
+		end)
+	end)
+	S.gepardShots = 0
+end)
+
+-- Сначала пушка штурмовика (30 мм сверху) — пока Гепард не загорится
+for _ = 1, 12 do
+	step(0.5, function()
+		local g = S.gepard and S.gepard.ent
+		if not IsValid(g) or S.gepard.dead or g:GetCurHealth() <= g:GetMaxHealth() * 0.3 then return end
+		local target = g:WorldSpaceCenter()
+		local from = target + Vector(300, 0, 900)
+		for _ = 1, 8 do
+			gred.CreateBullet(S.b1, from, (target - from):Angle() + Angle(math.Rand(-1, 1), math.Rand(-1, 1), 0), "wac_base_30mm", {S.b1})
+		end
+	end)
+end
+
+step(1, function()
+	local g = S.gepard and S.gepard.ent
+	log("gepard after the 30 mm: " .. gepardState() .. ", on fire " .. tostring(IsValid(g) and g.GetOnFire and g:GetOnFire()))
+end)
+
+for _ = 1, 6 do
+	step(1.5, function()
+		local g = S.gepard and S.gepard.ent
+		if not IsValid(g) or S.gepard.dead or g:GetCurHealth() <= 0 then return end
+		-- Сбоку, по каткам (как у игрока), откуда их видно
+		local target = g:GetPos() + Vector(0, 0, 30)
+		local from
+		for _, dir in ipairs({g:GetRight(), -g:GetRight(), g:GetForward(), -g:GetForward()}) do
+			local p = target + dir * 700 + Vector(0, 0, 30)
+			local tr = util.TraceLine({start = p, endpos = target, filter = {S.b1}, mask = MASK_SHOT})
+			if tr.Entity == g then from = p break end
+		end
+		if not from then log("gepard: no clear side to shoot from") return end
+		local hpBefore = g:GetCurHealth()
+		local shell = gred.CreateShell(from, (target - from):Angle(), S.b1, {S.b1}, 125, "HEATFS", 905, 19, "white", nil, nil, 2.53, nil, 440)
+		if IsValid(shell) and isfunction(shell.Launch) then shell:Launch() end
+		S.gepardShots = S.gepardShots + 1
+		log(string.format("gepard shot %d from %s, hp before %d", S.gepardShots, tostring(from), hpBefore))
+	end)
+end
+
+step(2, function()
+	local g = S.gepard and S.gepard.ent
+	for _, line in ipairs(S.gepardHits or {}) do log("  gepard hit: " .. line) end
+	log("gepard after " .. tostring(S.gepardShots) .. " shells: " .. gepardState())
+	check("the patrol Gepard dies to the player's cannon fire (30 mm, then 125 mm)", not IsValid(g) or S.gepard.dead or g:GetCurHealth() <= 0, gepardState())
+	for _, e in ipairs(S.gepardErrors or {}) do log("  gepard lua error: " .. e) end
+	check("no simfphys/Gredwitch Lua errors while the Gepard is destroyed", #(S.gepardErrors or {}) == 0, #(S.gepardErrors or {}))
+	local stuck = string.find(T.patrolLogSince(S.gepardLogMark) or "", "взрыв не завершился", 1, true)
+	check("the Gepard's explosion completes by itself (no stuck burning tank)", not stuck)
+	hook.Remove("EntityTakeDamage", "PR_SelftestGepard")
+	hook.Remove("OnLuaError", "PR_SelftestGepardErrors")
+end)
+
 ----------------------------------------------------------------------------------------------------
 -- Самолёт: A-10 кружит над патрулём без ошибок LFS (ИИ самолёта ждёт углы, а не точку), не падает,
 -- по врагу бьёт пушкой своим ИИ
@@ -689,6 +822,91 @@ step(0, function()
 	if v then v.forceTarget = nil end
 end)
 
+
+----------------------------------------------------------------------------------------------------
+-- Воздушный бой: штурмовик патруля против самолёта в воздухе (игрок на своём A-10). Цель — «дрон»:
+-- модель A-10 без своей физики полёта, летит по кругу над патрулём со скоростью 1200, каждые 8 с
+-- разворачивается в обратную сторону и ходит по высоте ±600 — как игрок, уходящий от атаки
+----------------------------------------------------------------------------------------------------
+T.section("dogfight")
+
+waitFor(20, function() return S.plane and IsValid(S.plane.ent) and not S.plane.holdUntil end, "plane released for the dogfight")
+
+local function dogfightState()
+	local v = S.plane
+	if not (v and IsValid(v.ent)) then return "самолёта нет" end
+	local e = v.ent
+	return string.format("plane speed %d, mode %s, hp %s, dist to drone %s", e:GetVelocity():Length(), tostring(v.airMode),
+		isfunction(e.GetHP) and math.Round(e:GetHP()) or "-", IsValid(S.drone) and math.Round(e:GetPos():Distance(S.drone:GetPos())) or "-")
+end
+
+step(0, function()
+	local v = S.plane
+	if not (v and IsValid(v.ent)) then check("plane for the dogfight", false) return end
+	local center = S.armor and PR_Patrol.Center(S.armor) or v.ent:GetPos()
+	local tr = util.TraceLine({start = center + Vector(0, 0, 64), endpos = center + Vector(0, 0, 16000), mask = MASK_SOLID_BRUSHONLY})
+	S.droneCenter = center + Vector(0, 0, math.min(2500, tr.HitPos.z - center.z - 800))
+	local drone = ents.Create("prop_physics")
+	drone:SetModel("models/gredwitch/a10/a10_lfs.mdl")
+	drone:SetPos(S.droneCenter + Vector(3000, 0, 0))
+	drone:Spawn()
+	local phys = drone:GetPhysicsObject()
+	if IsValid(phys) then phys:EnableGravity(false) phys:Wake() end
+	S.drone, S.droneAngle, S.droneHits, S.droneDir, S.droneFlipAt = drone, 0, 0, 1, CurTime() + 8
+	hook.Add("Think", "PR_SelftestDrone", function()
+		if not IsValid(S.drone) then return end
+		local ph = S.drone:GetPhysicsObject()
+		if not IsValid(ph) then return end
+		if CurTime() > S.droneFlipAt then S.droneDir, S.droneFlipAt = -S.droneDir, CurTime() + 8 end
+		S.droneAngle = S.droneAngle + FrameTime() * 1200 / 3000 * S.droneDir
+		local a = S.droneAngle
+		local want = S.droneCenter + Vector(math.cos(a) * 3000, math.sin(a) * 3000, math.sin(a * 3) * 600)
+		local vel = Vector(-math.sin(a), math.cos(a), 0) * 1200 * S.droneDir + (want - S.drone:GetPos()) * 2
+		ph:SetVelocity(vel)
+		ph:SetAngles(vel:Angle())
+		ph:SetAngleVelocity(Vector(0, 0, 0))
+	end)
+	-- Попадания — только пули и разрывы; удар корпусом (таран) считаем отдельно
+	S.droneRams = 0
+	hook.Add("EntityTakeDamage", "PR_SelftestDroneHits", function(victim, dmg)
+		local a = dmg:GetAttacker()
+		if victim ~= S.drone or not IsValid(a) or not (a == v.ent or (a:IsPlayer() and a.PR_PatrolCrew == v)) then return end
+		if dmg:IsDamageType(DMG_CRUSH) or dmg:IsDamageType(DMG_VEHICLE) or dmg:GetDamageType() == DMG_GENERIC then
+			S.droneRams = S.droneRams + 1
+		else
+			S.droneHits = S.droneHits + 1
+		end
+	end)
+	S.dogfightShots0 = S.planeShots or 0
+	S.dogfightMark = T.patrolLogMark()
+	v.forceTarget = drone
+	log("drone at " .. tostring(drone:GetPos()) .. ", " .. dogfightState())
+end)
+
+-- Бой подольше: 10 попаданий (или минута) — с проскоками, отворотами и новыми заходами
+waitFor(60, function()
+	return not (S.plane and IsValid(S.plane.ent)) or (S.droneHits or 0) >= 10
+end, "plane hits the air target")
+
+step(0, function()
+	local v = S.plane
+	local shots = (S.planeShots or 0) - (S.dogfightShots0 or 0)
+	log(string.format("dogfight: shots %d, hits %d, rams %d, %s", shots, S.droneHits or 0, S.droneRams or 0, dogfightState()))
+	local lines = T.patrolLogSince(S.dogfightMark) or ""
+	for _, line in ipairs(string.Explode("\n", lines)) do
+		if line:find("воздушный бой", 1, true) then log("  " .. line) end
+	end
+	check("plane switches to air combat against an aircraft", lines:find("воздушный бой", 1, true) ~= nil)
+	check("plane fires at the aircraft", shots > 0, shots)
+	check("plane hits the maneuvering aircraft again and again (10 hits in a minute)", (S.droneHits or 0) >= 10, S.droneHits)
+	check("plane doesn't ram the aircraft", (S.droneRams or 0) == 0, S.droneRams)
+	check("plane survives the dogfight", v and IsValid(v.ent) and not (isfunction(v.ent.IsDestroyed) and v.ent:IsDestroyed()), dogfightState())
+	hook.Remove("Think", "PR_SelftestDrone")
+	hook.Remove("EntityTakeDamage", "PR_SelftestDroneHits")
+	if IsValid(S.drone) then S.drone:Remove() end
+	if v then v.forceTarget = nil end
+end)
+
 T.section("common")
 
 step(0, function()
@@ -701,6 +919,7 @@ step(1, function()
 	check("patrol vehicles and crew removed", not (S.heli and IsValid(S.heli.ent)) and not IsValid(S.heliCrew)
 		and not (S.oh6 and IsValid(S.oh6.ent)) and not (S.tank and IsValid(S.tank.ent)) and not (S.plane and IsValid(S.plane.ent)))
 	if S.armorType then PR_Patrol.DeleteType(S.armorType) end
+	if S.gepardType then PR_Patrol.DeleteType(S.gepardType) end
 	for _, id in ipairs({S.spotA, S.spotB, S.spotC}) do
 		if id then PR_Patrol.RemoveSpot(id) end
 	end

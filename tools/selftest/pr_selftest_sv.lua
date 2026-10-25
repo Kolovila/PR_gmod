@@ -32,6 +32,20 @@ local function ground(pos)
 	return tr.HitPos
 end
 
+-- Место метрах в четырёх от точки на том же полу, откуда точку видно
+local function viewSpotAt(base)
+	for yaw = 0, 330, 30 do
+		local probe = base + Angle(0, yaw, 0):Forward() * 220
+		local down = util.TraceLine({start = probe + Vector(0, 0, 80), endpos = probe - Vector(0, 0, 300), mask = MASK_PLAYERSOLID_BRUSHONLY})
+		if down.Hit and not down.StartSolid and math.abs(down.HitPos.z - base.z) < 60 then
+			local feet = down.HitPos + Vector(0, 0, 2)
+			local hull = util.TraceHull({start = feet, endpos = feet, mins = Vector(-16, -16, 0), maxs = Vector(16, 16, 72), mask = MASK_PLAYERSOLID})
+			local sight = util.TraceLine({start = feet + Vector(0, 0, 64), endpos = base + Vector(0, 0, 100), mask = MASK_SOLID_BRUSHONLY})
+			if not hull.Hit and not sight.Hit then return feet end
+		end
+	end
+end
+
 local function findIn(list, field, value)
 	for _, e in ipairs(list or {}) do if e[field] == value then return e end end
 end
@@ -171,8 +185,12 @@ step(0, function()
 	S.b1:SetNWString("PR_fraction", "SSNK")
 	S.b2:SetNWString("PR_fraction", "USA")
 
+	-- Точка рядом с ботом, а если оттуда её не видно с ровного места (бот появляется, где велят
+	-- сейвы игрока, — например, на склоне) — на заранее найденном ровном месте
+	local place = ground(S.b2:GetPos() + Vector(120, 0, 0))
+	if not viewSpotAt(place) then place = ground(T.FIXED_BASES[1]) end
 	local p = ents.Create("zahvat_ojka")
-	p:SetPos(ground(S.b2:GetPos() + Vector(120, 0, 0)))
+	p:SetPos(place)
 	p:Spawn()
 	p:Activate()
 	p:SpawnModules()
@@ -483,19 +501,8 @@ step(1, function()
 end)
 
 -- Табличка над точкой и полоса захвата: хост из другой группировки подходит и захватывает
--- Место метрах в четырёх от точки на том же полу, откуда точку видно
 local function viewSpot(point)
-	local base = point:GetPos()
-	for yaw = 0, 330, 30 do
-		local probe = base + Angle(0, yaw, 0):Forward() * 220
-		local down = util.TraceLine({start = probe + Vector(0, 0, 80), endpos = probe - Vector(0, 0, 300), mask = MASK_PLAYERSOLID_BRUSHONLY})
-		if down.Hit and not down.StartSolid and math.abs(down.HitPos.z - base.z) < 60 then
-			local feet = down.HitPos + Vector(0, 0, 2)
-			local hull = util.TraceHull({start = feet, endpos = feet, mins = Vector(-16, -16, 0), maxs = Vector(16, 16, 72), mask = MASK_PLAYERSOLID})
-			local sight = util.TraceLine({start = feet + Vector(0, 0, 64), endpos = base + Vector(0, 0, 100), mask = MASK_SOLID_BRUSHONLY})
-			if not hull.Hit and not sight.Hit then return feet end
-		end
-	end
+	return viewSpotAt(point:GetPos())
 end
 
 local function lookAtPoint()
@@ -953,7 +960,8 @@ step(1, function()
 	net.Start("PR_SELFTEST_CLOSE") net.Send(S.host)
 	PR_Patrol.ClearAll()
 
-	check("default armored patrol seeded", PR_PATROL_TYPES.reshala_armor ~= nil and #(PR_PATROL_TYPES.reshala_armor.vehicles or {}) == 1)
+	-- Технику в нём игрок мог поменять (у него сейчас Ми-24, два A-10 и Гепард) — важно, что она есть
+	check("default armored patrol seeded", PR_PATROL_TYPES.reshala_armor ~= nil and #(PR_PATROL_TYPES.reshala_armor.vehicles or {}) >= 1)
 	check("vehicle kinds", PR_PatrolVehicleKind("sim_fphys_tank") == "ground" and PR_PatrolVehicleKind("gred_lfs_mi24a") == "air"
 		and PR_PatrolVehicleKind("npc_bogus") == nil, tostring(PR_PatrolVehicleKind("gred_lfs_mi24a")))
 

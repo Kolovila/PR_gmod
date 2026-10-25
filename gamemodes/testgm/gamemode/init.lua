@@ -24,6 +24,7 @@ include("sv_sandbox.lua")
 include("sv_patrols.lua")
 include("sv_minimap.lua")
 include("sv_vivo_compat.lua")
+include("sv_simfphys_compat.lua")
 
 -- Игрок, которому засчитывается убийство. Водитель техники тоже считается.
 function PR_KillerPlayer(attacker)

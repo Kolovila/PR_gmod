@@ -1251,17 +1251,25 @@ end
 -- Место появления авиации: рядом со спотом, где над головой открытое небо. Обходим кольца
 -- от 300 до 2700 по 12 направлений; небо меряем над самой точкой, а не над спотом
 -- (спот может быть под навесом, а в двух шагах — открытое небо)
-local function AirSpawnPos(pos)
+-- Где появиться летающей машине: под открытым небом, не ближе 1500 к другим (taken) — иначе
+-- отпущенный на скорости самолёт влетал в вертолёт рядом. Второе — курс «от патруля наружу»
+local function AirSpawnPos(pos, taken, from)
 	local turn = math.random(0, 359)
-	for dist = 300, 2700, 400 do
+	for dist = from or 300, (from or 300) + 2400, 400 do
 		for i = 0, 11 do
-			local ang = math.rad(turn + i * 30 + dist * 0.1)
+			local deg = turn + i * 30 + dist * 0.1
+			local ang = math.rad(deg)
 			local x, y = pos.x + math.cos(ang) * dist, pos.y + math.sin(ang) * dist
 
 			local ceil, inside = CeilingAt(Vector(x, y, pos.z))
 			if not inside and ceil - pos.z > AIR_ALTITUDE + 400 then
 				local top = TopAt(x, y, ceil, pos.z)
-				return Vector(x, y, math.min(math.max(pos.z + AIR_ALTITUDE, top + 900), ceil - 250))
+				local candidate = Vector(x, y, math.min(math.max(pos.z + AIR_ALTITUDE, top + 900), ceil - 250))
+				local free = true
+				for _, other in ipairs(taken or {}) do
+					if other:Distance(candidate) < 1500 then free = false break end
+				end
+				if free then return candidate, deg end
 			end
 		end
 	end
@@ -1868,6 +1876,92 @@ local function PlaneAttack(entry, ent, target)
 	return PlaneSteer(ent, toTarget, AltitudePitch(pos, cruiseZ))
 end
 
+----------------------------------------------------------------------------------------------------
+-- Воздушный бой: враг в воздухе (игрок в самолёте или вертолёте). Заходы с пике по земле тут не
+-- годятся — цель двигается и бывает выше: нос промахивался на 5–22°, и штурмовики почти не
+-- стреляли. Гонимся за упреждённой точкой (где цель будет, когда долетит снаряд), огонь — когда
+-- нос на ней; совсем близко — отворот, чтобы не столкнуться; земля по ходу — вверх
+----------------------------------------------------------------------------------------------------
+local PLANE_BREAK_DIST = 700 -- ближе — отворот
+
+-- Цель в воздухе: под ней (или под её машиной) нет земли на h
+local function AirTarget(target, h)
+	local pos = AimBody(target):WorldSpaceCenter()
+	return not util.TraceLine({start = pos, endpos = pos - Vector(0, 0, h), mask = MASK_SOLID_BRUSHONLY}).Hit
+end
+
+local function PlaneDogfight(entry, ent, target)
+	local now = CurTime()
+	local pos = ent:GetPos()
+	local body = AimBody(target)
+	local tpos = body:WorldSpaceCenter()
+	local tvel = body:GetVelocity()
+	local ceil = CeilingAt(pos)
+	local muzzle = ent:WorldSpaceCenter()
+
+	-- Упреждение под пушку (снаряд 30 мм Гредвича — 830 за тик)
+	local speed = ((istable(gred) and gred.CalTable and gred.CalTable.wac_base_30mm and gred.CalTable.wac_base_30mm.Speed) or 830) / engine.TickInterval()
+	local lead = tpos
+	for _ = 1, 2 do lead = tpos + tvel * (muzzle:Distance(lead) / speed) end
+	local toLead = (lead - muzzle):Angle()
+	local dist = pos:Distance(tpos)
+
+	-- Сближение: на встречных курсах ~3000 в секунду — отворот за 700 опаздывал, самолёт таранил цель.
+	-- Отворот, когда до столкновения меньше секунды (но не дальше 2000 — на встречных успеть выстрелить)
+	local closing = (ent:GetVelocity() - tvel):Dot((tpos - pos):GetNormalized())
+	local tooClose = dist < PLANE_BREAK_DIST or (closing > 0 and dist < math.min(closing, 2000))
+
+	local was = entry.planeMode
+	local mode = (was == "break" and now < (entry.planeUntil or 0)) and "break" or "dogfight"
+	if mode == "dogfight" and tooClose then
+		-- Отворот вбок — в сторону, куда цель НЕ движется, и по высоте — от неё (выше нас — уходим
+		-- вниз, ниже — вверх). Со случайной стороной самолёт поворачивал ей наперерез и таранил
+		local r = tpos - pos
+		local side = Vector(-r.y, r.x, 0):GetNormalized()
+		if (tvel - ent:GetVelocity()):Dot(side) > 0 then side = -side end
+		mode, entry.planeUntil = "break", now + 2
+		entry.planeBreakYaw = side:Angle().y
+		entry.planeBreakPitch = tpos.z > pos.z and 15 or -20
+	end
+	entry.planeMode = mode
+	entry.airMode = "plane " .. mode
+	if mode ~= was then
+		local name = IsValid(target) and target:IsPlayer() and target:Nick() or tostring(target)
+		PR_Patrol.Log(string.format("%s: %s (цель %s, до неё %d, выше неё %d, скорость %d%s)", VehicleLabel(entry),
+			mode == "break" and "воздушный бой — отворот, чтобы не столкнуться" or "воздушный бой", name, dist, pos.z - tpos.z,
+			ent:GetVelocity():Length(), was == "dogfight" and (entry.planeFired and ", стрелял" or ", не стрелял") or ""))
+		entry.planeFired = nil
+	end
+
+	-- Земля или препятствие по ходу — сначала вверх
+	if PlaneDanger(ent, 2.5, 600) then
+		PlaneThrottle(ent, 1)
+		return PlaneSteer(ent, PlaneHeading(ent), -35)
+	end
+	if mode == "break" then
+		PlaneThrottle(ent, 1)
+		return PlaneSteer(ent, entry.planeBreakYaw, entry.planeBreakPitch or -15)
+	end
+
+	-- Огонь: нос на упреждённой точке (≤ 4°), ближе 7000 и её видно
+	local off = math.deg(math.acos(math.Clamp(ent:GetForward():Dot(toLead:Forward()), -1, 1)))
+	if off <= 4 and dist < 7000 and not util.TraceLine({start = muzzle, endpos = lead, mask = MASK_SOLID_BRUSHONLY}).Hit then
+		if PILOT_WEAPONS[entry.class] then
+			FirePilot(ent, entry, target)
+		elseif isfunction(ent.HandleWeapons) then
+			ent:HandleWeapons(true)
+		end
+		entry.planeFired = true
+	end
+
+	-- Догнали и цель впереди — сбросить газ, чтобы не проскочить; под небо не лезть
+	local ahead = ent:GetForward():Dot((tpos - pos):GetNormalized()) > 0.7
+	PlaneThrottle(ent, (ahead and dist < 2500) and 0.7 or 1)
+	local pitch = math.Clamp(math.NormalizeAngle(toLead.p), -35, 35)
+	if pos.z > ceil - 700 then pitch = math.max(pitch, 0) end
+	return PlaneSteer(ent, toLead.y, pitch)
+end
+
 -- LFS/LVS: свой ИИ летает, мы подменяем ему цели и точку, пока врагов нет
 local function SetupAI(patrol, entry)
 	local ent = entry.ent
@@ -1885,11 +1979,20 @@ local function SetupAI(patrol, entry)
 	local baseRunAI = ent.RunAI
 	if isfunction(baseRunAI) then
 		ent.RunAI = function(self, ...)
+			-- Сбитый самолёт падает сам: не рулим и не пишем в журнал заходы обломков
+			if not entry.heli and isfunction(self.IsDestroyed) and self:IsDestroyed() then return self:GetAngles() end
+
 			local target = PR_Patrol.VehicleTarget(entry, self:WorldSpaceCenter(), VEHICLE_RANGE * 1.5)
 
 			-- Самолёт по врагу — своими заходами (у ИИ LFS на этой карте не хватает высоты)
 			if IsValid(target) and not entry.heli and entry.class and string.StartWith(entry.class, "lvs_") then return baseRunAI(self, ...) end
-			if IsValid(target) and not entry.heli then return PlaneAttack(entry, self, target) end
+			if IsValid(target) and not entry.heli then
+				-- Враг в воздухе — воздушный бой (уже в бою — пока цель хоть немного над землёй)
+				local fighting = entry.planeMode == "dogfight" or entry.planeMode == "break"
+				if AirTarget(target, fighting and 250 or 500) then return PlaneDogfight(entry, self, target) end
+				if fighting then entry.planeMode = nil end
+				return PlaneAttack(entry, self, target)
+			end
 
 			-- Самолёт без врагов кружит над патрулём
 			if not entry.heli then
@@ -1977,9 +2080,10 @@ local function HoldUntilEngine(entry)
 	if IsValid(phys) then
 		phys:EnableMotion(true)
 		phys:Wake()
-		-- Самолёт отпускаем уже на скорости: с нуля в воздухе он сваливается
+		-- Самолёт отпускаем уже на скорости: с нуля в воздухе он сваливается. Берём крейсерскую
+		-- (у A-10 MaxPerfVelocity 2000, а «теоретический предел» 10000 — с половины его он вылетал рывком)
 		if not entry.heli then
-			local speed = isfunction(ent.GetMaxVelocity) and ent:GetMaxVelocity() * 0.5 or 1500
+			local speed = math.Clamp((tonumber(ent.MaxPerfVelocity) or 1600) * 0.8, 800, 1800)
 			phys:SetVelocity(ent:GetForward() * speed)
 		end
 	end
@@ -1987,7 +2091,9 @@ end
 
 function PR_Patrol.SpawnVehicles(patrol, spot, infantry)
 	patrol.vehicles = {}
-	local used = {}
+	-- Занятые места на земле и отдельно — в небе: висящие над спотом вертолёты не должны
+	-- «занимать» землю (из-за этого второй танк не находил места и не появлялся)
+	local used, airUsed = {}, {}
 	for _, p in ipairs(infantry or {}) do table.insert(used, p) end
 
 	for _, def in ipairs(patrol.cfg.vehicles or {}) do
@@ -2006,12 +2112,17 @@ function PR_Patrol.SpawnVehicles(patrol, spot, infantry)
 			elseif kind == "air" or kind == "aiground" then
 				local pos, yaw
 				if kind == "air" then
-					pos, yaw = AirSpawnPos(spot.Pos), math.random(0, 359)
+					-- Самолёт — подальше и носом от патруля: отпускаем его сразу на скорости
+					local heli = InheritsFrom(class, "lunasflightschool_basescript_heli") or InheritsFrom(class, "lvs_base_helicopter")
+					local outward
+					pos, outward = AirSpawnPos(spot.Pos, airUsed, heli and 300 or 1500)
+					yaw = heli and math.random(0, 359) or outward
+					if pos then table.insert(airUsed, pos) end
 				else
 					pos, yaw = VehicleSpotNear(spot, used)
+					if pos then table.insert(used, pos) end
 				end
 				if pos then
-					table.insert(used, pos)
 					local ent = ents.Create(class)
 					if IsValid(ent) then
 						ent:SetPos(pos + Vector(0, 0, 20))
@@ -2021,6 +2132,10 @@ function PR_Patrol.SpawnVehicles(patrol, spot, infantry)
 						entry.ent = ent
 					end
 				end
+			end
+
+			if not IsValid(entry.ent) then
+				PR_Patrol.Log(string.format("патруль «%s»: не нашлось места для %s (%s) у спота #%s", patrol.cfg.name, class, kind, tostring(spot.Id)))
 			end
 
 			if IsValid(entry.ent) then
@@ -2061,8 +2176,10 @@ end
 
 local function Destroyed(ent)
 	if not IsValid(ent) then return true end
-	-- simfphys: пока машина не собралась, здоровье ещё не выставлено — это не «подбита»
+	-- simfphys: пока машина не собралась, здоровье ещё не выставлено — это не «подбита».
+	-- destroyed — взрыв начался, но не дошёл до конца (см. sv_simfphys_compat.lua)
 	if isfunction(ent.GetCurHealth) then
+		if ent.destroyed then return true end
 		return isfunction(ent.IsInitialized) and ent:IsInitialized() and ent:GetCurHealth() <= 0
 	end
 	if isfunction(ent.IsDestroyed) and ent:IsDestroyed() then return true end
@@ -2177,6 +2294,14 @@ local function CheckVehicles(patrol)
 					crewLost and "без экипажа — взорвана" or "уничтожена", state, DamageSummary(v),
 					IsValid(v.lastAttacker) and v.lastAttacker:Nick() or "никому"))
 				KickCrew(v)
+				-- Взрыв simfphys оборвался на полпути: машина стоит «уничтоженной» и горит. Взрываем
+				-- заново, а не вышло — просто убираем
+				if IsValid(ent) and ent.destroyed then
+					PR_Patrol.Log(VehicleLabel(v) .. ": взрыв не завершился — довзрываем")
+					ent.destroyed = nil
+					if isfunction(ent.ExplodeVehicle) then pcall(ent.ExplodeVehicle, ent) end
+					if IsValid(ent) then ent:Remove() end
+				end
 				if IsValid(v.lastAttacker) and PR_GiveReward then
 					PR_GiveReward(v.lastAttacker, v.def.reward)
 					local name = (v.def.name and v.def.name ~= "") and v.def.name or "техника"
