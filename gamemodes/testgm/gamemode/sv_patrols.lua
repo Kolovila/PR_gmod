@@ -653,7 +653,8 @@ function PR_Patrol.Spawn(typeKey, spotId)
 	if #patrol.members == 0 then return nil, "не удалось создать NPC" end
 	if not IsValid(patrol.leader) then patrol.leader = patrol.members[1] end
 
-	PR_Patrol.SpawnVehicles(patrol, spot)
+	-- Технику ставим подальше от пеших (used — где они появились)
+	PR_Patrol.SpawnVehicles(patrol, spot, used)
 
 	table.insert(PR_Patrol.Active, patrol)
 
@@ -1157,9 +1158,10 @@ local function HoldUntilEngine(entry)
 	end
 end
 
-function PR_Patrol.SpawnVehicles(patrol, spot)
+function PR_Patrol.SpawnVehicles(patrol, spot, infantry)
 	patrol.vehicles = {}
 	local used = {}
+	for _, p in ipairs(infantry or {}) do table.insert(used, p) end
 
 	for _, def in ipairs(patrol.cfg.vehicles or {}) do
 		for _ = 1, def.count or 1 do
@@ -1239,6 +1241,27 @@ local function Destroyed(ent)
 	if isfunction(ent.GetDestroyed) and ent:GetDestroyed() then return true end
 	return false
 end
+
+-- Машина патруля по любой её части: корпус, колесо simfphys (знает свою машину), сиденье
+local function PatrolVehicleOf(ent)
+	if not IsValid(ent) then return end
+	if ent.PR_PatrolVehicle then return ent.PR_PatrolVehicle end
+	if isfunction(ent.GetBaseEnt) then
+		local base = ent:GetBaseEnt()
+		if IsValid(base) and base.PR_PatrolVehicle then return base.PR_PatrolVehicle end
+	end
+	local parent = ent:GetParent()
+	if IsValid(parent) and parent.PR_PatrolVehicle then return parent.PR_PatrolVehicle end
+end
+
+-- Своя техника не давит и не бьёт своих пеших (тяжёлый танк иначе давит свиту насмерть)
+hook.Add("EntityTakeDamage", "PR_PatrolNoFriendlyCrush", function(victim, dmg)
+	local patrol = victim.PR_Patrol
+	if not patrol then return end
+
+	local entry = PatrolVehicleOf(dmg:GetInflictor()) or PatrolVehicleOf(dmg:GetAttacker())
+	if entry and table.HasValue(patrol.vehicles or {}, entry) then return true end
+end)
 
 -- Кто последним ранил технику — тому и награда
 hook.Add("EntityTakeDamage", "PR_PatrolVehicleDamage", function(ent, dmg)
@@ -1396,12 +1419,14 @@ local function DriveGround(patrol, v)
 		return
 	end
 
-	-- Держимся позади патруля
-	local back = Vector(patrol.dir.x, patrol.dir.y, 0)
-	back = back:LengthSqr() > 0.01 and back:GetNormalized() or Vector(1, 0, 0)
-	local goal = center - back * 420
+	-- Держимся у колонны: если танк уже впереди по ходу — ведёт её спереди, иначе идёт сзади.
+	-- Так он не лезет сквозь свою пехоту, чтобы занять место позади
+	local heading = Vector(patrol.dir.x, patrol.dir.y, 0)
+	heading = heading:LengthSqr() > 0.01 and heading:GetNormalized() or Vector(1, 0, 0)
 
 	local pos = veh:GetPos()
+	local ahead = (pos - center):Dot(heading) > 100
+	local goal = ahead and (center + heading * 450) or (center - heading * 420)
 	local dist = FlatDist(pos, goal)
 	if dist < 220 then
 		SetKeys(veh, false, false, false, false, true)
@@ -1430,8 +1455,23 @@ local function DriveGround(patrol, v)
 		v.stuckSince = nil
 	end
 
+	-- Свои пешие на пути (300 юнитов по ходу) — ждём, а не едем по ним
+	local reverse = math.abs(yaw) > 120
+	local heading = reverse and -forward or forward
+	for _, npc in ipairs(patrol.members) do
+		if IsValid(npc) then
+			local d = npc:GetPos() - pos
+			d.z = 0
+			if d:LengthSqr() < 300 * 300 and heading:Dot(d:GetNormalized()) > 0.3 then
+				SetKeys(veh, false, false, false, false, true)
+				v.stuckSince = nil
+				return
+			end
+		end
+	end
+
 	local turnLeft, turnRight = yaw > 8, yaw < -8
-	if math.abs(yaw) > 120 then
+	if reverse then
 		-- Цель позади: разворачиваемся задним ходом
 		SetKeys(veh, false, true, turnRight, turnLeft, false)
 	else
