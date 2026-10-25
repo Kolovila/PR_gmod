@@ -1107,10 +1107,38 @@ local function EscortPoint(patrol, entry, ent)
 	return entry.lastFly or ent:GetPos()
 end
 
+-- Наследуется ли класс сущности от base (по цепочке ENT.Base)
+local function InheritsFrom(class, base)
+	for _ = 1, 10 do
+		if class == base then return true end
+		local stored = scripted_ents.GetStored(class)
+		class = stored and stored.t and stored.t.Base
+		if not class then return false end
+	end
+	return false
+end
+
+-- Вертолёт атакует со стороны: в 900 по горизонтали и на 600 выше цели (~34° вниз).
+-- Свой ИИ LFS зависает почти над целью, а турели стрелка (Ми-24: до 60° вниз) оттуда не достать
+local function StandOffPoint(target, from)
+	local tpos = target:GetPos()
+	local flat = from - tpos
+	flat.z = 0
+	if flat:LengthSqr() < 1 then flat = Vector(1, 0, 0) end
+	flat:Normalize()
+
+	local p = tpos + flat * 900
+	local ceil = CeilingAt(tpos)
+	local top = TopAt(p.x, p.y, ceil, tpos.z)
+	p.z = math.min(math.max(tpos.z + 600, top + 400), ceil - 250)
+	return p
+end
+
 -- LFS/LVS: свой ИИ летает, мы подменяем ему цели и точку, пока врагов нет
 local function SetupAI(patrol, entry)
 	local ent = entry.ent
 	entry.phase = math.Rand(0, math.pi * 2)
+	entry.heli = InheritsFrom(entry.class, "lunasflightschool_basescript_heli") or InheritsFrom(entry.class, "lvs_base_helicopter")
 
 	-- По умолчанию LVS не трогает игроков (их ИИ-команда 0), поэтому «кто враг» решаем сами
 	ent.AIGetTarget = function(self)
@@ -1120,7 +1148,12 @@ local function SetupAI(patrol, entry)
 	local baseRunAI = ent.RunAI
 	if isfunction(baseRunAI) then
 		ent.RunAI = function(self, ...)
-			if IsValid(self:AIGetTarget()) then return baseRunAI(self, ...) end
+			local target = self:AIGetTarget()
+			if IsValid(target) then
+				-- Вертолёт держится сбоку, чтобы стрелок доставал; самолёты заходят по-своему
+				if entry.heli then return StandOffPoint(target, self:GetPos()) end
+				return baseRunAI(self, ...)
+			end
 			return EscortPoint(patrol, entry, self)
 		end
 	end
@@ -1312,6 +1345,22 @@ end
 -- взгляд там, где танк его читает: в функциях наведения (AimCannon, AimMachinegun...) для наших
 -- ботов отдаём такой «взгляд», при котором по формуле simfphys ствол смотрит на цель.
 -- Таблица функций общая для всех танков этой модели; для живых игроков всё как было.
+-- Подставной «игрок» для чужого кода, который читает взгляд стрелка: EyeAngles отдаёт eye,
+-- остальное — от настоящего бота. PR_Real — сам бот (для мест, где нужен настоящий игрок)
+local function AimProxy(ply, eye)
+	return setmetatable({
+		PR_Real = ply,
+		EyeAngles = function() return eye end,
+		GetAimVector = function() return eye:Forward() end
+	}, {__index = function(_, key)
+		local value = ply[key]
+		if isfunction(value) then
+			return function(_, ...) return value(ply, ...) end
+		end
+		return value
+	end})
+end
+
 local function WrapAimFunctions(func)
 	if not istable(func) or func.PR_AimWrapped then return end
 	func.PR_AimWrapped = true
@@ -1322,20 +1371,74 @@ local function WrapAimFunctions(func)
 				local entry = IsValid(ply) and ply:IsPlayer() and ply.PR_PatrolCrew
 				if entry and entry.aimAng and IsValid(pod) then
 					-- simfphys считает ствол как машина:WorldToLocal(сиденье:WorldToLocal(взгляд))
-					local eye = pod:LocalToWorldAngles(entry.aimAng)
-					local proxy = setmetatable({
-						EyeAngles = function() return eye end,
-						GetAimVector = function() return entry.aimAng:Forward() end
-					}, {__index = function(_, key)
-						local value = ply[key]
-						if isfunction(value) then
-							return function(_, ...) return value(ply, ...) end
-						end
-						return value
-					end})
-					return original(self, proxy, vehicle, pod, ...)
+					return original(self, AimProxy(ply, pod:LocalToWorldAngles(entry.aimAng)), vehicle, pod, ...)
 				end
 				return original(self, ply, vehicle, pod, ...)
+			end
+		end
+	end
+end
+
+-- Gredwitch's Base: танки и пули. Ставится один раз, когда база загружена
+local function WrapGredwitch()
+	if not istable(gred) or gred.PR_Wrapped then return end
+	gred.PR_Wrapped = true
+
+	-- Башни танков Гредвича считает gred.TankGetDriverLocalAngles по взгляду игрока в кресле
+	-- (локальная копия EyeAngles, подставной объект не пройдёт). Но у неё есть штатная ветка
+	-- SeatTab.CustomEyeAngles: на время вызова отдаём через неё угол на цель в системе танка —
+	-- скорость поворота башни, пределы и звуки Гредвич считает сам
+	local getAngles = gred.TankGetDriverLocalAngles
+	if isfunction(getAngles) then
+		gred.TankGetDriverLocalAngles = function(vehicle, seat, SeatTab, ply, ...)
+			local entry = IsValid(ply) and ply:IsPlayer() and ply.PR_PatrolCrew
+			if not (entry and entry.aimAng and istable(SeatTab)) then
+				return getAngles(vehicle, seat, SeatTab, ply, ...)
+			end
+
+			local custom, aim = SeatTab.CustomEyeAngles, entry.aimAng
+			local want = vehicle:WorldToLocalAngles(aim)
+			SeatTab.CustomEyeAngles = function() return Angle(want.p, want.y, want.r) end
+			local ok, result = pcall(getAngles, vehicle, seat, SeatTab, ply, ...)
+			SeatTab.CustomEyeAngles = custom
+			if not ok then error(result, 0) end
+
+			-- result — где башня сейчас (Гредвич доворачивает со скоростью танка): стрелять, когда встала
+			if isangle(result) then
+				entry.gredAligned = math.abs(math.AngleDifference(want.y + (SeatTab.TraverseOffset or 0), result.y)) < 4
+			end
+			return result
+		end
+	end
+
+	-- Пули Гредвича: если стрелял наш подставной объект, стрелявшим считаем настоящего бота
+	local createBullet = gred.CreateBullet
+	if isfunction(createBullet) then
+		gred.CreateBullet = function(ply, ...)
+			if istable(ply) and ply.PR_Real then ply = ply.PR_Real end
+			return createBullet(ply, ...)
+		end
+	end
+end
+
+-- LFS/LVS со стрелком (Ми-24, AH-1G): турель стреляет в Alt*Attack по взгляду стрелка —
+-- подменяем ему взгляд на этой конкретной машине
+local function WrapLFSGunner(entry)
+	local ent = entry.ent
+	if ent.PR_GunnerWrapped then return end
+	ent.PR_GunnerWrapped = true
+
+	for _, name in ipairs({"AltPrimaryAttack", "AltSecondaryAttack"}) do
+		local original = ent[name]
+		if isfunction(original) then
+			ent[name] = function(self, driver, pod, ...)
+				local crew = IsValid(driver) and driver:IsPlayer() and driver.PR_PatrolCrew
+				local seat = IsValid(pod) and pod or (isfunction(self.GetGunnerSeat) and self:GetGunnerSeat())
+				if crew and crew.aimAng and IsValid(seat) then
+					-- Гредвич считает очередь как сиденье:WorldToLocal(взгляд)
+					return original(self, AimProxy(driver, seat:LocalToWorldAngles(crew.aimAng)), pod, ...)
+				end
+				return original(self, driver, pod, ...)
 			end
 		end
 	end
@@ -1358,6 +1461,7 @@ local function DriveGround(patrol, v)
 	local veh = v.ent
 	SeatCrew(v)
 	WrapSimfphysAim(veh)
+	WrapGredwitch()
 
 	if IsValid(v.crew[1]) then v.hadDriver = true end
 
@@ -1401,6 +1505,9 @@ local function DriveGround(patrol, v)
 		local dy = math.AngleDifference(want.y, veh.sm_pp_yaw)
 		local dp = math.AngleDifference(want.p, veh.sm_pp_pitch or want.p)
 		v.fire = math.abs(dy) < 4 and math.abs(dp) < 4
+	elseif v.fire and v.gredAligned ~= nil then
+		-- Танки Гредвича: перехват наведения знает, встала ли башня на цель
+		v.fire = v.gredAligned
 	end
 
 	if not IsValid(veh:GetDriver()) then return end
@@ -1483,6 +1590,8 @@ end
 local function CrewForAI(patrol, v)
 	HoldUntilEngine(v)
 	SeatCrew(v)
+	WrapGredwitch()
+	WrapLFSGunner(v)
 	CrewAim(v, PR_Patrol.VehicleTarget(v, v.ent:WorldSpaceCenter(), VEHICLE_RANGE * 1.5))
 end
 

@@ -83,6 +83,10 @@
 | Bell AH-1G | [1430346908](https://steamcommunity.com/sharedfiles/filedetails/?id=1430346908) | ⚠️ стоит, но без базы [WAC Aircraft](https://steamcommunity.com/sharedfiles/filedetails/?id=104990330) не заработает |
 | Wiremod | [160250458](https://steamcommunity.com/sharedfiles/filedetails/?id=160250458) | ❌ (без него турели simfphys armed и LVS пишут ошибку при загрузке) |
 
+⚠️ **Gredwitch's Base** нужен танкам Гредвича (паки simfphys WW2 и Commission #16) и вертолётам/A-10 из LFS-паков: они стреляют через `gred.CreateBullet`. Steam может скачать его файлом без имени — `.gma` (виден только в `ls -a`), и тогда GMod его не монтирует: в консоли «Mounted 50 of 51», а в логе «unknown particle system gred_…». Лечится перекачкой в Steam или копией этого файла в `garrysmod/addons/gredwitch_base_1131455085.gma`.
+
+**Техника в патрулях** (`gamemode/sv_patrols.lua`): наземная — любая simfphys (танки Луны из simfphys armed и танки Гредвича), её водит бот-экипаж, и каждая такая машина занимает слоты игроков (сколько ботов в экипаже); авиация — LFS/LVS со своим ИИ (стрелок — тоже бот, у Ми-24 и AH-1G).
+
 **Прочее из коллекции**
 
 | Аддон | ID | Статус |
