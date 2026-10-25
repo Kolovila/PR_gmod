@@ -1,5 +1,5 @@
 -- Короткий автотест: техника в патрулях. Секции: tank (танк Гредвича с ботами-экипажем),
--- air (Ми-24 со стрелком и OH-6 без стрелка на своём ИИ). Полный — pr_selftest_sv.lua.
+-- air (Ми-24 со стрелком и OH-6 без стрелка на своём ИИ), plane (штурмовик A-10). Полный — pr_selftest_sv.lua.
 -- Раннер кладёт файл на место pr_selftest_sv.lua: run_selftest.ps1 -Suite vehicles | tank | air
 if engine.ActiveGamemode() ~= "testgm" then return end
 
@@ -58,6 +58,9 @@ step(0, function()
 		-- Без стрелка: бьёт курсовым пулемётом заходами
 		table.insert(vehicles, {name = "Вертушка", class = {"gred_lfs_oh6"}, count = 1, crew = 0, reward = {money = 1500, exp = 5}})
 	end
+	if T.enabled("plane") then
+		table.insert(vehicles, {name = "Штурмовик", class = {"gred_lfs_a10"}, count = 1, crew = 2, reward = {money = 3000, exp = 10}})
+	end
 
 	local key, err = PR_Patrol.SaveType(nil, {
 		name = "Тест: броня",
@@ -78,6 +81,7 @@ step(0, function()
 		if v.kind == "ground" then S.tank = v end
 		if v.class == "gred_lfs_mi24a" then S.heli = v end
 		if v.class == "gred_lfs_oh6" then S.oh6 = v end
+		if v.class == "gred_lfs_a10" then S.plane = v end
 	end
 	S.armor.lingerUntil = 0
 	S.armor.route = {S.spotC}
@@ -104,6 +108,10 @@ step(0, function()
 			local real = istable(ply) and ply.PR_Real or ply
 			if S.heli and real == crewOf(S.heli, 1) then S.heliShots = S.heliShots + 1 end
 			if S.oh6 and istable(filter) and filter[1] == S.oh6.ent then S.oh6Shots = S.oh6Shots + 1 end
+			if S.plane and istable(filter) and filter[1] == S.plane.ent then
+				S.planeShots = (S.planeShots or 0) + 1
+				if S.planeDives and S.planeDives > 0 then S.planeRunShots[S.planeDives] = (S.planeRunShots[S.planeDives] or 0) + 1 end
+			end
 			return createBullet(ply, pos, ang, cal, filter, ...)
 		end
 	end
@@ -511,6 +519,130 @@ end)
 ----------------------------------------------------------------------------------------------------
 -- Уборка
 ----------------------------------------------------------------------------------------------------
+
+----------------------------------------------------------------------------------------------------
+-- Самолёт: A-10 кружит над патрулём без ошибок LFS (ИИ самолёта ждёт углы, а не точку), не падает,
+-- по врагу бьёт пушкой своим ИИ
+----------------------------------------------------------------------------------------------------
+T.section("plane")
+
+local function planeState()
+	local v = S.plane
+	if not (v and IsValid(v.ent)) then return "нет" end
+	local e = v.ent
+	local center = S.armor and PR_Patrol.Center(S.armor) or e:GetPos()
+	return string.format("speed=%d above patrol=%d away=%d hp=%s destroyed=%s mode=%s", e:GetVelocity():Length(), e:GetPos().z - center.z,
+		Vector(e:GetPos().x - center.x, e:GetPos().y - center.y, 0):Length(), isfunction(e.GetHP) and math.Round(e:GetHP()) or "-",
+		tostring(isfunction(e.IsDestroyed) and e:IsDestroyed()), tostring(v.airMode))
+end
+
+waitFor(20, function() return S.plane and IsValid(S.plane.ent) and not S.plane.holdUntil end, "plane released")
+
+step(0, function()
+	check("plane spawned and released", S.plane and IsValid(S.plane.ent) and not S.plane.holdUntil, planeState())
+	S.planeErrors = 0
+	hook.Add("OnLuaError", "PR_SelftestPlane", function() S.planeErrors = S.planeErrors + 1 end)
+	S.planeMinUp = math.huge
+end)
+
+-- Кружит над патрулём (врагов нет — игроков ИИ не видит)
+for _ = 1, 3 do
+	step(5, function() log("plane escort: " .. planeState()) end)
+end
+
+step(0, function()
+	local v = S.plane
+	local alive = v and IsValid(v.ent) and not (isfunction(v.ent.IsDestroyed) and v.ent:IsDestroyed())
+	check("plane escorts without falling", alive and v.ent:GetVelocity():Length() > 300, planeState())
+	local center = S.armor and PR_Patrol.Center(S.armor)
+	if alive and center then
+		check("plane stays over the patrol", v.ent:GetPos().z - center.z > 800 and Vector(v.ent:GetPos().x - center.x, v.ent:GetPos().y - center.y, 0):Length() < 9000, planeState())
+	end
+	-- Враг: бот на открытом месте у патрула
+	if alive and center and IsValid(S.b1) then
+		if IsValid(S.b1:GetVehicle()) then S.b1:ExitVehicle() end
+		local p = T.openPointNear(center) or center
+		S.b1:SetPos(p + Vector(0, 0, 5))
+		v.forceTarget = S.b1
+		S.planeShots = 0
+		S.planeLogMark = T.patrolLogMark()
+		-- Заходы: сколько раз начал пике и сколько выстрелов в каждом
+		S.planeDives, S.planeRunShots = 0, {}
+		local last = v.planeMode
+		-- Запись полёта за последние 4 с: если самолёт разобьётся, видно, как он шёл к земле
+		S.planeTrack, S.planeTrackNext = {}, 0
+		hook.Add("Think", "PR_SelftestPlaneRuns", function()
+			if not IsValid(v.ent) then
+				if S.planeTrack and #S.planeTrack > 0 and not S.planeTrackLogged then
+					S.planeTrackLogged = true
+					log("plane lost; last seconds (t, above ground, pitch, speed, mode):")
+					for _, line in ipairs(S.planeTrack) do log("  " .. line) end
+				end
+				return
+			end
+			if v.planeMode == "dive" and last ~= "dive" then
+				S.planeDives = S.planeDives + 1
+				S.planeRunShots[S.planeDives] = 0
+			end
+			last = v.planeMode
+			if CurTime() >= S.planeTrackNext then
+				S.planeTrackNext = CurTime() + 0.25
+				local e = v.ent
+				local pos = e:GetPos()
+				local tr = util.TraceLine({start = pos, endpos = pos - Vector(0, 0, 20000), filter = e, mask = MASK_SOLID_BRUSHONLY})
+				local ahead = util.TraceLine({start = pos, endpos = pos + e:GetVelocity() * 2, filter = e, mask = MASK_SOLID_BRUSHONLY})
+				table.insert(S.planeTrack, string.format("%.2f h=%d pitch=%d vpitch=%d speed=%d mode=%s ahead=%s", CurTime(), pos.z - tr.HitPos.z,
+					e:GetAngles().p, e:GetVelocity():Angle().p, e:GetVelocity():Length(), tostring(v.planeMode),
+					ahead.Hit and math.Round(ahead.Fraction * 2, 2) .. "s" or "-"))
+				if #S.planeTrack > 16 then table.remove(S.planeTrack, 1) end
+			end
+		end)
+	end
+end)
+
+waitFor(40, function()
+	return not (S.plane and IsValid(S.plane.ent)) or (S.planeShots or 0) > 0
+end, "plane cannon run")
+
+step(0, function()
+	log("plane attack: shots " .. tostring(S.planeShots) .. ", " .. planeState())
+	for _, line in ipairs(string.Explode("\n", T.patrolLogSince(S.planeLogMark) or "")) do
+		if line:find("заход", 1, true) then log("  " .. line) end
+	end
+	check("plane attacks the enemy with its cannon", (S.planeShots or 0) > 0, S.planeShots)
+end)
+
+-- Выходит из пике, отходит и заходит снова: ещё один заход с огнём (не каждый заход успевает
+-- навести нос — тогда следующий)
+local function firingRuns()
+	local n = 0
+	for _, shots in pairs(S.planeRunShots or {}) do
+		if shots > 0 then n = n + 1 end
+	end
+	return n
+end
+
+waitFor(60, function()
+	return not (S.plane and IsValid(S.plane.ent)) or firingRuns() >= 2
+end, "second plane run")
+
+step(0, function()
+	local v = S.plane
+	log("plane runs: dives " .. tostring(S.planeDives) .. ", shots per run " .. table.concat(S.planeRunShots or {}, "/") .. ", " .. planeState())
+	local dmg = {}
+	for k, amount in pairs(v and v.damageBy or {}) do dmg[#dmg + 1] = k .. " " .. math.Round(amount) end
+	log("plane damage: " .. (#dmg > 0 and table.concat(dmg, ", ") or "none"))
+	for _, line in ipairs(string.Explode("\n", T.patrolLogSince(S.planeLogMark) or "")) do
+		if line:find("заход", 1, true) then log("  " .. line) end
+	end
+	check("plane comes back for another run and fires", firingRuns() >= 2, tostring(S.planeDives) .. " / " .. table.concat(S.planeRunShots or {}, "/"))
+	check("plane survives its attack runs", v and IsValid(v.ent) and not (isfunction(v.ent.IsDestroyed) and v.ent:IsDestroyed()) and v.ent:GetVelocity():Length() > 300, planeState())
+	check("no Lua errors from the plane", (S.planeErrors or 0) == 0, S.planeErrors)
+	hook.Remove("OnLuaError", "PR_SelftestPlane")
+	hook.Remove("Think", "PR_SelftestPlaneRuns")
+	if v then v.forceTarget = nil end
+end)
+
 T.section("common")
 
 step(0, function()
@@ -521,7 +653,7 @@ end)
 
 step(1, function()
 	check("patrol vehicles and crew removed", not (S.heli and IsValid(S.heli.ent)) and not IsValid(S.heliCrew)
-		and not (S.oh6 and IsValid(S.oh6.ent)) and not (S.tank and IsValid(S.tank.ent)))
+		and not (S.oh6 and IsValid(S.oh6.ent)) and not (S.tank and IsValid(S.tank.ent)) and not (S.plane and IsValid(S.plane.ent)))
 	if S.armorType then PR_Patrol.DeleteType(S.armorType) end
 	for _, id in ipairs({S.spotA, S.spotB, S.spotC}) do
 		if id then PR_Patrol.RemoveSpot(id) end

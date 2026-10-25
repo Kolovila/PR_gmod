@@ -1,6 +1,6 @@
 # In-game autotest of the PR gamemode.
 #   -Suite: full (whole big test) | core | patrol | armor (its sections)
-#           vehicles (short vehicle test) | tank | air (its sections)
+#           vehicles (short vehicle test) | tank | air | plane (its sections)
 #   -Instance N: run in the separate test copy D:\GModTest\instN (setup_instances.ps1).
 #           The user can keep playing; several instances run at once (run_parallel.ps1).
 #           Without -Instance: the main install (only when the game is closed), as before.
@@ -17,6 +17,7 @@ $Suites = @{
     vehicles = @('pr_selftest_vehicles_sv.lua', '')
     tank     = @('pr_selftest_vehicles_sv.lua', 'tank')
     air      = @('pr_selftest_vehicles_sv.lua', 'air')
+    plane    = @('pr_selftest_vehicles_sv.lua', 'plane')
     mapshot  = @('pr_mapshot_sv.lua', '')   # map picture for the minimap: then stitch_mapshot.ps1
 }
 if (-not $Suites.ContainsKey($Suite)) { "UNKNOWN_SUITE $Suite (known: $($Suites.Keys -join ', '))"; exit 3 }

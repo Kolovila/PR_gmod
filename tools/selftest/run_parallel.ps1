@@ -37,7 +37,8 @@ foreach ($r in $runs) {
     $done = if ($log -and (Test-Path $log)) { Select-String -Path $log -Pattern '\[PR_SELFTEST\] DONE.*' | Select-Object -Last 1 } else { $null }
     "== $($r.Suite) (inst$($r.Instance)): $(if ($done) { $done.Line.Trim() } else { 'NO RESULT' }); $finished"
     if ($log -and (Test-Path $log)) {
-        Select-String -Path $log -Pattern '\[PR_SELFTEST\] FAIL|Lua Error|\[ERROR\] ' | ForEach-Object { "   " + $_.Line.Trim() }
+        # Failed checks and Lua errors (addons print them as "[Addon] lua/...lua:123: message")
+        Select-String -Path $log -CaseSensitive -Pattern '\[PR_SELFTEST\] FAIL|Lua Error|\[ERROR\] |\.lua:\d+: ' | Select-Object -First 30 | ForEach-Object { "   " + $_.Line.Trim() }
         "   log: $log"
     } else {
         "   runner output: $($r.RunnerLog)"
