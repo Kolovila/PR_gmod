@@ -26,6 +26,53 @@ PR_Patrol.Active = PR_Patrol.Active or {} -- патрули на карте
 
 local ENABLED = CreateConVar("pr_patrols", "1", {FCVAR_ARCHIVE}, "Выпускать патрули NPC по таймеру")
 
+----------------------------------------------------------------------------------------------------
+-- Журнал патрулей: data/pr_gamemode/patrol_log.txt. Что случилось с патрулём и техникой: появился,
+-- подбит (кем и чем, сколько урона не прошло как «свой»), сломан винт, сильный крен, уход от
+-- препятствия, танк перевернулся, патруль застрял или долго в бою. Чтобы по жалобе «вертолёт сам
+-- разбился» читать журнал, а не гадать. Больше 1 МБ — прежний уходит в patrol_log_old.txt
+----------------------------------------------------------------------------------------------------
+local LOG_DIR = "pr_gamemode"
+local LOG_FILE = LOG_DIR .. "/patrol_log.txt"
+local LOG_OLD = LOG_DIR .. "/patrol_log_old.txt"
+local LOG_MAX = 1024 * 1024
+
+function PR_Patrol.Log(text)
+	MsgN("[PR] " .. text)
+	if not file.IsDir(LOG_DIR, "DATA") then file.CreateDir(LOG_DIR) end
+	if math.max(file.Size(LOG_FILE, "DATA") or 0, 0) > LOG_MAX then
+		file.Write(LOG_OLD, file.Read(LOG_FILE, "DATA") or "")
+		file.Delete(LOG_FILE)
+	end
+	file.Append(LOG_FILE, os.date("%Y-%m-%d %H:%M:%S") .. "  " .. text .. "\n")
+end
+
+-- То же, но не чаще раза в sec секунд для этого holder (патруля, машины) и ключа
+function PR_Patrol.LogEvery(holder, key, sec, text)
+	holder.logAt = holder.logAt or {}
+	local now = CurTime()
+	if (holder.logAt[key] or 0) > now then return end
+	holder.logAt[key] = now + sec
+	PR_Patrol.Log(text)
+end
+
+local function PosText(pos)
+	return string.format("%d %d %d", pos.x, pos.y, pos.z)
+end
+
+-- «Ми-24» (gred_lfs_mi24a) патруля «Решала со свитой»
+local function VehicleLabel(v)
+	local name = (v.def and v.def.name and v.def.name ~= "") and v.def.name or "техника"
+	return string.format("«%s» (%s) патруля «%s»", name, tostring(v.class), tostring(v.patrolName))
+end
+
+-- Высота над землёй или крышей под машиной
+local function HeightAboveGround(ent)
+	local pos = ent:WorldSpaceCenter()
+	local tr = util.TraceLine({start = pos, endpos = pos - Vector(0, 0, 20000), filter = ent, mask = MASK_SOLID_BRUSHONLY})
+	return math.Round(pos.z - tr.HitPos.z)
+end
+
 local function Settings()
 	return PR_PATROL_SETTINGS
 end
@@ -565,7 +612,7 @@ local function SpawnMember(patrol, def, pos, role)
 	-- Не все NPC есть в спавн-меню: охрану Решалы пак регистрирует только как сущности
 	local npcData = list.Get("NPC")[class] or {}
 	if not npcData.Class and not scripted_ents.GetStored(class) then
-		MsgN("[PR] патруль: нет NPC " .. tostring(class) .. " (не установлен аддон?)")
+		PR_Patrol.Log("патруль: нет NPC " .. tostring(class) .. " (не установлен аддон?)")
 		return
 	end
 
@@ -676,7 +723,13 @@ function PR_Patrol.Spawn(typeKey, spotId)
 	table.insert(PR_Patrol.Active, patrol)
 
 	if cfg.announce then PrintMessage(HUD_PRINTTALK, cfg.announce) end
-	MsgN("[PR] патруль «" .. cfg.name .. "» вышел на спот #" .. spotId .. " (" .. #patrol.members .. " NPC, техники " .. #patrol.vehicles .. ")")
+	local vehicles = {}
+	for _, v in ipairs(patrol.vehicles) do
+		local loadout = IsValid(v.ent) and isfunction(v.ent.GetLoadout) and (", подвес " .. v.ent:GetLoadout()) or ""
+		table.insert(vehicles, string.format("%s%s, экипаж %d", tostring(v.class), loadout, v.def.crew or 0))
+	end
+	PR_Patrol.Log(string.format("патруль «%s» вышел на спот #%s: %d NPC, техника: %s", cfg.name, tostring(spotId), #patrol.members,
+		#vehicles > 0 and table.concat(vehicles, "; ") or "нет"))
 
 	return patrol
 end
@@ -789,7 +842,9 @@ end
 
 -- Главный не может дойти до спота: если никто не видит, переносим патруль, иначе меняем маршрут
 local function Unstick(patrol, target)
+	local from = IsValid(patrol.leader) and PosText(patrol.leader:GetPos()) or "?"
 	if TeleportIfUnseen(patrol.leader, target.Pos) then
+		PR_Patrol.Log(string.format("патруль «%s» застрял у %s по пути к споту #%s — никто не видит, перенесён", patrol.cfg.name, from, tostring(target.Id)))
 		for _, npc in ipairs(patrol.members) do
 			if npc ~= patrol.leader then TeleportIfUnseen(npc, target.Pos) end
 		end
@@ -799,6 +854,7 @@ local function Unstick(patrol, target)
 	patrol.route = nil
 	patrol.spot = PR_Patrol.NearestSpot(patrol.leader:GetPos()) or patrol.spot
 	patrol.lingerUntil = CurTime() + 3
+	PR_Patrol.Log(string.format("патруль «%s» застрял у %s по пути к споту #%s — новый маршрут", patrol.cfg.name, from, tostring(target.Id)))
 end
 
 ----------------------------------------------------------------------------------------------------
@@ -913,7 +969,7 @@ end
 
 local function CreateBot(entry, index)
 	if player.GetCount() >= game.MaxPlayers() then
-		MsgN("[PR] патруль: нет свободных слотов игроков для экипажа")
+		PR_Patrol.Log("патруль: нет свободных слотов игроков для экипажа")
 		return
 	end
 
@@ -1026,8 +1082,14 @@ hook.Add("StartCommand", "PR_PatrolCrew", function(ply, cmd)
 end)
 
 -- Экипаж погиб (машину подбили) — бота убираем с сервера
-hook.Add("PlayerDeath", "PR_PatrolCrewDeath", function(ply)
+hook.Add("PlayerDeath", "PR_PatrolCrewDeath", function(ply, inflictor, attacker)
 	if not ply:GetNWBool("PR_PatrolCrew") then return end
+	local function Name(e)
+		if e == game.GetWorld() then return "мир" end
+		if not IsValid(e) then return "?" end
+		return e:IsPlayer() and e:Nick() or e:GetClass()
+	end
+	PR_Patrol.Log(string.format("погиб бот экипажа %s: %s / %s", ply:Nick(), Name(attacker), Name(inflictor)))
 	timer.Simple(0.5, function()
 		if IsValid(ply) then ply:Kick("Экипаж патруля") end
 	end)
@@ -1192,10 +1254,18 @@ local function StandOffPoint(entry, target, from)
 	local base = (from - tpos):Angle().y
 	local ceil = CeilingAt(tpos)
 
+	-- Высота: на 600 выше цели и на 450 выше крыш и склонов вокруг места и на пути от него к цели
+	-- (считать только землю под самим местом мало: у холма вертолёт цеплял склон винтом)
 	local function Candidate(yaw)
 		local p = tpos + Angle(0, yaw, 0):Forward() * 900
-		local top = TopAt(p.x, p.y, ceil, tpos.z)
-		p.z = math.min(math.max(tpos.z + 600, top + 400), ceil - 250)
+		local top = -math.huge
+		for _, f in ipairs({0, 0.25, 0.5, 0.75}) do
+			top = math.max(top, TopAt(p.x + (tpos.x - p.x) * f, p.y + (tpos.y - p.y) * f, ceil, tpos.z))
+		end
+		for _, off in ipairs({Vector(250, 0, 0), Vector(-250, 0, 0), Vector(0, 250, 0), Vector(0, -250, 0)}) do
+			top = math.max(top, TopAt(p.x + off.x, p.y + off.y, ceil, tpos.z))
+		end
+		p.z = math.min(math.max(tpos.z + 600, top + 450), ceil - 250)
 		return p
 	end
 
@@ -1217,14 +1287,15 @@ end
 -- Нос ИИ вертолёта LFS наклоняет по формуле P = LPos.x·0.02 − скорость_вперёд·0.1 (до 40°),
 -- где LPos — наша точка в системе вертолёта (курс он сам держит на цель). Подбираем LPos.x так,
 -- чтобы наклон носа совпал с углом на цель: тогда курсовой пулемёт смотрит прямо в неё
--- Высота захода: на 350 выше цели, но не ниже 300 над крышами и склонами на пути к ней
--- (иначе заход на цель в улице или у холма упирается в дом или склон)
+-- Высота захода: на 450 выше цели и на 400 выше крыш и склонов на пути к ней. С запасом над
+-- порогом «мало места снизу» (250): иначе над крышами он то и дело срывался в уход вверх и
+-- тут же снова нырял, так и не доходя до цели
 local function StrafeAltitude(pos, tpos)
 	local ceil = CeilingAt(tpos)
-	local z = tpos.z + 350
+	local z = tpos.z + 450
 	for _, f in ipairs({0, 0.25, 0.5, 0.75}) do
 		local x, y = pos.x + (tpos.x - pos.x) * f, pos.y + (tpos.y - pos.y) * f
-		z = math.max(z, TopAt(x, y, ceil, tpos.z) + 300)
+		z = math.max(z, TopAt(x, y, ceil, tpos.z) + 400)
 	end
 	return math.min(z, ceil - 250)
 end
@@ -1248,6 +1319,8 @@ local function StrafePoint(entry, ent, target)
 	end
 
 	local climb = math.Clamp(StrafeAltitude(pos, tpos) - pos.z, -400, 400)
+	-- Только что уходил от препятствия — пока не снижаемся, а то нырнёт в него же
+	if entry.holdAltUntil and CurTime() < entry.holdAltUntil then climb = math.max(climb, 0) end
 
 	-- Ещё не развернулся носом к цели (после отхода смотрит в другую сторону): зависаем и
 	-- доворачиваем, иначе точка «вперёд по носу» унесла бы его прочь от цели
@@ -1289,7 +1362,15 @@ local function NeedsPullUp(entry, ent)
 	local below = util.TraceLine({start = pos, endpos = pos - Vector(0, 0, AIR_MIN_CLEAR), filter = filter, mask = MASK_SOLID_BRUSHONLY})
 	if (front.Hit and not front.HitSky) or below.Hit or ent.RotorHit then
 		entry.pullUntil = now + 1.5
+		entry.holdAltUntil = now + 4.5
 		entry.pullUps = (entry.pullUps or 0) + 1
+		if ent.RotorHit then
+			PR_Patrol.LogEvery(entry, "rotorhit", 3, string.format("%s: лопасти задевают у %s — ухожу вверх", VehicleLabel(entry), PosText(ent:GetPos())))
+		else
+			PR_Patrol.LogEvery(entry, "pull", 30, string.format("%s: %s у %s (скорость %d) — ухожу вверх; за вылет таких %d",
+				VehicleLabel(entry), (front.Hit and not front.HitSky) and "препятствие впереди" or "мало места снизу",
+				PosText(ent:GetPos()), ent:GetVelocity():Length(), entry.pullUps))
+		end
 		return true
 	end
 	return false
@@ -1513,7 +1594,12 @@ local function SetupAI(patrol, entry)
 				if gunner and IsValid(entry.crew[1]) and not PilotRun(entry, self) then
 					entry.airMode = "stand off"
 					entry.faceTarget = target
-					return LimitTilt(entry, self, StandOffPoint(entry, target, self:GetPos()))
+					local point = StandOffPoint(entry, target, self:GetPos())
+					-- Только что уходил от препятствия — пока не снижаемся
+					if entry.holdAltUntil and CurTime() < entry.holdAltUntil and point.z < self:GetPos().z then
+						point = Vector(point.x, point.y, self:GetPos().z)
+					end
+					return LimitTilt(entry, self, point)
 				end
 
 				-- Заход курсовым оружием (вертолёт без стрелка — только так)
@@ -1586,7 +1672,7 @@ function PR_Patrol.SpawnVehicles(patrol, spot, infantry)
 		for _ = 1, def.count or 1 do
 			local class = Pick(def.class)
 			local kind = PR_PatrolVehicleKind(class)
-			local entry = {def = def, kind = kind, class = class, crew = {}}
+			local entry = {def = def, kind = kind, class = class, crew = {}, patrolName = patrol.cfg.name}
 
 			if kind == "ground" and simfphys and isfunction(simfphys.SpawnVehicleSimple) then
 				local pos, yaw = VehicleSpotNear(spot, used)
@@ -1633,7 +1719,8 @@ function PR_Patrol.SpawnVehicles(patrol, spot, infantry)
 				entry.spawnedAt = CurTime()
 				table.insert(patrol.vehicles, entry)
 			else
-				MsgN("[PR] патруль: не удалось выпустить технику " .. tostring(class))
+				PR_Patrol.Log("патруль «" .. patrol.cfg.name .. "»: не удалось выпустить технику " .. tostring(class)
+					.. (kind and " (не нашлось места у спота #" .. tostring(spot.Id) .. ")" or " (не simfphys/LFS/LVS или аддон не установлен)"))
 			end
 		end
 	end
@@ -1686,31 +1773,63 @@ end
 -- Свои своих не ранят: танк не давит свиту, охрана не сбивает свой вертолёт, когда он заходит
 -- на того же врага, стрелок вертолёта не задевает своих. Урон машины самой себе (удар о землю)
 -- не трогаем
+-- Кто и чем бил: «Kolovila / gb_rocket_hydra», «мир»
+local function DamageSource(dmg)
+	local function Name(e)
+		if e == game.GetWorld() then return "мир" end
+		if not IsValid(e) then return "?" end
+		if e:IsPlayer() then return e:Nick() end
+		return e:GetClass()
+	end
+	local a, i = Name(dmg:GetAttacker()), Name(dmg:GetInflictor())
+	if a == i or i == "?" then return a end
+	return a .. " / " .. i
+end
+
 hook.Add("EntityTakeDamage", "PR_PatrolNoFriendlyCrush", function(victim, dmg)
 	local patrol = PatrolOf(victim)
 	if not patrol then return end
 
 	local attacker, inflictor = dmg:GetAttacker(), dmg:GetInflictor()
+	local blocked = false
 
 	-- Экипаж — невидимые боты: удары и падения машины (урон от «мира» или от неё самой)
 	-- их не убивают, иначе перевернувшийся танк взрывался из-за погибшего водителя.
 	-- Подбить машину можно только по её прочности, а пуля игрока по экипажу проходит
 	local crew = victim:IsPlayer() and victim.PR_PatrolCrew
-	if crew and (not IsValid(attacker) or attacker:IsWorld() or PatrolVehicleOf(attacker) == crew) then return true end
+	if crew and (not IsValid(attacker) or attacker:IsWorld() or PatrolVehicleOf(attacker) == crew) then
+		blocked = true
+	else
+		local own = PatrolVehicleOf(victim)
+		local selfDamage = own and (PatrolVehicleOf(attacker) == own or PatrolVehicleOf(inflictor) == own)
+		if not selfDamage and (PatrolOf(attacker) == patrol or PatrolOf(inflictor) == patrol) then blocked = true end
+	end
 
-	local own = PatrolVehicleOf(victim)
-	if own and (PatrolVehicleOf(attacker) == own or PatrolVehicleOf(inflictor) == own) then return end
+	-- По корпусу машины: кто сколько урона нанёс (для журнала), кто последним ранил — тому награда
+	local entry = victim.PR_PatrolVehicle
+	if entry then
+		local key = (blocked and "свои, не прошло: " or "") .. DamageSource(dmg)
+		entry.damageBy = entry.damageBy or {}
+		entry.damageBy[key] = (entry.damageBy[key] or 0) + dmg:GetDamage()
+		if not blocked then
+			local ply = PR_KillerPlayer and PR_KillerPlayer(attacker)
+			if ply and not ply:GetNWBool("PR_PatrolCrew") then entry.lastAttacker = ply end
+		end
+	end
 
-	if PatrolOf(attacker) == patrol or PatrolOf(inflictor) == patrol then return true end
+	if blocked then return true end
 end)
 
--- Кто последним ранил технику — тому и награда
-hook.Add("EntityTakeDamage", "PR_PatrolVehicleDamage", function(ent, dmg)
-	local entry = ent.PR_PatrolVehicle
-	if not entry then return end
-	local ply = PR_KillerPlayer and PR_KillerPlayer(dmg:GetAttacker())
-	if ply and not ply:GetNWBool("PR_PatrolCrew") then entry.lastAttacker = ply end
-end)
+-- Самые большие источники урона по машине: «мир 1200, Kolovila / gb_rocket_hydra 900»
+local function DamageSummary(v)
+	local list = {}
+	for key, amount in pairs(v.damageBy or {}) do table.insert(list, {key, amount}) end
+	if #list == 0 then return "не было" end
+	table.sort(list, function(a, b) return a[2] > b[2] end)
+	local out = {}
+	for i = 1, math.min(#list, 4) do table.insert(out, list[i][1] .. " " .. math.Round(list[i][2])) end
+	return table.concat(out, ", ")
+end
 
 -- Раз в секунду: подбитая техника — награда и долой экипаж
 local function CheckVehicles(patrol)
@@ -1725,6 +1844,16 @@ local function CheckVehicles(patrol)
 
 			if crewLost or Destroyed(v.ent) then
 				v.dead = true
+				local ent = v.ent
+				local state = "?"
+				if IsValid(ent) then
+					local hp = isfunction(ent.GetHP) and ent:GetHP() or (isfunction(ent.GetCurHealth) and ent:GetCurHealth())
+					local rotor = isfunction(ent.GetRotorDestroyed) and ent:GetRotorDestroyed() and ", винт сломан" or ""
+					state = string.format("у %s, прочность %s%s", PosText(ent:GetPos()), tostring(hp and math.Round(hp)), rotor)
+				end
+				PR_Patrol.Log(string.format("%s %s %s; урон: %s; награда: %s", VehicleLabel(v),
+					crewLost and "без экипажа — взорвана" or "уничтожена", state, DamageSummary(v),
+					IsValid(v.lastAttacker) and v.lastAttacker:Nick() or "никому"))
 				KickCrew(v)
 				if IsValid(v.lastAttacker) and PR_GiveReward then
 					PR_GiveReward(v.lastAttacker, v.def.reward)
@@ -1881,7 +2010,7 @@ local function DriveGround(patrol, v)
 
 	-- Водителя так и не нашлось (нет слотов игроков) — машину убираем, иначе стоит пустой мишенью
 	if not v.hadDriver and CurTime() - v.spawnedAt > 5 then
-		MsgN("[PR] патруль: «" .. v.class .. "» без водителя — убрана")
+		PR_Patrol.Log(VehicleLabel(v) .. ": без водителя (нет слотов для бота) — убрана")
 		v.dead = true
 		KickCrew(v)
 		veh:Remove()
@@ -1901,6 +2030,7 @@ local function DriveGround(patrol, v)
 		if now - v.flippedSince > 3 and now > (v.rightNext or 0) then
 			v.rightNext = now + 3
 			v.rightTries = (v.rightTries or 0) + 1
+			PR_Patrol.Log(string.format("%s перевернулся у %s — встаёт, попытка %d", VehicleLabel(v), PosText(veh:GetPos()), v.rightTries))
 			local phys = veh:GetPhysicsObject()
 			if IsValid(phys) then phys:SetVelocity(phys:GetVelocity() + Vector(0, 0, 250)) end
 
@@ -1922,7 +2052,10 @@ local function DriveGround(patrol, v)
 	else
 		v.flippedSince = nil
 		-- Счёт попыток — пока не встал как следует (иначе качнулся и упал обратно — опять с начала)
-		if up.z > 0.8 then v.rightTries = nil end
+		if up.z > 0.8 and v.rightTries then
+			PR_Patrol.Log(string.format("%s снова на гусеницах (попыток: %d)", VehicleLabel(v), v.rightTries))
+			v.rightTries = nil
+		end
 	end
 
 	local target = PR_Patrol.VehicleTarget(v, veh:WorldSpaceCenter() + Vector(0, 0, 60), VEHICLE_RANGE)
@@ -2025,7 +2158,24 @@ local function DriveGround(patrol, v)
 end
 
 -- Авиация и LVS: летит/едет своим ИИ, бот-стрелок бьёт по той же цели
+-- Для журнала: сломан винт, сильный крен
+local function WatchAir(v)
+	local ent = v.ent
+	if not v.heli then return end
+	if not v.rotorLogged and isfunction(ent.GetRotorDestroyed) and ent:GetRotorDestroyed() then
+		v.rotorLogged = true
+		PR_Patrol.Log(string.format("%s: сломан винт у %s, %d над землёй, скорость %d, делал: %s; урон до этого: %s",
+			VehicleLabel(v), PosText(ent:GetPos()), HeightAboveGround(ent), ent:GetVelocity():Length(), tostring(v.airMode), DamageSummary(v)))
+	end
+	local up = ent:GetUp().z
+	if up < 0.64 then
+		PR_Patrol.LogEvery(v, "tilt", 5, string.format("%s: крен %d° у %s, %d над землёй, делал: %s",
+			VehicleLabel(v), math.deg(math.acos(math.Clamp(up, -1, 1))), PosText(ent:GetPos()), HeightAboveGround(ent), tostring(v.airMode)))
+	end
+end
+
 local function CrewForAI(patrol, v)
+	WatchAir(v)
 	HoldUntilEngine(v)
 	SeatCrew(v)
 	WrapGredwitch()
@@ -2044,7 +2194,7 @@ hook.Add("Think", "PR_PatrolVehicles", function()
 				local ok, err = pcall(v.kind == "ground" and DriveGround or CrewForAI, patrol, v)
 				if not ok and v.lastError ~= tostring(err) then
 					v.lastError = tostring(err)
-					MsgN("[PR] техника патруля «" .. tostring(v.class) .. "»: ошибка: " .. v.lastError)
+					PR_Patrol.Log(VehicleLabel(v) .. ": ошибка: " .. v.lastError)
 				end
 			end
 		end
@@ -2097,14 +2247,14 @@ local function ThinkPatrol(patrol)
 		if vehiclesAlive == 0 then
 			PR_Patrol.RemoveVehicles(patrol)
 			table.RemoveByValue(PR_Patrol.Active, patrol)
-			MsgN("[PR] патруль «" .. patrol.cfg.name .. "» перебит")
+			PR_Patrol.Log("патруль «" .. patrol.cfg.name .. "» перебит")
 			return
 		end
 
 		-- Пеших перебили, техника жива: стоит, пока не выйдет время, и уходит без свидетелей
 		local center = PR_Patrol.Center(patrol)
 		if CurTime() > patrol.expiresAt and (not center or not PlayersNear(center, Settings().safeDistance)) then
-			MsgN("[PR] техника патруля «" .. patrol.cfg.name .. "» ушла с карты")
+			PR_Patrol.Log("техника патруля «" .. patrol.cfg.name .. "» ушла с карты")
 			PR_Patrol.Remove(patrol)
 		end
 		return
@@ -2117,14 +2267,28 @@ local function ThinkPatrol(patrol)
 
 	-- В бою командует VJ: не мешаем
 	if InCombat(patrol) then
+		patrol.combatSince = patrol.combatSince or now
 		patrol.lastCombat = now
 		patrol.orderAt = nil
+		-- Долгий бой (враг недосягаем — патруль так и стоит): кто с кем
+		if now - patrol.combatSince > 30 then
+			local pairs_ = {}
+			for _, npc in ipairs(patrol.members) do
+				local e = IsValid(npc) and npc:GetEnemy()
+				if IsValid(e) then
+					table.insert(pairs_, string.format("%s → %s (%d)", npc:GetClass(), e:IsPlayer() and e:Nick() or e:GetClass(), npc:GetPos():Distance(e:GetPos())))
+				end
+			end
+			PR_Patrol.LogEvery(patrol, "combat", 30, string.format("патруль «%s» в бою уже %d с у %s: %s", patrol.cfg.name,
+				now - patrol.combatSince, PosText(leader:GetPos()), table.concat(pairs_, ", ")))
+		end
 		return
 	end
+	patrol.combatSince = nil
 
 	-- Время вышло и игроков рядом нет — уходят
 	if now > patrol.expiresAt and not PlayersNear(leader:GetPos(), Settings().safeDistance) then
-		MsgN("[PR] патруль «" .. patrol.cfg.name .. "» ушёл с карты")
+		PR_Patrol.Log("патруль «" .. patrol.cfg.name .. "» ушёл с карты")
 		PR_Patrol.Remove(patrol)
 		return
 	end
