@@ -653,6 +653,23 @@ function PR_Patrol.Spawn(typeKey, spotId)
 	if #patrol.members == 0 then return nil, "не удалось создать NPC" end
 	if not IsValid(patrol.leader) then patrol.leader = patrol.members[1] end
 
+	-- VJ не даёт NPC тронуться с места, если в него упёрся другой NPC не из EntitiesToNoCollide:
+	-- охранник в строю вплотную к главному — и приказ идти отклоняется раз за разом.
+	-- Свои друг другу не помеха (VJ заодно отключает между ними столкновения)
+	local classes = {}
+	for _, npc in ipairs(patrol.members) do classes[npc:GetClass()] = true end
+	for _, npc in ipairs(patrol.members) do
+		if npc.IsVJBaseSNPC then
+			-- Таблица по умолчанию общая на весь класс NPC: правим копию
+			local list = istable(npc.EntitiesToNoCollide) and table.Copy(npc.EntitiesToNoCollide) or {}
+			for class in pairs(classes) do
+				if not table.HasValue(list, class) then table.insert(list, class) end
+			end
+			npc.EntitiesToNoCollide = list
+			npc.HasEntitiesToNoCollide = true
+		end
+	end
+
 	-- Технику ставим подальше от пеших (used — где они появились)
 	PR_Patrol.SpawnVehicles(patrol, spot, used)
 
@@ -702,6 +719,16 @@ local function MoveTo(npc, pos, run)
 		local mid = from + flat:GetNormalized() * MOVE_STEP
 		local floor = util.TraceLine({start = mid + Vector(0, 0, 72), endpos = mid - Vector(0, 0, 256), mask = MASK_NPCSOLID_BRUSHONLY})
 		pos = floor.Hit and floor.HitPos or mid
+	end
+
+	-- pr_patrol_debug: в NPC упёрся другой NPC (не из своих VJ с места бы не тронулся)
+	local debug = GetConVar("pr_patrol_debug")
+	if debug and debug:GetBool() then
+		local lift = Vector(0, 0, 2)
+		local tr = util.TraceHull({start = from, endpos = from, mins = npc:OBBMins() + lift, maxs = npc:OBBMaxs() + lift, filter = npc})
+		if IsValid(tr.Entity) and tr.Entity:IsNPC() then
+			MsgN("[PR] " .. npc:GetClass() .. ": вплотную " .. tr.Entity:GetClass() .. ", свой=" .. tostring(table.HasValue(npc.EntitiesToNoCollide or {}, tr.Entity:GetClass())))
+		end
 	end
 
 	npc:SetLastPosition(pos)
@@ -998,17 +1025,26 @@ end)
 -- Появление
 
 -- Влезет ли машина в точку p: ровный пол, простор вокруг, не вплотную к другим машинам
-local function VehicleFits(p, used)
+-- Встанет ли машина в p носом по yaw: ровная земля и свободно вокруг.
+-- full — на весь корпус танка (~500×220): коробки трассировки не поворачиваются, поэтому три
+-- коробки вдоль корпуса (иначе пальма или столб оказывались внутри длинного танка, и он упирался
+-- в них с места). Без full — только середина 200×200, на случай, когда целиком места нет
+local function VehicleFits(p, used, yaw, full)
 	local down = util.TraceLine({start = p + Vector(0, 0, 120), endpos = p - Vector(0, 0, 300), mask = MASK_SOLID_BRUSHONLY})
 	if not down.Hit or down.StartSolid or down.HitNormal.z < 0.8 then return end
 
 	local spot = down.HitPos
-	local hull = util.TraceHull({
-		start = spot + Vector(0, 0, 30), endpos = spot + Vector(0, 0, 30),
-		mins = Vector(-100, -100, 0), maxs = Vector(100, 100, 120),
-		mask = MASK_SOLID
-	})
-	if hull.Hit then return end
+	local along = Angle(0, yaw or 0, 0):Forward()
+	local half = full and 110 or 100
+	for _, offset in ipairs(full and {0, -140, 140} or {0}) do
+		local c = spot + along * offset + Vector(0, 0, 30)
+		local hull = util.TraceHull({
+			start = c, endpos = c,
+			mins = Vector(-half, -half, 0), maxs = Vector(half, half, full and 130 or 120),
+			mask = MASK_SOLID
+		})
+		if hull.Hit or hull.StartSolid then return end
+	end
 
 	for _, u in ipairs(used) do
 		if u:DistToSqr(spot) < 320 * 320 then return end
@@ -1017,28 +1053,36 @@ local function VehicleFits(p, used)
 end
 
 -- Место для машины: сперва на линиях к соседним спотам (это проверенные проходимые улицы,
--- машина встаёт вдоль улицы), потом — где получится вокруг спота
+-- машина встаёт вдоль улицы; пробуем и чуть в сторону — к середине улицы), потом — где
+-- получится вокруг спота. Сначала ищем место на весь корпус, и только если его нет — потеснее
 local function VehicleSpotNear(spot, used)
-	for other in pairs(PR_Patrol.Links[spot.Id] or {}) do
-		local o = PR_Patrol.Spots[other]
-		if o then
-			local dir = o.Pos - spot.Pos
-			local len = dir:Length()
-			dir:Normalize()
-			for _, d in ipairs({300, 450, 600, 200, 750}) do
-				if d < len - 80 then
-					local p = VehicleFits(spot.Pos + dir * d, used)
-					if p then return p, dir:Angle().y end
+	for _, full in ipairs({true, false}) do
+		for other in pairs(PR_Patrol.Links[spot.Id] or {}) do
+			local o = PR_Patrol.Spots[other]
+			if o then
+				local dir = o.Pos - spot.Pos
+				local len = dir:Length()
+				dir:Normalize()
+				local yaw = dir:Angle().y
+				local side = Vector(-dir.y, dir.x, 0)
+				for _, d in ipairs({300, 450, 600, 200, 750}) do
+					if d < len - 80 then
+						for _, shift in ipairs({0, 90, -90}) do
+							local p = VehicleFits(spot.Pos + dir * d + side * shift, used, yaw, full)
+							if p then return p, yaw end
+						end
+					end
 				end
 			end
 		end
-	end
 
-	for _ = 1, 30 do
-		local ang = math.rad(math.random(0, 359))
-		local dist = math.random(220, 600)
-		local p = VehicleFits(spot.Pos + Vector(math.cos(ang) * dist, math.sin(ang) * dist, 0), used)
-		if p then return p, math.random(0, 359) end
+		for _ = 1, 30 do
+			local ang = math.rad(math.random(0, 359))
+			local dist = math.random(220, 600)
+			local yaw = math.random(0, 359)
+			local p = VehicleFits(spot.Pos + Vector(math.cos(ang) * dist, math.sin(ang) * dist, 0), used, yaw, full)
+			if p then return p, yaw end
+		end
 	end
 end
 
@@ -1064,17 +1108,21 @@ local function FlyPoint(center, x, y)
 	return Vector(x, y, math.min(math.max(center.z + AIR_ALTITUDE, top + 900), ceil - 250))
 end
 
--- Место появления авиации: рядом со спотом, где над головой открытое небо
+-- Место появления авиации: рядом со спотом, где над головой открытое небо. Обходим кольца
+-- от 300 до 2700 по 12 направлений; небо меряем над самой точкой, а не над спотом
+-- (спот может быть под навесом, а в двух шагах — открытое небо)
 local function AirSpawnPos(pos)
-	for _ = 1, 24 do
-		local ang = math.rad(math.random(0, 359))
-		local dist = math.random(300, 1400)
-		local x, y = pos.x + math.cos(ang) * dist, pos.y + math.sin(ang) * dist
+	local turn = math.random(0, 359)
+	for dist = 300, 2700, 400 do
+		for i = 0, 11 do
+			local ang = math.rad(turn + i * 30 + dist * 0.1)
+			local x, y = pos.x + math.cos(ang) * dist, pos.y + math.sin(ang) * dist
 
-		local ceil, inside = CeilingAt(Vector(x, y, pos.z))
-		if not inside and ceil - pos.z > AIR_ALTITUDE + 400 then
-			local p = FlyPoint(pos, x, y)
-			if p then return p end
+			local ceil, inside = CeilingAt(Vector(x, y, pos.z))
+			if not inside and ceil - pos.z > AIR_ALTITUDE + 400 then
+				local top = TopAt(x, y, ceil, pos.z)
+				return Vector(x, y, math.min(math.max(pos.z + AIR_ALTITUDE, top + 900), ceil - 250))
+			end
 		end
 	end
 end
@@ -1134,6 +1182,44 @@ local function StandOffPoint(target, from)
 	return p
 end
 
+-- Вертолёт без стрелка (OH-6) бьёт курсовым оружием, а свой ИИ LFS у вертолётов огонь не жмёт
+-- (только у самолётов). Поэтому заход на цель носом, проскочив — уход на 1500 за цель и новый заход.
+-- Нос ИИ вертолёта LFS наклоняет по формуле P = LPos.x·0.02 − скорость_вперёд·0.1 (до 40°),
+-- где LPos — наша точка в системе вертолёта (курс он сам держит на цель). Подбираем LPos.x так,
+-- чтобы наклон носа совпал с углом на цель: тогда курсовой пулемёт смотрит прямо в неё
+local function StrafePoint(entry, ent, target)
+	local now = CurTime()
+	if entry.breakUntil and now < entry.breakUntil then return entry.breakPos end
+
+	local tpos = target:WorldSpaceCenter()
+	local pos = ent:GetPos()
+	local flat = Vector(tpos.x - pos.x, tpos.y - pos.y, 0)
+	if flat:Length() < 450 then
+		local away = flat:LengthSqr() > 1 and flat:GetNormalized() or ent:GetForward()
+		away.z = 0
+		local p = tpos + away * 1500
+		p.z = math.min(tpos.z + 700, CeilingAt(tpos) - 250)
+		entry.breakPos = p
+		entry.breakUntil = now + 6
+		return p
+	end
+
+	local dive = math.Clamp(math.NormalizeAngle((tpos - ent:WorldSpaceCenter()):Angle().p), 0, 40)
+	local forwardSpeed = ent:WorldToLocal(pos + ent:GetVelocity()).x
+	local climb = math.Clamp(tpos.z + 350 - pos.z, -400, 400)
+	return ent:LocalToWorld(Vector(50 * dive + 5 * forwardSpeed, 0, climb))
+end
+
+-- Нос смотрит на цель (≤ 6°) и её видно — жмём огонь, как ИИ самолётов LFS
+local function FireForward(ent, target)
+	local from = ent:WorldSpaceCenter()
+	local to = target:WorldSpaceCenter()
+	local dir = (to - from):GetNormalized()
+	if ent:GetForward():Dot(dir) < math.cos(math.rad(6)) then return end
+	if util.TraceLine({start = from, endpos = to, filter = ent, mask = MASK_SOLID_BRUSHONLY}).Hit then return end
+	if isfunction(ent.HandleWeapons) then ent:HandleWeapons(true) end
+end
+
 -- LFS/LVS: свой ИИ летает, мы подменяем ему цели и точку, пока врагов нет
 local function SetupAI(patrol, entry)
 	local ent = entry.ent
@@ -1150,10 +1236,18 @@ local function SetupAI(patrol, entry)
 		ent.RunAI = function(self, ...)
 			local target = self:AIGetTarget()
 			if IsValid(target) then
-				-- Вертолёт держится сбоку, чтобы стрелок доставал; самолёты заходят по-своему
-				if entry.heli then return StandOffPoint(target, self:GetPos()) end
-				return baseRunAI(self, ...)
+				-- Самолёты заходят и стреляют своим ИИ
+				if not entry.heli then return baseRunAI(self, ...) end
+
+				-- Вертолёт со стрелком держится сбоку, чтобы турель доставала
+				local gunner = isfunction(self.GetGunnerSeat) and IsValid(self:GetGunnerSeat())
+				if gunner and IsValid(entry.crew[1]) then return StandOffPoint(target, self:GetPos()) end
+
+				-- Без стрелка — заходы курсовым оружием
+				FireForward(self, target)
+				return StrafePoint(entry, self, target)
 			end
+			entry.breakUntil = nil
 			return EscortPoint(patrol, entry, self)
 		end
 	end
@@ -1411,12 +1505,18 @@ local function WrapGredwitch()
 		end
 	end
 
-	-- Пули Гредвича: если стрелял наш подставной объект, стрелявшим считаем настоящего бота
+	-- Пули Гредвича: если стрелял наш подставной объект, стрелявшим считаем настоящего бота.
+	-- У вертолёта без пилота (OH-6 на ИИ) стрелявший пустой, и урон шёл бы от «мира» — тогда
+	-- стрелявшим считаем саму машину патруля (она первая в фильтре пули): так её пули
+	-- не бьют свою свиту, а убийство засчитывается ей
 	local createBullet = gred.CreateBullet
 	if isfunction(createBullet) then
-		gred.CreateBullet = function(ply, ...)
+		gred.CreateBullet = function(ply, pos, ang, cal, filter, ...)
 			if istable(ply) and ply.PR_Real then ply = ply.PR_Real end
-			return createBullet(ply, ...)
+			if not IsValid(ply) and istable(filter) and IsValid(filter[1]) and filter[1].PR_PatrolVehicle then
+				ply = filter[1]
+			end
+			return createBullet(ply, pos, ang, cal, filter, ...)
 		end
 	end
 end
@@ -1516,12 +1616,14 @@ local function DriveGround(patrol, v)
 	end
 
 	if target then
+		v.driveState = "fight"
 		SetKeys(veh, false, false, false, false, true)
 		return
 	end
 
 	local center = PR_Patrol.Center(patrol)
 	if not center then
+		v.driveState = "no patrol"
 		SetKeys(veh, false, false, false, false, true)
 		return
 	end
@@ -1536,6 +1638,7 @@ local function DriveGround(patrol, v)
 	local goal = ahead and (center + heading * 450) or (center - heading * 420)
 	local dist = FlatDist(pos, goal)
 	if dist < 220 then
+		v.driveState = ahead and "in place ahead" or "in place behind"
 		SetKeys(veh, false, false, false, false, true)
 		v.stuckSince = nil
 		return
@@ -1549,6 +1652,7 @@ local function DriveGround(patrol, v)
 
 	-- Застряли: 4 секунды почти на месте — сдаём назад с обратным рулём
 	if v.reverseUntil and now < v.reverseUntil then
+		v.driveState = "unstuck"
 		SetKeys(veh, false, true, yaw < 0, yaw > 0, false)
 		return
 	end
@@ -1570,6 +1674,7 @@ local function DriveGround(patrol, v)
 			local d = npc:GetPos() - pos
 			d.z = 0
 			if d:LengthSqr() < 300 * 300 and heading:Dot(d:GetNormalized()) > 0.3 then
+				v.driveState = "infantry in the way"
 				SetKeys(veh, false, false, false, false, true)
 				v.stuckSince = nil
 				return
@@ -1578,6 +1683,7 @@ local function DriveGround(patrol, v)
 	end
 
 	local turnLeft, turnRight = yaw > 8, yaw < -8
+	v.driveState = string.format("%s %s, goal %d, turn %d", reverse and "reverse" or "forward", ahead and "lead" or "follow", dist, yaw)
 	if reverse then
 		-- Цель позади: разворачиваемся задним ходом
 		SetKeys(veh, false, true, turnRight, turnLeft, false)
@@ -1621,12 +1727,17 @@ function PR_Patrol.VehicleInfo(v)
 	for _, bot in pairs(v.crew or {}) do
 		if IsValid(bot) then crew = crew + 1 end
 	end
-	return string.format("%s %s: valid=%s dead=%s destroyed=%s seats=%d crew=%d driver=%s hp=%s pos=%s up=%.2f speed=%d fly=%s wrapped=%s target=%s turret=%s/%s err=%s",
+	local heading = "-"
+	if IsValid(ent) then
+		-- Куда машина едет (у simfphys свой «перёд» по колёсам) и куда повёрнута модель
+		heading = string.format("%d/%d", (ent.Forward or ent:GetForward()):Angle().y, ent:GetAngles().y)
+	end
+	return string.format("%s %s: valid=%s dead=%s destroyed=%s seats=%d crew=%d driver=%s hp=%s pos=%s up=%.2f speed=%d heading=%s state=%s fire=%s fly=%s wrapped=%s target=%s turret=%s/%s err=%s",
 		tostring(v.kind), tostring(v.class), tostring(IsValid(ent)), tostring(v.dead), tostring(Destroyed(ent)),
 		IsValid(ent) and #CrewSeats(v) or -1, crew, IsValid(ent) and isfunction(ent.GetDriver) and tostring(ent:GetDriver()) or "-",
 		IsValid(ent) and isfunction(ent.GetCurHealth) and tostring(ent:GetCurHealth()) or "-",
 		IsValid(ent) and tostring(ent:GetPos()) or "-", IsValid(ent) and ent:GetUp().z or -9, IsValid(ent) and math.Round(ent:GetVelocity():Length()) or -1,
-		tostring(v.lastFly), IsValid(ent) and tostring(ent.PR_AimWrapped) or "-", tostring(v.aimTarget),
+		heading, tostring(v.driveState), tostring(v.fire), tostring(v.lastFly), IsValid(ent) and tostring(ent.PR_AimWrapped) or "-", tostring(v.aimTarget),
 		IsValid(ent) and tostring(ent.sm_pp_yaw) or "-", IsValid(ent) and tostring(ent.sm_pp_pitch) or "-", tostring(v.lastError))
 end
 
