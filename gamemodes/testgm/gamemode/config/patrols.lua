@@ -62,5 +62,53 @@ PR_PATROL_DEFAULTS = {
 
         -- Двое впереди, двое по бокам — Решала в середине
         formation = "around"
+    },
+
+    -- То же, но за свитой идёт танк (Шерман из simfphys armed: Вторая мировая, как и вся техника
+    -- мародёров). Танк водит бот-экипаж, он занимает один слот игрока. Вертолёты и самолёты
+    -- добавляются в редакторе патрулей (раздел «Техника»).
+    reshala_armor = {
+        name = "Решала с бронёй",
+        weight = 0.5,
+        chance = 0.4,
+        maxAlive = 1,
+        npcClass = "CLASS_PR_BANDITS",
+
+        announce = "Ходят слухи, что Решала выехал на район с танком",
+        leaderKilled = "Решала убит! Отличился %s",
+
+        leader = {
+            name = "Решала",
+            class = {"npc_vj_mishawild_reshala1"},
+            weapons = {"weapon_vj_meft_reshala_ak101"},
+            health = 600,
+            reward = {money = 3000, exp = 15},
+            drop = {"cw_kk_ins2_nam_tt33"},
+            dropGold = true
+        },
+
+        followers = {
+            {
+                name = "Охрана Решалы",
+                class = {
+                    "npc_vj_mishawild_bully_security1",
+                    "npc_vj_mishawild_bully_security2",
+                    "npc_vj_mishawild_bully_security3",
+                    "npc_vj_mishawild_bully_security4"
+                },
+                count = 4,
+                weapons = {"weapon_vj_meft_ak74m", "weapon_vj_meft_aks74u", "weapon_vj_meft_mp153", "weapon_vj_meft_sks", "weapon_vj_meft_kedr"},
+                health = 300,
+                reward = {money = 500, exp = 4}
+            }
+        },
+
+        -- class — simfphys-машина (наземная, водит бот) или LFS/LVS (летает своим ИИ);
+        -- health 0 — сколько задумано у машины
+        vehicles = {
+            {name = "Танк Решалы", class = {"sim_fphys_tank2"}, count = 1, health = 0, reward = {money = 5000, exp = 25}}
+        },
+
+        formation = "around"
     }
 }

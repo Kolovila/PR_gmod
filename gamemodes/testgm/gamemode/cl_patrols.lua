@@ -13,6 +13,27 @@ net.Receive("PR_PatrolTypes", function()
 	hook.Run("PR_PatrolTypesUpdated")
 end)
 
+-- Боты-экипажи техники патрулей — не игроки: прячем системные «вступает в игру», «покидает игру»
+-- и «меняет имя». Сервер заранее присылает имя бота, при уходе причина — «Экипаж патруля»
+local crewNames = {}
+
+net.Receive("PR_PatrolCrewName", function()
+	crewNames[net.ReadString()] = CurTime() + 15
+end)
+
+hook.Add("ChatText", "PR_HideCrewJoin", function(index, name, text, kind)
+	if kind ~= "joinleave" and kind ~= "namechange" then return end
+	if string.find(text, "Экипаж патруля", 1, true) then return true end
+
+	for crew, untilTime in pairs(crewNames) do
+		if CurTime() > untilTime then
+			crewNames[crew] = nil
+		elseif string.find(text, crew, 1, true) then
+			return true
+		end
+	end
+end)
+
 net.Receive("PR_PatrolTypeResult", function()
 	local ok = net.ReadBool()
 	local key = net.ReadString()
@@ -65,6 +86,27 @@ local function NPCWeaponOptions()
 		if class and not seen[class] and string.StartWith(class, "weapon_vj_") then
 			seen[class] = true
 			table.insert(out, {value = class, label = w.PrintName or class, sub = class})
+		end
+	end
+
+	return SortOptions(out)
+end
+
+-- Техника: simfphys (наземная, водит бот) и LFS/LVS (своим ИИ)
+local KIND_NAMES = {ground = "Наземная", air = "Авиация", aiground = "Наземная (LVS)"}
+
+local function VehicleOptions()
+	local out = {}
+
+	for class, v in pairs(list.Get("simfphys_vehicles")) do
+		table.insert(out, {value = class, label = "[Наземная] " .. (v.Name or class), sub = class .. (v.Category and ("  ·  " .. v.Category) or "")})
+	end
+
+	for class, info in pairs(scripted_ents.GetList()) do
+		local t = info.t or {}
+		local kind = t.Spawnable and PR_PatrolVehicleKind(class)
+		if kind and kind ~= "ground" then
+			table.insert(out, {value = class, label = "[" .. KIND_NAMES[kind] .. "] " .. (t.PrintName or class), sub = class .. (t.Category and ("  ·  " .. t.Category) or "")})
 		end
 	end
 
@@ -304,8 +346,13 @@ local function NewTemplate()
 		leader = {name = "Главный", class = {}, weapons = {}, health = 300, reward = {money = 1000, exp = 5}, drop = {}},
 		followers = {
 			{name = "Свита", class = {}, count = 3, weapons = {}, health = 200, reward = {money = 300, exp = 2}}
-		}
+		},
+		vehicles = {}
 	}
+end
+
+local function NewVehicle()
+	return {name = "", class = {}, count = 1, crew = 1, health = 0, reward = {money = 3000, exp = 15}}
 end
 
 local function AsList(value)
@@ -334,12 +381,28 @@ local function ForEditing(data)
 	edit.followers = edit.followers or {}
 	for _, group in ipairs(edit.followers) do FixNPC(group) end
 
+	edit.vehicles = edit.vehicles or {}
+	for _, v in ipairs(edit.vehicles) do
+		v.name = v.name or ""
+		v.class = AsList(v.class)
+		v.count = v.count or 1
+		v.crew = v.crew or 1
+		v.health = v.health or 0
+		v.reward = v.reward or {money = 0, exp = 0}
+	end
+
 	return edit
 end
 
 local function NPCCount(data)
 	local n = data.leader and 1 or 0
 	for _, group in ipairs(data.followers or {}) do n = n + (group.count or 1) end
+	return n
+end
+
+local function VehicleCount(data)
+	local n = 0
+	for _, v in ipairs(data.vehicles or {}) do n = n + (v.count or 1) end
 	return n
 end
 
@@ -368,9 +431,11 @@ function PR_PatrolEditor.OpenTypes()
 	local npcOptions = Cached("npc", NPCOptions)
 	local npcWeaponOptions = Cached("npcWeapons", NPCWeaponOptions)
 	local dropOptions = Cached("drop", DropOptions)
+	local vehicleOptions = Cached("vehicles", VehicleOptions)
 	npcOptions()
 	npcWeaponOptions()
 	dropOptions()
+	vehicleOptions()
 
 	-- touched: админ сам выбрал вариант или начал новый — список с сервера его выбор не сбивает
 	local state = {key = nil, edit = nil, touched = false}
@@ -418,7 +483,9 @@ function PR_PatrolEditor.OpenTypes()
 				PR_UI.Box(0, 0, w, h, current and C.hover or (self:IsHovered() and C.panel2 or C.bg))
 				if current then PR_UI.Box(0, 0, S(4), h, C.accent) end
 				PR_UI.Text(data.name or key, "normal", S(14), h * 0.34, C.text, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
-				PR_UI.Text(NPCCount(data) .. " NPC  ·  шанс " .. math.Round((data.chance or 1) * 100) .. "%", "small", S(14), h * 0.72, C.muted, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+				local vehicles = VehicleCount(data)
+				PR_UI.Text(NPCCount(data) .. " NPC" .. (vehicles > 0 and ("  ·  техники " .. vehicles) or "") .. "  ·  шанс " .. math.Round((data.chance or 1) * 100) .. "%",
+					"small", S(14), h * 0.72, C.muted, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
 			end
 			row.DoClick = function()
 				surface.PlaySound("ui/buttonclick.wav")
@@ -550,6 +617,40 @@ function PR_PatrolEditor.OpenTypes()
 		end, {height = 44, color = C.panel2})
 		addGroup:Dock(TOP)
 		addGroup:DockMargin(0, S(14), 0, 0)
+
+		-- Техника
+		for i, v in ipairs(edit.vehicles) do
+			Header(scroll, function() return "Техника: " .. (v.name ~= "" and v.name or ("машина " .. i)) end, function()
+				table.remove(edit.vehicles, i)
+				BuildForm()
+			end)
+			TextField(scroll, "Название", function() return v.name end, function(val) v.name = val end,
+				{hint = "его же видно в килфиде: это имя бота-экипажа"})
+			PickField(scroll, "Машина", function() return v.class end, function(val) v.class = val end, vehicleOptions, false, labels)
+			TextField(scroll, "Сколько", function() return v.count end, function(val) v.count = val end, {numeric = true, hint = "от 1 до 3"})
+			TextField(scroll, "Экипаж, ботов", function() return v.crew end, function(val) v.crew = val end,
+				{numeric = true, hint = "водитель, стрелки; каждый занимает слот игрока"})
+			TextField(scroll, "Здоровье", function() return v.health end, function(val) v.health = val end,
+				{numeric = true, hint = "0 — как задумано у машины"})
+			TextField(scroll, "Награда, $", function() return v.reward.money end, function(val) v.reward.money = val end, {numeric = true})
+			TextField(scroll, "Опыт за уничтожение", function() return v.reward.exp end, function(val) v.reward.exp = val end, {numeric = true})
+		end
+
+		local addVehicle = PR_UI.Button(scroll, "+ Техника", function()
+			table.insert(edit.vehicles, NewVehicle())
+			BuildForm()
+		end, {height = 44, color = C.panel2})
+		addVehicle:Dock(TOP)
+		addVehicle:DockMargin(0, S(8), 0, 0)
+
+		local vehicleHint = vgui.Create("DLabel", scroll)
+		vehicleHint:Dock(TOP)
+		vehicleHint:DockMargin(0, S(6), 0, 0)
+		vehicleHint:SetFont(PR_UI.Font("small"))
+		vehicleHint:SetTextColor(C.muted)
+		vehicleHint:SetWrap(true)
+		vehicleHint:SetAutoStretchVertical(true)
+		vehicleHint:SetText("Наземную (simfphys, танки Луны и Гредвича) водит и наводит бот-экипаж. Авиация (LFS/LVS) летает своим ИИ, кружит над патрулём, а бот садится стрелком, если у машины есть место стрелка (Ми-24, AH-1G).")
 	end
 
 	-- Пока свежий список не пришёл, показываем то, что знаем; пришёл — выбираем первый,

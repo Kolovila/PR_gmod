@@ -54,6 +54,13 @@ local function PR_AddMoney(ply, amount)
 	ply:SetNWInt("PR_money", math.max(ply:GetNWInt("PR_money") + amount, 0))
 end
 
+-- Награда {money, exp} игроку — для того, что гибнет не как NPC (техника патрулей)
+function PR_GiveReward(ply, reward)
+	if not IsValid(ply) or not ply:IsPlayer() or not istable(reward) then return end
+	PR_AddMoney(ply, reward.money or 0)
+	PR_AddExp(ply, reward.exp or 0, reward.exp or 0)
+end
+
 -- Купленное оружие из пресета при каждом спавне
 hook.Add("PlayerSpawn", "PR_GivePreset", function(ply)
 	local preset = ply.Preset or {}
@@ -70,6 +77,9 @@ end)
 -- Награда за убийство игрока: 100$ + 20$ за уровень фракции жертвы, опыт 10 + уровень жертвы.
 -- За своего — штраф 100$ (мародёры друг другу не свои, см. PR_AreAllies).
 hook.Add("PlayerDeath", "PR_KillReward", function(victim, inflictor, attacker)
+	-- Бот-экипаж техники патруля: за него платит сама техника (sv_patrols.lua)
+	if victim:GetNWBool("PR_PatrolCrew") then return end
+
 	victim:SetNWInt("PR_deaths", victim:GetNWInt("PR_deaths") + 1)
 
 	-- Убил NPC, мир или упал сам: награды нет

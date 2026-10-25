@@ -31,6 +31,9 @@ function GM:ScoreboardShow()
 		local i = 0
 		
 		for k, v in pairs(player.GetAll()) do
+			-- Боты-экипажи техники патрулей (sv_patrols.lua) — не игроки, в таблице не показываем
+			if v:GetNWBool("PR_PatrolCrew") then continue end
+
 			PlayersPanelList[i] = vgui.Create("DPanel", PlayerList)
 			
 			PlayersPanelList[i]:SetSize(PlayerList:GetWide(),50)

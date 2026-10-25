@@ -120,6 +120,26 @@ PR_Equip_List = PR_Equip_List or {}
 PR_Cloth_List = PR_Cloth_List or {}
 PR_Capture_Points_List = PR_Capture_Points_List or {}
 
+-- Какая техника годится в патруль (sv_patrols.lua) и как ей управлять:
+--   "ground"   — simfphys (танки Луны и Гредвича, БТР, джипы): своего ИИ нет, водит бот-экипаж;
+--   "air"      — LFS/LVS вертолёты и самолёты: летают своим ИИ;
+--   "aiground" — LVS наземная (wheeldrive): тоже свой ИИ, но едет по земле.
+-- nil — такую технику патруль взять не может.
+function PR_PatrolVehicleKind(class)
+	if not isstring(class) or class == "" then return end
+	if list.Get("simfphys_vehicles")[class] then return "ground" end
+
+	local base = class
+	for _ = 1, 10 do
+		if base == "lvs_base_wheeldrive" then return "aiground" end
+		if base == "lunasflightschool_basescript" or base == "lvs_base" then return "air" end
+
+		local stored = scripted_ents.GetStored(base)
+		base = stored and stored.t and stored.t.Base
+		if not base then return end
+	end
+end
+
 -- Есть ли такое оружие в игре: Lua-оружие (weapons.GetStored) или встроенное оружие HL2 (список "Weapon")
 function PR_WeaponExists(class)
     return isstring(class) and (weapons.GetStored(class) ~= nil or list.Get("Weapon")[class] ~= nil)

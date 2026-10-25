@@ -89,8 +89,8 @@ if SERVER then
     end
 
     function PR_Save_Player(ply)
-        -- Не затираем сейв, если игрок вышел до загрузки
-        if not IsValid(ply) or not ply.PR_Loaded then return end
+        -- Не затираем сейв, если игрок вышел до загрузки. Бот-экипаж техники патруля не сохраняем
+        if not IsValid(ply) or not ply.PR_Loaded or ply:GetNWBool("PR_PatrolCrew") then return end
 
         PR_DB.SavePlayer(PR_SaveKey(ply), CollectPlayer(ply))
     end

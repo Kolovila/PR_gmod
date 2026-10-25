@@ -17,6 +17,7 @@ util.AddNetworkString("PR_PatrolSaveType")   -- админ сохраняет в
 util.AddNetworkString("PR_PatrolDeleteType") -- админ удаляет вариант
 util.AddNetworkString("PR_PatrolSpawnType")  -- админ выпускает вариант сейчас
 util.AddNetworkString("PR_PatrolTypeResult") -- итог для админа: ок/ошибка, ключ, текст
+util.AddNetworkString("PR_PatrolCrewName")   -- имя бота-экипажа: клиенты прячут «вступает в игру»
 
 PR_Patrol = PR_Patrol or {}
 PR_Patrol.Spots = PR_Patrol.Spots or {}   -- [id] = {Id, Pos, Zone}
@@ -50,7 +51,8 @@ end
 -- Варианты патрулей: база + стартовые из конфига
 ----------------------------------------------------------------------------------------------------
 
-local TYPES_META = "patrol_types_v1"
+-- v2: добавился вариант с техникой. Недостающие стартовые варианты дописываются, правки админа не трогаются
+local TYPES_META = "patrol_types_v2"
 
 -- Стартовые варианты попадают в базу один раз; дальше база — единственный источник
 local function LoadTypes()
@@ -130,6 +132,32 @@ local function CleanNPC(def, isLeader)
 	return out
 end
 
+local function VehicleExists(class)
+	return PR_PatrolVehicleKind(class) ~= nil
+end
+
+-- Группа техники: машина(ы), сколько, здоровье (0 — как у машины), награда за уничтожение
+local function CleanVehicle(def)
+	if not istable(def) then return end
+
+	local classes = CleanList(def.class, VehicleExists, 8)
+	if #classes == 0 then return end
+
+	local reward = istable(def.reward) and def.reward or {}
+	return {
+		name = CleanText(def.name, 48),
+		class = classes,
+		count = math.floor(Num(def.count, 1, 3, 1)),
+		-- Ботов в машине: водитель/стрелок, у кого есть место. 0 — без экипажа (только для авиации)
+		crew = math.floor(Num(def.crew, 0, 4, 1)),
+		health = math.floor(Num(def.health, 0, 1000000, 0)),
+		reward = {
+			money = math.floor(Num(reward.money, 0, 1000000, 0)),
+			exp = math.floor(Num(reward.exp, 0, 1000, 0))
+		}
+	}
+end
+
 PR_PATROL_FORMATIONS = {"around", "wedge", "column"}
 
 -- Вариант из редактора: всё проверить и обрезать. Возвращает чистую таблицу или nil и причину
@@ -143,7 +171,8 @@ function PR_Patrol.CleanType(data)
 		maxAlive = math.floor(Num(data.maxAlive, 1, 5, 1)),
 		npcClass = isstring(data.npcClass) and string.match(data.npcClass, "^CLASS_[%w_]+$") and data.npcClass or "CLASS_PR_BANDITS",
 		formation = table.HasValue(PR_PATROL_FORMATIONS, data.formation) and data.formation or "around",
-		followers = {}
+		followers = {},
+		vehicles = {}
 	}
 	if out.name == "" then return nil, "нужно название" end
 
@@ -168,6 +197,13 @@ function PR_Patrol.CleanType(data)
 		local clean = CleanNPC(group, false)
 		if not clean then return nil, "в группе свиты №" .. i .. " не выбран NPC (или его нет в игре)" end
 		table.insert(out.followers, clean)
+	end
+
+	for i, group in ipairs(istable(data.vehicles) and data.vehicles or {}) do
+		if i > 4 then break end
+		local clean = CleanVehicle(group)
+		if not clean then return nil, "в технике №" .. i .. " не выбрана машина (или её нет в игре)" end
+		table.insert(out.vehicles, clean)
 	end
 
 	if not out.leader and #out.followers == 0 then return nil, "в патруле нет ни одного NPC" end
@@ -245,16 +281,21 @@ end
 -- Игроки рядом
 ----------------------------------------------------------------------------------------------------
 
+-- Живой игрок, а не бот-экипаж техники патруля
+local function RealPlayer(ply)
+	return ply:Alive() and not ply:GetNWBool("PR_PatrolCrew")
+end
+
 local function PlayersNear(pos, dist)
 	for _, ply in ipairs(player.GetAll()) do
-		if ply:Alive() and ply:GetPos():DistToSqr(pos) < dist * dist then return true end
+		if RealPlayer(ply) and ply:GetPos():DistToSqr(pos) < dist * dist then return true end
 	end
 	return false
 end
 
 local function SeenByPlayer(pos)
 	for _, ply in ipairs(player.GetAll()) do
-		if ply:Alive() then
+		if RealPlayer(ply) then
 			local tr = util.TraceLine({start = ply:EyePos(), endpos = pos + Vector(0, 0, 48), mask = MASK_SOLID_BRUSHONLY})
 			if not tr.Hit then return true end
 		end
@@ -273,12 +314,14 @@ function PR_Patrol.CanWalk(a, b)
 	local dist = a:Distance(b)
 	if dist > Settings().linkDistance then return false end
 
+	-- Коробка размером с NPC (HULL_HUMAN 32×72), от высоты ступеньки (18) до макушки:
+	-- ящики и узкие щели, куда NPC не пролезет, связь рвут
 	local up = Vector(0, 0, WALK_HEIGHT)
 	local wall = util.TraceHull({
 		start = a + up,
 		endpos = b + up,
-		mins = Vector(-10, -10, -16),
-		maxs = Vector(10, 10, 24),
+		mins = Vector(-16, -16, -18),
+		maxs = Vector(16, 16, 36),
 		mask = MASK_NPCSOLID_BRUSHONLY
 	})
 	if wall.Hit then return false end
@@ -587,7 +630,8 @@ function PR_Patrol.Spawn(typeKey, spotId)
 		dir = Vector(1, 0, 0),
 		lingerUntil = CurTime() + 5,
 		expiresAt = CurTime() + RandRange(Settings().lifetime),
-		lastCombat = 0
+		lastCombat = 0,
+		vehicles = {}
 	}
 
 	local used = {}
@@ -609,19 +653,22 @@ function PR_Patrol.Spawn(typeKey, spotId)
 	if #patrol.members == 0 then return nil, "не удалось создать NPC" end
 	if not IsValid(patrol.leader) then patrol.leader = patrol.members[1] end
 
+	PR_Patrol.SpawnVehicles(patrol, spot)
+
 	table.insert(PR_Patrol.Active, patrol)
 
 	if cfg.announce then PrintMessage(HUD_PRINTTALK, cfg.announce) end
-	MsgN("[PR] патруль «" .. cfg.name .. "» вышел на спот #" .. spotId .. " (" .. #patrol.members .. " NPC)")
+	MsgN("[PR] патруль «" .. cfg.name .. "» вышел на спот #" .. spotId .. " (" .. #patrol.members .. " NPC, техники " .. #patrol.vehicles .. ")")
 
 	return patrol
 end
 
--- Убрать патруль с карты целиком
+-- Убрать патруль с карты целиком: NPC, технику и её ботов-экипаж
 function PR_Patrol.Remove(patrol)
 	for _, npc in ipairs(patrol.members) do
 		if IsValid(npc) then npc:Remove() end
 	end
+	PR_Patrol.RemoveVehicles(patrol)
 	table.RemoveByValue(PR_Patrol.Active, patrol)
 end
 
@@ -726,7 +773,728 @@ local function Unstick(patrol, target)
 	patrol.lingerUntil = CurTime() + 3
 end
 
+----------------------------------------------------------------------------------------------------
+-- Техника
+----------------------------------------------------------------------------------------------------
+-- Своего «ИИ со стрельбой» у этой техники нет, поэтому в машину садится бот-экипаж: занимает слот
+-- игрока, в таблице игроков не виден, не сохраняется. Мы каждый тик решаем за него, куда смотреть
+-- и когда жать огонь (StartCommand) — техника думает, что за пультом игрок, и сама наводит пушки.
+--   ground   (simfphys, танки Луны и Гредвича): бот за рулём; едем за главным патруля сами
+--            (газ и руль через PressedKeys), водитель же наводит главную пушку; второй бот —
+--            на первом месте пассажира (пулемёт у танков).
+--   air      (LFS/LVS вертолёты и самолёты): летит их ИИ; подменяем ему «кто враг» и, пока врагов
+--            нет, держим кругами над патрулём. Бот садится стрелком (Ми-24, AH-1G).
+--   aiground (LVS наземная): едет своим ИИ за патрулём, бот — стрелком.
+
+local VEHICLE_RANGE = 6000 -- дальше врагов не ищем
+local AIR_ALTITUDE = 1400  -- высота над патрулём, пока врагов нет
+local AIR_ORBIT = 1200     -- радиус круга над патрулём
+
+local function IgnorePlayers()
+	local cvar = GetConVar("ai_ignoreplayers")
+	return cvar and cvar:GetBool()
+end
+
+-- Где сейчас патруль: главный, а если пеших не осталось — первая живая машина
+function PR_Patrol.Center(patrol)
+	if Alive(patrol.leader) then return patrol.leader:GetPos() end
+	for _, npc in ipairs(patrol.members) do
+		if Alive(npc) then return npc:GetPos() end
+	end
+	for _, v in ipairs(patrol.vehicles or {}) do
+		if not v.dead and IsValid(v.ent) then return v.ent:GetPos() end
+	end
+end
+
+-- Враг для техники: ближайший видимый игрок (не экипаж, не notarget) или защитник точки
+function PR_Patrol.VehicleTarget(entry, from, range)
+	if IsValid(entry.forceTarget) then return entry.forceTarget end
+	if (entry.targetAt or 0) > CurTime() then
+		if IsValid(entry.target) then return entry.target end
+		return nil
+	end
+	entry.targetAt = CurTime() + 1
+
+	local best, bestD = nil, range * range
+	local function Consider(ent, pos)
+		local d = pos:DistToSqr(from)
+		if d >= bestD then return end
+		local tr = util.TraceLine({start = from, endpos = pos, mask = MASK_SOLID_BRUSHONLY})
+		if tr.Hit then return end
+		best, bestD = ent, d
+	end
+
+	if not IgnorePlayers() then
+		for _, ply in ipairs(player.GetAll()) do
+			if RealPlayer(ply) and not ply:IsFlagSet(FL_NOTARGET) then
+				Consider(ply, ply:WorldSpaceCenter())
+			end
+		end
+	end
+
+	-- Защитники точек любых группировок — тоже враги бандитов
+	for _, npc in ipairs(ents.FindByClass("npc_*")) do
+		if npc.PR_GuardPoint and npc:Health() > 0 then
+			Consider(npc, npc:WorldSpaceCenter())
+		end
+	end
+
+	entry.target = best
+	return best
+end
+
+----------------------------------------------------------------------------------------------------
+-- Экипаж
+
+local function KickCrew(entry)
+	for _, bot in pairs(entry.crew or {}) do
+		if IsValid(bot) then bot:Kick("Экипаж патруля") end
+	end
+	entry.crew = {}
+end
+
+-- Места для экипажа по порядку: наземной — водитель и пассажиры, авиации — стрелок и пассажиры
+local function CrewSeats(entry)
+	local ent, seats = entry.ent, {}
+	local function Add(seat)
+		if IsValid(seat) and not table.HasValue(seats, seat) then table.insert(seats, seat) end
+	end
+
+	if entry.kind == "ground" then
+		Add(isfunction(ent.GetDriverSeat) and ent:GetDriverSeat() or ent.DriverSeat)
+		for _, seat in ipairs(ent.pSeat or {}) do Add(seat) end
+	else
+		if isfunction(ent.GetGunnerSeat) then Add(ent:GetGunnerSeat()) end
+		if isfunction(ent.GetPassengerSeats) then
+			for _, seat in ipairs(ent:GetPassengerSeats() or {}) do Add(seat) end
+		end
+	end
+
+	return seats
+end
+
+local function CreateBot(entry, index)
+	if player.GetCount() >= game.MaxPlayers() then
+		MsgN("[PR] патруль: нет свободных слотов игроков для экипажа")
+		return
+	end
+
+	-- Имя бота видно в килфиде: «Танк охраны», «Танк охраны · стрелок»
+	local name = (entry.def.name and entry.def.name ~= "") and entry.def.name or "Экипаж"
+	if index > 1 then name = name .. " · стрелок" end
+
+	-- Клиенты прячут системное «вступает в игру» для этого имени (cl_patrols.lua)
+	net.Start("PR_PatrolCrewName")
+		net.WriteString(name)
+	net.Broadcast()
+
+	local bot = player.CreateNextBot(name)
+	if not IsValid(bot) then return end
+
+	bot:SetNWBool("PR_PatrolCrew", true)
+	bot.PR_PatrolCrew = entry
+	bot:AddFlags(FL_NOTARGET)
+	entry.crew[index] = bot
+	return bot
+end
+
+-- Экипаж создаётся по местам, которые у машины действительно есть (сиденья появляются не сразу,
+-- поэтому проверяем каждый тик), и садится. На каждое место бот создаётся один раз: погиб — не заменяем
+local function SeatCrew(entry)
+	local seats = CrewSeats(entry)
+	entry.crewTried = entry.crewTried or {}
+
+	-- Наземной без водителя не поехать: хотя бы один
+	local wanted = entry.def.crew or 1
+	if entry.kind == "ground" then wanted = math.max(wanted, 1) end
+
+	for i = 1, math.min(wanted, #seats) do
+		local seat, bot = seats[i], entry.crew[i]
+
+		if not bot and not entry.crewTried[i] then
+			entry.crewTried[i] = true
+			bot = CreateBot(entry, i)
+		end
+
+		if IsValid(bot) and bot:Alive() and bot:GetVehicle() ~= seat and not IsValid(seat:GetDriver()) then
+			bot:EnterVehicle(seat)
+		end
+	end
+end
+
+-- Куда смотреть боту: на врага. Огонь — когда враг виден и башня успела довернуться
+local function CrewAim(entry, target)
+	if not IsValid(target) then
+		entry.aimAng, entry.fire, entry.aimSince = nil, false, nil
+		return
+	end
+
+	-- От центра машины вверх по миру (а не по машине: перевёрнутая смотрела бы в землю)
+	local from = entry.ent:WorldSpaceCenter() + Vector(0, 0, 60)
+	local to = target:WorldSpaceCenter()
+	entry.aimAng = (to - from):Angle()
+
+	if entry.aimTarget ~= target then
+		entry.aimTarget = target
+		entry.aimSince = CurTime()
+	end
+
+	-- Огонь, когда враг виден и прошло время довернуть пушку (у simfphys-танков точнее — по углу башни)
+	local clear = not util.TraceLine({start = from, endpos = to, mask = MASK_SOLID_BRUSHONLY}).Hit
+	local turned = CurTime() - (entry.aimSince or CurTime()) > 3 or entry.ent.sm_pp_yaw ~= nil
+	entry.fire = clear and turned
+end
+
+hook.Add("StartCommand", "PR_PatrolCrew", function(ply, cmd)
+	local entry = ply.PR_PatrolCrew
+	if not entry then return end
+
+	cmd:ClearMovement()
+	cmd:ClearButtons()
+
+	local seat = ply:GetVehicle()
+	if not entry.aimAng or not IsValid(seat) then
+		ply.PR_View = nil
+		return
+	end
+
+	-- simfphys: башню наводим в обход взгляда (WrapSimfphysAim), здесь только огонь
+	if entry.kind == "ground" then
+		cmd:SetViewAngles(seat:WorldToLocalAngles(entry.aimAng))
+		if entry.fire then cmd:SetButtons(IN_ATTACK) end
+		return
+	end
+
+	-- LFS/LVS: стрелок смотрит туда же, куда целится. Как движок из углов cmd делает взгляд
+	-- в машине, зависит от сиденья. Не гадаем: смотрим, куда бот реально смотрит, и доворачиваем
+	local want = entry.aimAng
+	local view = ply.PR_View
+	if not view then
+		view = seat:WorldToLocalAngles(want)
+	else
+		local eye = ply:EyeAngles()
+		view = Angle(
+			math.Clamp(view.p + math.AngleDifference(want.p, eye.p) * 0.8, -89, 89),
+			math.NormalizeAngle(view.y + math.AngleDifference(want.y, eye.y) * 0.8),
+			0
+		)
+	end
+	ply.PR_View = view
+
+	cmd:SetViewAngles(view)
+	if entry.fire then cmd:SetButtons(IN_ATTACK) end
+end)
+
+-- Экипаж погиб (машину подбили) — бота убираем с сервера
+hook.Add("PlayerDeath", "PR_PatrolCrewDeath", function(ply)
+	if not ply:GetNWBool("PR_PatrolCrew") then return end
+	timer.Simple(0.5, function()
+		if IsValid(ply) then ply:Kick("Экипаж патруля") end
+	end)
+end)
+
+----------------------------------------------------------------------------------------------------
+-- Появление
+
+-- Влезет ли машина в точку p: ровный пол, простор вокруг, не вплотную к другим машинам
+local function VehicleFits(p, used)
+	local down = util.TraceLine({start = p + Vector(0, 0, 120), endpos = p - Vector(0, 0, 300), mask = MASK_SOLID_BRUSHONLY})
+	if not down.Hit or down.StartSolid or down.HitNormal.z < 0.8 then return end
+
+	local spot = down.HitPos
+	local hull = util.TraceHull({
+		start = spot + Vector(0, 0, 30), endpos = spot + Vector(0, 0, 30),
+		mins = Vector(-100, -100, 0), maxs = Vector(100, 100, 120),
+		mask = MASK_SOLID
+	})
+	if hull.Hit then return end
+
+	for _, u in ipairs(used) do
+		if u:DistToSqr(spot) < 320 * 320 then return end
+	end
+	return spot
+end
+
+-- Место для машины: сперва на линиях к соседним спотам (это проверенные проходимые улицы,
+-- машина встаёт вдоль улицы), потом — где получится вокруг спота
+local function VehicleSpotNear(spot, used)
+	for other in pairs(PR_Patrol.Links[spot.Id] or {}) do
+		local o = PR_Patrol.Spots[other]
+		if o then
+			local dir = o.Pos - spot.Pos
+			local len = dir:Length()
+			dir:Normalize()
+			for _, d in ipairs({300, 450, 600, 200, 750}) do
+				if d < len - 80 then
+					local p = VehicleFits(spot.Pos + dir * d, used)
+					if p then return p, dir:Angle().y end
+				end
+			end
+		end
+	end
+
+	for _ = 1, 30 do
+		local ang = math.rad(math.random(0, 359))
+		local dist = math.random(220, 600)
+		local p = VehicleFits(spot.Pos + Vector(math.cos(ang) * dist, math.sin(ang) * dist, 0), used)
+		if p then return p, math.random(0, 359) end
+	end
+end
+
+-- Небо (или потолок) над точкой
+local function CeilingAt(pos)
+	local tr = util.TraceLine({start = pos + Vector(0, 0, 64), endpos = pos + Vector(0, 0, 16000), mask = MASK_SOLID_BRUSHONLY})
+	return tr.HitPos.z, tr.StartSolid
+end
+
+-- Верх того, что стоит в точке x, y (крыша или земля): ищем сверху вниз от потолка
+local function TopAt(x, y, ceilZ, floorZ)
+	local tr = util.TraceLine({start = Vector(x, y, ceilZ - 16), endpos = Vector(x, y, floorZ - 2000), mask = MASK_SOLID_BRUSHONLY})
+	return tr.Hit and tr.HitPos.z or floorZ
+end
+
+-- Где лететь над x, y возле center: выше крыш на 900, не ниже AIR_ALTITUDE над патрулём, под небом.
+-- nil — над патрулём низкий потолок (идут под навесом), лететь там некуда
+local function FlyPoint(center, x, y)
+	local ceil = CeilingAt(center)
+	if ceil - center.z < 800 then return end
+
+	local top = TopAt(x, y, ceil, center.z)
+	return Vector(x, y, math.min(math.max(center.z + AIR_ALTITUDE, top + 900), ceil - 250))
+end
+
+-- Место появления авиации: рядом со спотом, где над головой открытое небо
+local function AirSpawnPos(pos)
+	for _ = 1, 24 do
+		local ang = math.rad(math.random(0, 359))
+		local dist = math.random(300, 1400)
+		local x, y = pos.x + math.cos(ang) * dist, pos.y + math.sin(ang) * dist
+
+		local ceil, inside = CeilingAt(Vector(x, y, pos.z))
+		if not inside and ceil - pos.z > AIR_ALTITUDE + 400 then
+			local p = FlyPoint(pos, x, y)
+			if p then return p end
+		end
+	end
+end
+
+local function ApplyVehicleHealth(ent, health)
+	if not health or health <= 0 then return end
+
+	if isfunction(ent.GetCurHealth) then
+		-- simfphys
+		ent:SetMaxHealth(health)
+		ent:SetCurHealth(health)
+	elseif isfunction(ent.SetHP) then
+		-- LFS/LVS
+		ent.MaxHealth = health
+		ent:SetHP(health)
+	end
+end
+
+-- Точка, куда держаться технике со своим ИИ, пока врагов нет
+local function EscortPoint(patrol, entry, ent)
+	local center = PR_Patrol.Center(patrol) or ent:GetPos()
+	if entry.kind == "aiground" then
+		local back = Vector(patrol.dir.x, patrol.dir.y, 0):GetNormalized()
+		return center - back * 400
+	end
+
+	local t = CurTime() * 0.12 + entry.phase
+	local p = FlyPoint(center, center.x + math.cos(t) * AIR_ORBIT, center.y + math.sin(t) * AIR_ORBIT)
+	if p then entry.lastFly = p end
+	return entry.lastFly or ent:GetPos()
+end
+
+-- LFS/LVS: свой ИИ летает, мы подменяем ему цели и точку, пока врагов нет
+local function SetupAI(patrol, entry)
+	local ent = entry.ent
+	entry.phase = math.Rand(0, math.pi * 2)
+
+	-- По умолчанию LVS не трогает игроков (их ИИ-команда 0), поэтому «кто враг» решаем сами
+	ent.AIGetTarget = function(self)
+		return PR_Patrol.VehicleTarget(entry, self:WorldSpaceCenter(), VEHICLE_RANGE * 1.5)
+	end
+
+	local baseRunAI = ent.RunAI
+	if isfunction(baseRunAI) then
+		ent.RunAI = function(self, ...)
+			if IsValid(self:AIGetTarget()) then return baseRunAI(self, ...) end
+			return EscortPoint(patrol, entry, self)
+		end
+	end
+
+	if isfunction(ent.SetAITEAM) then ent:SetAITEAM(2) end
+	if isfunction(ent.SetAI) then ent:SetAI(true) end
+
+	-- Вертолёт появляется в воздухе, а мотор раскручивается несколько секунд — без этого он
+	-- успевает рухнуть. Держим на месте (каждый тик, LFS сам будит физику), пока мотор не заработает
+	if entry.kind == "air" then
+		entry.holdPos = ent:GetPos()
+		entry.holdUntil = CurTime() + 15
+	end
+end
+
+-- Держать авиацию на месте, пока не раскрутится мотор (не меньше 3 и не больше 15 секунд)
+local function HoldUntilEngine(entry)
+	if not entry.holdUntil then return end
+
+	local ent = entry.ent
+	local phys = ent:GetPhysicsObject()
+	local running = isfunction(ent.GetEngineActive) and ent:GetEngineActive()
+	local held = CurTime() - (entry.spawnedAt or 0)
+
+	if CurTime() < entry.holdUntil and not (running and held > 3) then
+		if IsValid(phys) then phys:EnableMotion(false) end
+		ent:SetPos(entry.holdPos)
+		return
+	end
+
+	entry.holdUntil = nil
+	if IsValid(phys) then
+		phys:EnableMotion(true)
+		phys:Wake()
+	end
+end
+
+function PR_Patrol.SpawnVehicles(patrol, spot)
+	patrol.vehicles = {}
+	local used = {}
+
+	for _, def in ipairs(patrol.cfg.vehicles or {}) do
+		for _ = 1, def.count or 1 do
+			local class = Pick(def.class)
+			local kind = PR_PatrolVehicleKind(class)
+			local entry = {def = def, kind = kind, class = class, crew = {}}
+
+			if kind == "ground" and simfphys and isfunction(simfphys.SpawnVehicleSimple) then
+				local pos, yaw = VehicleSpotNear(spot, used)
+				if pos then
+					table.insert(used, pos)
+					local veh = simfphys.SpawnVehicleSimple(class, pos + Vector(0, 0, 20), Angle(0, yaw, 0))
+					if IsValid(veh) then entry.ent = veh end
+				end
+			elseif kind == "air" or kind == "aiground" then
+				local pos, yaw
+				if kind == "air" then
+					pos, yaw = AirSpawnPos(spot.Pos), math.random(0, 359)
+				else
+					pos, yaw = VehicleSpotNear(spot, used)
+				end
+				if pos then
+					table.insert(used, pos)
+					local ent = ents.Create(class)
+					if IsValid(ent) then
+						ent:SetPos(pos + Vector(0, 0, 20))
+						ent:SetAngles(Angle(0, yaw, 0))
+						ent:Spawn()
+						ent:Activate()
+						entry.ent = ent
+					end
+				end
+			end
+
+			if IsValid(entry.ent) then
+				local ent = entry.ent
+				ent.PR_Patrol = patrol
+				ent.PR_PatrolVehicle = entry
+				ApplyVehicleHealth(ent, def.health)
+
+				if kind == "ground" then
+					-- Танки simfphys armed по умолчанию держат башню на замке
+					ent:SetNWBool("TurretSafeMode", false)
+					-- У бота нет клиентских настроек, и simfphys включил бы ему механику: ставим автомат
+					ent.ForceTransmission = 1
+				else
+					SetupAI(patrol, entry)
+				end
+
+				entry.spawnedAt = CurTime()
+				table.insert(patrol.vehicles, entry)
+			else
+				MsgN("[PR] патруль: не удалось выпустить технику " .. tostring(class))
+			end
+		end
+	end
+end
+
+function PR_Patrol.RemoveVehicles(patrol)
+	for _, v in ipairs(patrol.vehicles or {}) do
+		v.dead = true
+		KickCrew(v)
+		if IsValid(v.ent) then v.ent:Remove() end
+	end
+end
+
+----------------------------------------------------------------------------------------------------
+-- Езда, стрельба, гибель
+
+local function Destroyed(ent)
+	if not IsValid(ent) then return true end
+	-- simfphys: пока машина не собралась, здоровье ещё не выставлено — это не «подбита»
+	if isfunction(ent.GetCurHealth) then
+		return isfunction(ent.IsInitialized) and ent:IsInitialized() and ent:GetCurHealth() <= 0
+	end
+	if isfunction(ent.IsDestroyed) and ent:IsDestroyed() then return true end
+	if isfunction(ent.GetDestroyed) and ent:GetDestroyed() then return true end
+	return false
+end
+
+-- Кто последним ранил технику — тому и награда
+hook.Add("EntityTakeDamage", "PR_PatrolVehicleDamage", function(ent, dmg)
+	local entry = ent.PR_PatrolVehicle
+	if not entry then return end
+	local ply = PR_KillerPlayer and PR_KillerPlayer(dmg:GetAttacker())
+	if ply and not ply:GetNWBool("PR_PatrolCrew") then entry.lastAttacker = ply end
+end)
+
+-- Раз в секунду: подбитая техника — награда и долой экипаж
+local function CheckVehicles(patrol)
+	local alive = 0
+	for _, v in ipairs(patrol.vehicles) do
+		if not v.dead then
+			-- Экипаж танка перебили — танк взрывается (иначе бесхозный танк заберёт любой игрок)
+			local crewLost = v.kind == "ground" and v.hadDriver and not IsValid(v.crew[1])
+			if crewLost and IsValid(v.ent) and not Destroyed(v.ent) then
+				if isfunction(v.ent.ExplodeVehicle) then v.ent:ExplodeVehicle() else v.ent:Remove() end
+			end
+
+			if crewLost or Destroyed(v.ent) then
+				v.dead = true
+				KickCrew(v)
+				if IsValid(v.lastAttacker) and PR_GiveReward then
+					PR_GiveReward(v.lastAttacker, v.def.reward)
+					local name = (v.def.name and v.def.name ~= "") and v.def.name or "техника"
+					PrintMessage(HUD_PRINTTALK, "Подбит «" .. name .. "» патруля «" .. patrol.cfg.name .. "»! Отличился " .. v.lastAttacker:Nick())
+				end
+			else
+				alive = alive + 1
+			end
+		end
+	end
+	return alive
+end
+
+local function SetKeys(veh, w, s, a, d, brake)
+	veh.PressedKeys = veh.PressedKeys or {}
+	veh.PressedKeys["W"] = w
+	veh.PressedKeys["S"] = s
+	veh.PressedKeys["A"] = a
+	veh.PressedKeys["D"] = d
+	veh.PressedKeys["Space"] = brake
+end
+
+-- simfphys armed наводит пушки по взгляду водителя/стрелка (ply:EyeAngles()), но в машине
+-- движок не передаёт боту наклон взгляда — ствол не поднять и не опустить. Поэтому подменяем
+-- взгляд там, где танк его читает: в функциях наведения (AimCannon, AimMachinegun...) для наших
+-- ботов отдаём такой «взгляд», при котором по формуле simfphys ствол смотрит на цель.
+-- Таблица функций общая для всех танков этой модели; для живых игроков всё как было.
+local function WrapAimFunctions(func)
+	if not istable(func) or func.PR_AimWrapped then return end
+	func.PR_AimWrapped = true
+
+	for name, original in pairs(func) do
+		if isfunction(original) and string.StartWith(name, "Aim") then
+			func[name] = function(self, ply, vehicle, pod, ...)
+				local entry = IsValid(ply) and ply:IsPlayer() and ply.PR_PatrolCrew
+				if entry and entry.aimAng and IsValid(pod) then
+					-- simfphys считает ствол как машина:WorldToLocal(сиденье:WorldToLocal(взгляд))
+					local eye = pod:LocalToWorldAngles(entry.aimAng)
+					local proxy = setmetatable({
+						EyeAngles = function() return eye end,
+						GetAimVector = function() return entry.aimAng:Forward() end
+					}, {__index = function(_, key)
+						local value = ply[key]
+						if isfunction(value) then
+							return function(_, ...) return value(ply, ...) end
+						end
+						return value
+					end})
+					return original(self, proxy, vehicle, pod, ...)
+				end
+				return original(self, ply, vehicle, pod, ...)
+			end
+		end
+	end
+end
+
+local function WrapSimfphysAim(veh)
+	if veh.PR_AimWrapped or not simfphys or not istable(simfphys.ManagedVehicles) then return end
+
+	for _, data in pairs(simfphys.ManagedVehicles) do
+		if data.entity == veh then
+			WrapAimFunctions(data.func)
+			veh.PR_AimWrapped = true
+			return
+		end
+	end
+end
+
+-- Наземная: едем за главным патруля, при враге стоим и бьём
+local function DriveGround(patrol, v)
+	local veh = v.ent
+	SeatCrew(v)
+	WrapSimfphysAim(veh)
+
+	if IsValid(v.crew[1]) then v.hadDriver = true end
+
+	-- Водителя так и не нашлось (нет слотов игроков) — машину убираем, иначе стоит пустой мишенью
+	if not v.hadDriver and CurTime() - v.spawnedAt > 5 then
+		MsgN("[PR] патруль: «" .. v.class .. "» без водителя — убрана")
+		v.dead = true
+		KickCrew(v)
+		veh:Remove()
+		return
+	end
+
+	-- Опрокинулась (на боку или крыше дольше 3 секунд) — ставим на гусеницы физикой:
+	-- колёса simfphys — отдельные тела на связках, телепорт корпуса их оторвал бы
+	local up = veh:GetUp()
+	if up.z < 0.3 then
+		v.flippedSince = v.flippedSince or CurTime()
+		if CurTime() - v.flippedSince > 3 then
+			local axis = up:Cross(Vector(0, 0, 1))
+			if axis:LengthSqr() < 0.01 then axis = veh:GetForward() end
+			axis:Normalize()
+			local phys = veh:GetPhysicsObject()
+			if IsValid(phys) then
+				phys:AddAngleVelocity(phys:WorldToLocalVector(axis) * 90)
+				phys:ApplyForceCenter(Vector(0, 0, phys:GetMass() * 150))
+			end
+		end
+	else
+		v.flippedSince = nil
+	end
+
+	local target = PR_Patrol.VehicleTarget(v, veh:WorldSpaceCenter() + Vector(0, 0, 60), VEHICLE_RANGE)
+	CrewAim(v, target)
+
+	if not target then
+		-- Врагов нет: башня смотрит по ходу
+		v.aimAng = (veh.Forward or veh:GetForward()):Angle()
+	elseif v.fire and veh.sm_pp_yaw then
+		-- Танки simfphys armed помнят, куда повёрнута башня: стреляем, только когда она довернулась
+		local want = veh:WorldToLocalAngles(v.aimAng)
+		local dy = math.AngleDifference(want.y, veh.sm_pp_yaw)
+		local dp = math.AngleDifference(want.p, veh.sm_pp_pitch or want.p)
+		v.fire = math.abs(dy) < 4 and math.abs(dp) < 4
+	end
+
+	if not IsValid(veh:GetDriver()) then return end
+	if isfunction(veh.EngineActive) and not veh:EngineActive() and isfunction(veh.StartEngine) then
+		veh:StartEngine()
+	end
+
+	if target then
+		SetKeys(veh, false, false, false, false, true)
+		return
+	end
+
+	local center = PR_Patrol.Center(patrol)
+	if not center then
+		SetKeys(veh, false, false, false, false, true)
+		return
+	end
+
+	-- Держимся позади патруля
+	local back = Vector(patrol.dir.x, patrol.dir.y, 0)
+	back = back:LengthSqr() > 0.01 and back:GetNormalized() or Vector(1, 0, 0)
+	local goal = center - back * 420
+
+	local pos = veh:GetPos()
+	local dist = FlatDist(pos, goal)
+	if dist < 220 then
+		SetKeys(veh, false, false, false, false, true)
+		v.stuckSince = nil
+		return
+	end
+
+	-- Куда смотрит машина (у simfphys «вперёд» модели бывает повёрнуто — берём его собственный)
+	local forward = veh.Forward or veh:GetForward()
+	local yaw = math.AngleDifference((goal - pos):Angle().y, forward:Angle().y)
+	local speed = veh:GetVelocity():Length()
+	local now = CurTime()
+
+	-- Застряли: 4 секунды почти на месте — сдаём назад с обратным рулём
+	if v.reverseUntil and now < v.reverseUntil then
+		SetKeys(veh, false, true, yaw < 0, yaw > 0, false)
+		return
+	end
+	if speed < 25 then
+		v.stuckSince = v.stuckSince or now
+		if now - v.stuckSince > 4 then
+			v.stuckSince = nil
+			v.reverseUntil = now + 2.5
+		end
+	else
+		v.stuckSince = nil
+	end
+
+	local turnLeft, turnRight = yaw > 8, yaw < -8
+	if math.abs(yaw) > 120 then
+		-- Цель позади: разворачиваемся задним ходом
+		SetKeys(veh, false, true, turnRight, turnLeft, false)
+	else
+		SetKeys(veh, true, false, turnLeft, turnRight, false)
+	end
+end
+
+-- Авиация и LVS: летит/едет своим ИИ, бот-стрелок бьёт по той же цели
+local function CrewForAI(patrol, v)
+	HoldUntilEngine(v)
+	SeatCrew(v)
+	CrewAim(v, PR_Patrol.VehicleTarget(v, v.ent:WorldSpaceCenter(), VEHICLE_RANGE * 1.5))
+end
+
+local nextVehicleThink = 0
+hook.Add("Think", "PR_PatrolVehicles", function()
+	if CurTime() < nextVehicleThink then return end
+	nextVehicleThink = CurTime() + 0.1
+
+	for _, patrol in ipairs(PR_Patrol.Active) do
+		for _, v in ipairs(patrol.vehicles or {}) do
+			if not v.dead and IsValid(v.ent) and not Destroyed(v.ent) then
+				local ok, err = pcall(v.kind == "ground" and DriveGround or CrewForAI, patrol, v)
+				if not ok and v.lastError ~= tostring(err) then
+					v.lastError = tostring(err)
+					MsgN("[PR] техника патруля «" .. tostring(v.class) .. "»: ошибка: " .. v.lastError)
+				end
+			end
+		end
+	end
+end)
+
+-- Для pr_patrol_info и автотеста: что с машиной
+function PR_Patrol.VehicleInfo(v)
+	if not v then return "нет" end
+	local ent = v.ent
+	local crew = 0
+	for _, bot in pairs(v.crew or {}) do
+		if IsValid(bot) then crew = crew + 1 end
+	end
+	return string.format("%s %s: valid=%s dead=%s destroyed=%s seats=%d crew=%d driver=%s hp=%s pos=%s up=%.2f speed=%d fly=%s wrapped=%s target=%s turret=%s/%s err=%s",
+		tostring(v.kind), tostring(v.class), tostring(IsValid(ent)), tostring(v.dead), tostring(Destroyed(ent)),
+		IsValid(ent) and #CrewSeats(v) or -1, crew, IsValid(ent) and isfunction(ent.GetDriver) and tostring(ent:GetDriver()) or "-",
+		IsValid(ent) and isfunction(ent.GetCurHealth) and tostring(ent:GetCurHealth()) or "-",
+		IsValid(ent) and tostring(ent:GetPos()) or "-", IsValid(ent) and ent:GetUp().z or -9, IsValid(ent) and math.Round(ent:GetVelocity():Length()) or -1,
+		tostring(v.lastFly), IsValid(ent) and tostring(ent.PR_AimWrapped) or "-", tostring(v.aimTarget),
+		IsValid(ent) and tostring(ent.sm_pp_yaw) or "-", IsValid(ent) and tostring(ent.sm_pp_pitch) or "-", tostring(v.lastError))
+end
+
+-- pr_patrol_debug 1 — раз в секунду писать в консоль, что с техникой патрулей
+local DEBUG = CreateConVar("pr_patrol_debug", "0", 0, "Писать в консоль состояние техники патрулей")
+timer.Create("PR_PatrolVehicleDebug", 1, 0, function()
+	if not DEBUG:GetBool() then return end
+	for _, patrol in ipairs(PR_Patrol.Active) do
+		for _, v in ipairs(patrol.vehicles or {}) do
+			if not v.dead then MsgN("[PR] " .. PR_Patrol.VehicleInfo(v)) end
+		end
+	end
+end)
+
 local function ThinkPatrol(patrol)
+	local vehiclesAlive = CheckVehicles(patrol)
+
 	local alive = {}
 	for _, npc in ipairs(patrol.members) do
 		if Alive(npc) then table.insert(alive, npc) end
@@ -734,8 +1502,19 @@ local function ThinkPatrol(patrol)
 	patrol.members = alive
 
 	if #alive == 0 then
-		table.RemoveByValue(PR_Patrol.Active, patrol)
-		MsgN("[PR] патруль «" .. patrol.cfg.name .. "» перебит")
+		if vehiclesAlive == 0 then
+			PR_Patrol.RemoveVehicles(patrol)
+			table.RemoveByValue(PR_Patrol.Active, patrol)
+			MsgN("[PR] патруль «" .. patrol.cfg.name .. "» перебит")
+			return
+		end
+
+		-- Пеших перебили, техника жива: стоит, пока не выйдет время, и уходит без свидетелей
+		local center = PR_Patrol.Center(patrol)
+		if CurTime() > patrol.expiresAt and (not center or not PlayersNear(center, Settings().safeDistance)) then
+			MsgN("[PR] техника патруля «" .. patrol.cfg.name .. "» ушла с карты")
+			PR_Patrol.Remove(patrol)
+		end
 		return
 	end
 
@@ -1050,6 +1829,9 @@ concommand.Add("pr_patrol_info", function(ply)
 		Reply(ply, string.format("  #%d %s: %d NPC, спот #%s → #%s, уйдёт через %d с",
 			patrol.id, patrol.cfg.name, #patrol.members, tostring(patrol.spot), tostring(patrol.dest),
 			math.max(math.Round(patrol.expiresAt - CurTime()), 0)))
+		for _, v in ipairs(patrol.vehicles or {}) do
+			Reply(ply, "    " .. PR_Patrol.VehicleInfo(v))
+		end
 	end
 end)
 
