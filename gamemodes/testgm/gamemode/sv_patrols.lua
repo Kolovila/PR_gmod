@@ -893,12 +893,12 @@ local VEHICLE_RANGE = 6000 -- дальше врагов не ищем
 local GROUND_SIGHT = 9000
 -- Сколько башня ещё смотрит туда, где врага видели последний раз (а не разворачивается по ходу):
 -- раньше через 4 с после потери цели башня уходила вперёд, и вернувшегося врага докручивала заново
-local GROUND_WATCH_TIME = 30
+local GROUND_WATCH_TIME = 300
 
 -- Префайр: враг только что скрылся (зашёл в дом, за стену) — бьём туда, где его видели последний
 -- раз: экипаж — ещё PREFIRE_TIME секунд, лётчик вертолёта — ракетами (до PREFIRE_ROCKETS на одно
 -- укрытие, пока не прошло PREFIRE_AIR_TIME). Снаряд и ракета рвутся у стены или в проёме двери
-local PREFIRE_TIME = 8 -- пушка танка перезаряжается 6–8 с: за 4 с T-72 в дом так и не выстрелил
+local PREFIRE_TIME = 5 -- дольше — экипаж слишком долго лупит в пустое место
 local PREFIRE_AIR_TIME = 6
 local PREFIRE_ROCKETS = 4
 local AIR_ALTITUDE = 1400  -- высота над патрулём, пока врагов нет
@@ -3282,15 +3282,15 @@ local DriveTo
 local GROUND_HUNT_TIME = 25  -- сколько секунд ищем скрывшегося врага там, где видели последним
 local GROUND_LEASH = 3000    -- дальше от своего патруля не уезжаем
 
--- Докуда машина бьёт прицельно: пушка — 4000, автопушка (20–40 мм) — 3000, пулемёт — 2000
+-- Докуда машина бьёт прицельно: пушка — 6000, автопушка (20–40 мм) — 4500, пулемёт — 3000
 local function GroundRange(v)
 	local weapons = GredWeapons(v)
 	local main = weapons and weapons.main
-	if not main then return 2500 end
-	if main.type == "Cannon" or main.type == "Custom" then return 4000 end
+	if not main then return 3500 end
+	if main.type == "Cannon" or main.type == "Custom" then return 6000 end
 	local cal = tostring(main.caliber or "")
-	if cal:find("20mm", 1, true) or cal:find("30mm", 1, true) or cal:find("40mm", 1, true) then return 3000 end
-	return 2000
+	if cal:find("20mm", 1, true) or cal:find("30mm", 1, true) or cal:find("40mm", 1, true) then return 4500 end
+	return 3000
 end
 
 -- Есть ли у машины чем стрелять (грузовик и УАЗ — нечем: в бою не встают, идут с патрулём)
