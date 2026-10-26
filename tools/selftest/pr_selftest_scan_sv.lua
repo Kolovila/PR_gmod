@@ -84,6 +84,18 @@ waitFor(5, function() return IsValid(player.GetBots()[1]) end, "target bot")
 step(0, function()
 	S.b1 = player.GetBots()[1]
 	if IsValid(S.b1) then S.b1:GodEnable() end
+	-- moving: цель бегает боком к машине туда-обратно (смена каждые 3 с) — проверка упреждения;
+	-- nolead — то же без упреждения у наземки (сравнить)
+	PR_Patrol.NoGroundLead = only["nolead"] and true or nil
+	if only["moving"] then
+		hook.Add("StartCommand", "PR_SelftestScanMove", function(ply, cmd)
+			if ply ~= S.b1 or not (S.cur and IsValid(S.cur.ent)) or IsValid(ply:GetVehicle()) then return end
+			cmd:ClearMovement()
+			cmd:SetViewAngles((S.cur.ent:GetPos() - ply:GetPos()):Angle())
+			cmd:SetSideMove(math.floor(CurTime() / 3) % 2 == 0 and 400 or -400)
+			cmd:SetButtons(IN_SPEED)
+		end)
+	end
 	local pts = T.findLine({S.host:GetPos()})
 	check("found a walkable line", pts ~= nil)
 	if not pts then return end
@@ -188,7 +200,10 @@ step(0, function()
 		end
 	end)
 	hook.Add("EntityTakeDamage", "PR_SelftestScan", function(victim, dmg)
-		if not (S.cur and victim == S.b1) then return end
+		-- moving: попадание по джипу с целью — тоже попадание
+		local jeep = S.moveVeh
+		local inJeep = IsValid(jeep) and (victim == jeep or victim:GetParent() == jeep or (isfunction(victim.GetBaseEnt) and victim:GetBaseEnt() == jeep))
+		if not (S.cur and (victim == S.b1 or inJeep)) then return end
 		if mine(dmg:GetAttacker()) or mine(dmg:GetInflictor()) then S.cur.hits = S.cur.hits + 1 end
 		-- Любой урон по цели и от кого (пули без хозяина пишутся на мир)
 		S.cur.anyHits = S.cur.anyHits + 1
@@ -214,6 +229,20 @@ step(0, function()
 		local h = e:WorldSpaceCenter().z - tr.HitPos.z
 		c.maxH = math.max(c.maxH, h)
 		c.minUp = math.min(c.minUp, e:GetUp().z)
+		-- moving: джип с целью едет по кругу
+		local jeep = S.moveVeh
+		if IsValid(jeep) and IsValid(jeep:GetDriver()) then
+			if isfunction(jeep.EngineActive) and not jeep:EngineActive() and isfunction(jeep.StartEngine) then jeep:StartEngine() end
+			jeep.PressedKeys = jeep.PressedKeys or {}
+			jeep.PressedKeys["W"], jeep.PressedKeys["A"], jeep.PressedKeys["Space"] = true, true, false
+		end
+		-- Сколько цель на самом деле прошла и с какой скоростью, по её словам (moving)
+		if IsValid(S.b1) then
+			local bp = S.b1:GetPos()
+			if c.tLast then c.tPath = (c.tPath or 0) + bp:Distance(c.tLast) end
+			c.tLast = bp
+			c.tVelSum, c.tVelN = (c.tVelSum or 0) + S.b1:GetVelocity():Length(), (c.tVelN or 0) + 1
+		end
 		local state = tostring(c.entry.driveState or c.entry.airMode)
 		state = state:match("^[%a ]+") or state
 		if not c.states[state] and table.Count(c.states) < 6 then c.states[state] = true end
@@ -483,6 +512,22 @@ for _, class in ipairs(CLASSES) do
 		S.b1Pos = p + Vector(0, 0, 5)
 		S.cur.dist0 = Vector(e:GetPos().x - p.x, e:GetPos().y - p.y, 0):Length()
 		entry.forceTarget = S.b1
+		-- moving: цель — бот в джипе, который ездит кругами (газ и руль влево — в Think)
+		if only["moving"] and simfphys and isfunction(simfphys.SpawnVehicleSimple) then
+			if IsValid(S.moveVeh) then S.moveVeh:Remove() end
+			local jeep = simfphys.SpawnVehicleSimple("sim_fphys_hmmwv2", p + Vector(0, 0, 50), Angle(0, math.random(0, 359), 0))
+			S.moveVeh = jeep
+			-- Как у машин патруля: у бота нет клиентских настроек — автомат, иначе стоит на нейтрали
+			if IsValid(jeep) then jeep.ForceTransmission = 1 end
+			timer.Simple(1, function()
+				if IsValid(jeep) and IsValid(S.b1) and isfunction(jeep.GetDriverSeat) and IsValid(jeep:GetDriverSeat()) then
+					S.b1:EnterVehicle(jeep:GetDriverSeat())
+					-- Неубиваемый: скан длится 40 с, а автопушка разбирает джип за пару секунд
+					if isfunction(jeep.SetMaxHealth) then jeep:SetMaxHealth(1e8) end
+					if isfunction(jeep.SetCurHealth) then jeep:SetCurHealth(1e8) end
+				end
+			end)
+		end
 	end)
 
 	if PREFIRE then
@@ -545,6 +590,13 @@ for _, class in ipairs(CLASSES) do
 			extra = extra .. string.format(" | DROP %s %s", key, table.concat(parts, " "))
 		end
 		if c.entry.shellDropNow then extra = extra .. string.format(" | aim drop now %d", c.entry.shellDropNow) end
+		if c.entry.leadDebug then extra = extra .. string.format(" | lead %d", c.entry.leadDebug) end
+		if c.tVelN and c.tVelN > 0 then
+			extra = extra .. string.format(" | target walked %d, said speed %d", c.tPath or 0, c.tVelSum / c.tVelN)
+		end
+		if c.entry.shellSpeeds and c.entry.shellKey and c.entry.shellSpeeds[c.entry.shellKey] then
+			extra = extra .. string.format(" | shell speed %d", c.entry.shellSpeeds[c.entry.shellKey])
+		end
 		if c.entry.shellFix then extra = extra .. string.format(" | barrel fix %.2f %.2f", c.entry.shellFix.p, c.entry.shellFix.y) end
 		log(string.format("SCAN %s | %s | alive=%s crew=%d/%d | moved=%d maxH=%d minUp=%.2f | bullets=%d cannon=%d hitscan=%d proj=%d%s ammo=%s | hits=%d | aim(avg/min)=%s miss(avg/min)=%s instant=%d calls=P%d/S%d | states=%s | errors=%s",
 			c.class, tostring(c.kind), tostring(alive), c.crewMax, c.seats, c.moved, c.maxH, c.minUp,
@@ -552,6 +604,10 @@ for _, class in ipairs(CLASSES) do
 			ammo, c.hits, aim, miss, c.projInstant, c.calls.PrimaryAttack or 0, c.calls.SecondaryAttack or 0,
 			table.concat(table.GetKeys(c.states), ","), #c.errors > 0 and table.concat(c.errors, " || ") or "-") .. extra)
 		S.cur = nil
+		if IsValid(S.moveVeh) then
+			if IsValid(S.b1) and IsValid(S.b1:GetVehicle()) then S.b1:ExitVehicle() end
+			S.moveVeh:Remove()
+		end
 		if c.patrol then PR_Patrol.Remove(c.patrol) end
 		PR_Patrol.DeleteType(c.key)
 		for _, g in ipairs(ents.FindByClass("gmod_sent_vehicle_fphysics_gib")) do g:Remove() end

@@ -24,6 +24,11 @@ PR_Patrol.Spots = PR_Patrol.Spots or {}   -- [id] = {Id, Pos, Zone}
 PR_Patrol.Links = PR_Patrol.Links or {}   -- [id] = {[соседний id] = расстояние}
 PR_Patrol.Active = PR_Patrol.Active or {} -- патрули на карте
 
+
+-- Видимость: стены и земля карты, но не решётки (сетка-рабица, CONTENTS_GRATE) — сквозь них видно,
+-- и пули с снарядами пролетают. Раньше техника за забором из сетки «не видела» врага и не стреляла
+local SIGHT_MASK = bit.band(MASK_SOLID_BRUSHONLY, bit.bnot(CONTENTS_GRATE))
+PR_Patrol.SIGHT_MASK = SIGHT_MASK
 local ENABLED = CreateConVar("pr_patrols", "1", {FCVAR_ARCHIVE}, "Выпускать патрули NPC по таймеру")
 
 ----------------------------------------------------------------------------------------------------
@@ -354,7 +359,7 @@ end
 local function SeenByPlayer(pos)
 	for _, ply in ipairs(player.GetAll()) do
 		if RealPlayer(ply) then
-			local tr = util.TraceLine({start = ply:EyePos(), endpos = pos + Vector(0, 0, 48), mask = MASK_SOLID_BRUSHONLY})
+			local tr = util.TraceLine({start = ply:EyePos(), endpos = pos + Vector(0, 0, 48), mask = SIGHT_MASK})
 			if not tr.Hit then return true end
 		end
 	end
@@ -982,7 +987,7 @@ local function VisiblePoint(from, target, shooter)
 	local tr
 	for _, to in ipairs(points) do
 		tr = util.TraceLine({
-			start = from, endpos = to, mask = PR_Patrol.VisibleMask or MASK_SOLID_BRUSHONLY,
+			start = from, endpos = to, mask = PR_Patrol.VisibleMask or SIGHT_MASK,
 			filter = function(e) return e ~= target and not PartOf(e, shooter) and not PartOf(e, vehicle) end
 		})
 		if not tr.Hit then return to end
@@ -1245,6 +1250,14 @@ hook.Add("Think", "PR_PatrolShellDrop", function()
 				tables[s.key] = tab
 				local b = math.Round(flat / DROP_STEP)
 				tab[b] = tab[b] and (tab[b] * 0.5 + drop * 0.5) or drop
+				-- Скорость снаряда (для упреждения): у Гредвича физика движка режет её ниже паспортной
+				local age = now - s.born
+				if age > 0.05 then
+					local speeds = s.entry.shellSpeeds or {}
+					s.entry.shellSpeeds = speeds
+					local sp = pos:Distance(s.start) / age
+					speeds[s.key] = speeds[s.key] and (speeds[s.key] * 0.8 + sp * 0.2) or sp
+				end
 			end
 		end
 	end
@@ -1318,18 +1331,52 @@ local function CrewAim(entry, target)
 	elseif entry.seenTarget == target and entry.seenAt and now - entry.seenAt < PREFIRE_TIME then
 		to, prefire = entry.seenPos, true
 	end
-	-- По самолёту и вертолёту — с упреждением: куда он долетит, пока летит снаряд (зенитки,
-	-- стрелки вертолётов)
-	if AirTarget(target, 300) then
-		local weapons = GredWeapons(entry)
-		local speed = weapons and weapons.main and weapons.main.speed or 50000
-		local vel = AimBody(target):GetVelocity()
-		local aimAt = to
-		for _ = 1, 2 do aimAt = to + vel * (from:Distance(aimAt) / speed) end
-		to = aimAt
+	-- Упреждение: куда цель доедет (долетит), пока летит снаряд. Раньше — только по авиации, и по
+	-- едущему танку БТР-80А бил туда, где тот был (на 5000 снаряд Луны летит 0,4 с — мимо на 150–200).
+	-- Скорость снаряда — замеренная (ShellDrop) или паспортная у Гредвича; у наземки без снаряда
+	-- (лучевые пулемёты Луны) упреждать нечего
+	-- Префайр (цели не видно) — в точку, где видели, без упреждения
+	-- Скорость цели — по тому, как она на деле сместилась, и сглаженная. GetVelocity бегущего
+	-- скачет от тика к тику и бывает втрое больше настоящей (упёрся, скользит вдоль стены): с ней
+	-- упреждение (×0,8 с полёта) дёргало прицел, и БТР-80А мазал мимо бегущего
+	local bodyPos = AimBody(target):WorldSpaceCenter()
+	local vel = Vector(0, 0, 0)
+	if entry.leadTarget == target and entry.leadPos then
+		local dt = now - entry.leadPosAt
+		if dt > 0.03 then
+			local inst = (bodyPos - entry.leadPos) / dt
+			-- Скачок (телепорт, возрождение) — не скорость
+			if inst:LengthSqr() > 4000 * 4000 then inst = Vector(0, 0, 0) end
+			vel = LerpVector(0.15, entry.leadVel or inst, inst)
+			entry.leadPos, entry.leadPosAt, entry.leadVel = bodyPos, now, vel
+		else
+			vel = entry.leadVel or vel
+		end
+	else
+		entry.leadPos, entry.leadPosAt, entry.leadVel = bodyPos, now, nil
 	end
-	-- Точка, куда целимся: стрелки на других местах (пулемёт командира) считают угол от своего ствола
-	entry.aimPoint = to
+	entry.leadTarget = target
+	local unled = to
+	if vel:LengthSqr() > 40 * 40 and (visible or not prefire) then
+		local speed
+		if AirTarget(target, 300) then
+			local weapons = GredWeapons(entry)
+			speed = weapons and weapons.main and weapons.main.speed or 50000
+		elseif entry.kind == "ground" and not PR_Patrol.NoGroundLead then   -- NoGroundLead: сравнение в автотесте
+			local weapons = GredWeapons(entry)
+			speed = entry.shellKey and entry.shellSpeeds and entry.shellSpeeds[entry.shellKey]
+				or (weapons and weapons.main and weapons.main.type == "MG" and weapons.main.speed) or nil
+		end
+		if speed and speed > 0 then
+			local aimAt = to
+			for _ = 1, 2 do aimAt = to + vel * (from:Distance(aimAt) / speed) end
+			entry.leadDebug = math.Round(aimAt:Distance(to))
+			to = aimAt
+		end
+	end
+	-- Точка, куда целимся: стрелки на других местах (пулемёт командира) считают угол от своего ствола.
+	-- У наземки им — без упреждения под снаряд пушки (пулемёт Луны бьёт лучом, пули Гредвича быстрее)
+	entry.aimPoint = entry.kind == "ground" and unled or to
 	-- Пушка наземки — выше на падение снаряда (стрелки других мест бьют пулями по aimPoint)
 	local aimTo = to
 	if entry.kind == "ground" then
@@ -1737,7 +1784,7 @@ local function StandOffPoint(entry, target, from, dist, maxDown, orbit)
 	end
 
 	local function Clear(c)
-		return not util.TraceLine({start = c, endpos = eye, mask = MASK_SOLID_BRUSHONLY}).Hit
+		return not util.TraceLine({start = c, endpos = eye, mask = SIGHT_MASK}).Hit
 	end
 	local turns = orbit and {0, 20, 40, 60, 90} or {0, 40, -40, 80, -80, 120, -120, 180}
 
@@ -2051,7 +2098,7 @@ local function NoseOff(ent, target)
 	local from = ent:WorldSpaceCenter()
 	local to = target:WorldSpaceCenter()
 	local off = math.deg(math.acos(math.Clamp(ent:GetForward():Dot((to - from):GetNormalized()), -1, 1)))
-	return off, not util.TraceLine({start = from, endpos = to, filter = ent, mask = MASK_SOLID_BRUSHONLY}).Hit
+	return off, not util.TraceLine({start = from, endpos = to, filter = ent, mask = SIGHT_MASK}).Hit
 end
 
 local function NoseOnTarget(ent, target)
@@ -2430,7 +2477,7 @@ local function PlaneRunYaw(ent, target, tpos, baseYaw, offsets, angle, far)
 		local clear = true
 		for _, d in ipairs({far, far * 0.65, 2500}) do
 			local from = tpos + dir * d + Vector(0, 0, d * slope)
-			if util.TraceLine({start = from, endpos = tpos, filter = filter, mask = MASK_SOLID_BRUSHONLY}).Hit then clear = false break end
+			if util.TraceLine({start = from, endpos = tpos, filter = filter, mask = SIGHT_MASK}).Hit then clear = false break end
 		end
 		if clear then return yaw, true end
 	end
@@ -2546,7 +2593,7 @@ local function PlaneAttack(entry, ent, target, kind)
 		if not entry.planeBestAim or off < entry.planeBestAim then entry.planeBestAim = off end
 		local range = pos:Distance(tpos)
 		if off <= 5 and range < 6000 then
-			local los = util.TraceLine({start = muzzle, endpos = tpos, filter = function(e) return e ~= target and not PartOf(e, ent) and not PartOf(e, body) end, mask = MASK_SOLID_BRUSHONLY})
+			local los = util.TraceLine({start = muzzle, endpos = tpos, filter = function(e) return e ~= target and not PartOf(e, ent) and not PartOf(e, body) end, mask = SIGHT_MASK})
 			if los.Hit then
 				entry.planeNoFire = string.format("цель закрыта (%s в %d от цели)", los.HitSky and "небо" or "стена/земля", los.HitPos:Distance(tpos))
 			else
@@ -2636,7 +2683,7 @@ local function PlaneDogfight(entry, ent, target)
 
 	-- Огонь: нос на упреждённой точке (≤ 4°), ближе 7000 и её видно
 	local off = math.deg(math.acos(math.Clamp(ent:GetForward():Dot(toLead:Forward()), -1, 1)))
-	if off <= 4 and dist < 7000 and not util.TraceLine({start = muzzle, endpos = lead, mask = MASK_SOLID_BRUSHONLY}).Hit then
+	if off <= 4 and dist < 7000 and not util.TraceLine({start = muzzle, endpos = lead, mask = SIGHT_MASK}).Hit then
 		FirePilot(ent, entry, target, "air", true)
 		entry.planeFired = true
 	end
