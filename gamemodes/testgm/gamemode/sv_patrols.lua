@@ -938,8 +938,12 @@ end
 -- Кто враг для техники: "air" — в воздухе (самолёт, вертолёт), "vehicle" — техника на земле,
 -- "infantry" — пеший. От этого зависит, чем и как бьют самолёты и вертолёты
 local function TargetKind(target, airHeight)
-	if AirTarget(target, airHeight or 500) then return "air" end
 	local _, vehicle = AimBody(target)
+	-- Игрок пешком — пехота, даже если его подбросило взрывом или он падает с крыши: раньше вертолёт
+	-- от этого переходил на «воздушную цель» и уходил вверх до 4000. NPC и прочее — по высоте
+	-- (летающие NPC вроде вертолёта Альянса — воздух)
+	if target:IsPlayer() and not IsValid(vehicle) then return "infantry" end
+	if AirTarget(target, airHeight or 500) then return "air" end
 	if IsValid(vehicle) or target:IsVehicle() or target.IsSimfphyscar or target.LFS or target.LVS then return "vehicle" end
 	return "infantry"
 end
@@ -1077,7 +1081,8 @@ local function GredWeapons(entry)
 				elseif istable(weapon.ShellTypes) and istable(weapon.ShellTypes[1]) and weapon.ShellTypes[1].MuzzleVelocity then
 					speed = weapon.ShellTypes[1].MuzzleVelocity / 0.01905
 				end
-				info.main = {seat = k, muzzle = tab.MuzzleAttachment or (istable(weapon.Muzzles) and weapon.Muzzles[1]) or nil, speed = speed}
+				info.main = {seat = k, muzzle = tab.MuzzleAttachment or (istable(weapon.Muzzles) and weapon.Muzzles[1]) or nil, speed = speed,
+					type = weapon.Type, caliber = weapon.Caliber}
 			end
 		end
 	end
@@ -1190,12 +1195,18 @@ local function CrewAim(entry, target)
 			local driverSeat = not named and isfunction(ent.GetDriverSeat) and ent:GetDriverSeat()
 			if IsValid(driverSeat) and driverSeat:GetNWBool("HasCrosshair") then
 				local att = driverSeat:GetNWString("Attachment", "")
-				if att ~= "" then named = att end
+				if att ~= "" then
+					named = att
+					-- Куда у этого прицела смотрит ствол (в осях точки крепления; у «Дзика» — вверх)
+					entry.crossDir = driverSeat:GetNWVector("Direction", Vector(1, 0, 0))
+				end
 			end
 			local id = named and ent:LookupAttachment(named)
 			if not id or id <= 0 then id = ent:LookupAttachment("cannon_muzzle") end
 			if not id or id <= 0 then id = ent:LookupAttachment("muzzle") end
-			entry.muzzleId = (id and id > 0) and id or false
+			-- Не нашли — первые 10 с ищем снова: прицел (а с ним и имя ствола) аддон вешает на место
+			-- водителя позже, чем бот впервые целится (у БТР-80 ствол так и оставался ненайденным)
+			entry.muzzleId = (id and id > 0) and id or ((CurTime() - (entry.spawnedAt or 0) > 10) and false or nil)
 		end
 		local att = entry.muzzleId and ent:GetAttachment(entry.muzzleId)
 		if att then from = att.Pos end
@@ -1220,7 +1231,36 @@ local function CrewAim(entry, target)
 		for _ = 1, 2 do aimAt = to + vel * (from:Distance(aimAt) / speed) end
 		to = aimAt
 	end
-	entry.aimAng = (to - from):Angle()
+	-- Точка, куда целимся: стрелки на других местах (пулемёт командира) считают угол от своего ствола
+	entry.aimPoint = to
+	local desired = (to - from):Angle()
+	-- Танки Луны и паки на её основе стреляют туда, куда смотрит точка крепления прицела, а она у
+	-- некоторых моделей стоит со сдвигом от того, куда башню поворачивают (БТР-80: 9–11°, одно
+	-- попадание из 182). Игрок видит прицел и поправляется сам; бот — так же: когда башня
+	-- довернулась до прошлого угла, меряем, куда ствол смотрит на самом деле, и сдвигаем угол
+	-- Мерить только когда машина стоит ровно и почти на месте: в тесте переворота поправка набралась
+	-- вверх ногами (до 18°), и потом «Тигр» бил мимо
+	local steady = ent:GetUp().z > 0.9 and ent:GetVelocity():LengthSqr() < 60 * 60 and from:DistToSqr(to) > 300 * 300
+	local att = steady and entry.crossDir and entry.muzzleId and ent:GetAttachment(entry.muzzleId)
+	if att and ent.sm_pp_yaw and entry.aimAng then
+		local asked = ent:WorldToLocalAngles(entry.aimAng)
+		local settled = math.abs(math.AngleDifference(asked.y, ent.sm_pp_yaw)) < 1 and math.abs(math.AngleDifference(asked.p, ent.sm_pp_pitch or asked.p)) < 1
+		entry.settledSince = settled and (entry.settledSince or CurTime()) or nil
+		-- Положение ствола на сервере обновляется с запаздыванием: мерить, только когда башня уже
+		-- полсекунды стоит, и подправлять понемногу — с поправкой «на половину ошибки каждый тик»
+		-- петля раскачивалась, и у «Тигра» уходила на 16–18° мимо
+		if entry.settledSince and CurTime() - entry.settledSince > 0.5 then
+			local dir = Vector(entry.crossDir)
+			dir:Rotate(att.Ang)
+			local real = dir:Angle()
+			local fix = entry.aimFix or Angle(0, 0, 0)
+			entry.aimFix = Angle(
+				math.Clamp(fix.p + math.AngleDifference(desired.p, real.p) * 0.1, -12, 12),
+				math.Clamp(fix.y + math.AngleDifference(desired.y, real.y) * 0.1, -12, 12),
+				0)
+		end
+	end
+	entry.aimAng = entry.aimFix and (desired + entry.aimFix) or desired
 	-- Насколько можно промахнуться углом: цель ~70 юнитов (на 1000 — 4°, на 3000 — 1.3°)
 	entry.aimTolerance = math.Clamp(math.deg(math.atan(70 / math.max(from:Distance(to), 1))), 0.6, 4)
 
@@ -1253,7 +1293,11 @@ hook.Add("StartCommand", "PR_PatrolCrew", function(ply, cmd)
 	-- simfphys: башню наводим в обход взгляда (WrapSimfphysAim), здесь только огонь
 	if entry.kind == "ground" then
 		cmd:SetViewAngles(seat:WorldToLocalAngles(entry.aimAng))
-		if entry.fire then cmd:SetButtons(IN_ATTACK) end
+		local fire = entry.fire
+		-- Пулемёт командира и прочие места Гредвича — по своему наведению, а не по пушке
+		if ply ~= entry.crew[1] and ply.PR_GredAligned ~= nil then fire = entry.fireClear and ply.PR_GredAligned end
+		if ply.PR_HoldFire then fire = false end
+		if fire then cmd:SetButtons(IN_ATTACK) end
 		return
 	end
 
@@ -1516,13 +1560,18 @@ local GUNNER_SIDE = {gd_lfs_mi8amtsh = 90, gd_lfs_mi8mtv = 90, gd_lfs_mi8t1 = 90
 -- в 2800 с точкой на 35° впереди вертолёт проходил на ~570: на склонах то и дело «препятствие
 -- впереди — ухожу вверх», и он набирал до 3000 высоты, где бортовые стволы цель не достают
 local ORBIT_STEP = 20
-local ORBIT_MAX = 1600
+local ORBIT_MAX = 2000
+
+-- Расстояния, которые пробуем для места стрелка с узкой турелью (по каждому направлению)
+local STANDOFF_DISTS = {700, 900, 1100, 1400, 1700, 2000, 2400, 2800}
 
 -- Сторону берём ближайшую к вертолёту, откуда цель видно (не за домом или краном); пересчёт раз в секунду
 -- dist — как далеко от цели (стрелку — 900, ракетам с места — 1800: оттуда цель под ~20–25° ниже
 -- носа; с 900 на холме она оказывалась на 40–60° под ним, и ракеты не шли)
 -- maxDown — турель стрелка достаёт только на столько градусов вниз: место ниже (на 350 над целью, а
--- не на 600) и дальше, чтобы цель была под этим углом (но не дальше 2800)
+-- не на 600), а расстояние — для каждого направления своё: самое близкое, откуда цель не круче
+-- этого угла. В низине ближнее место ниже (склоны дальше), на ровном — дальнее; одно расстояние на
+-- все стороны (как раньше) в низине уводило Ми-8 на 1000–1400 над целью, и пулемёты не доставали
 -- orbit — кружить: место на круге на orbit градусов впереди (против часовой), и обходим закрытые
 -- места только вперёд по кругу
 local function StandOffPoint(entry, target, from, dist, maxDown, orbit)
@@ -1540,8 +1589,8 @@ local function StandOffPoint(entry, target, from, dist, maxDown, orbit)
 
 	-- Высота: на 600 выше цели и на 450 выше крыш и склонов вокруг места и на пути от него к цели
 	-- (считать только землю под самим местом мало: у холма вертолёт цеплял склон винтом)
-	local function Candidate(yaw)
-		local p = tpos + Angle(0, yaw, 0):Forward() * dist
+	local function Candidate(yaw, d)
+		local p = tpos + Angle(0, yaw, 0):Forward() * d
 		local top = -math.huge
 		for _, f in ipairs({0, 0.25, 0.5, 0.75}) do
 			top = math.max(top, TopAt(p.x + (tpos.x - p.x) * f, p.y + (tpos.y - p.y) * f, ceil, tpos.z))
@@ -1555,24 +1604,42 @@ local function StandOffPoint(entry, target, from, dist, maxDown, orbit)
 		return p
 	end
 
-	local function Search()
-		local p = Candidate(base)
-		for _, turn in ipairs(orbit and {0, 20, 40, 60, 90} or {0, 40, -40, 80, -80, 120, -120, 180}) do
-			local c = Candidate(base + turn)
-			if not util.TraceLine({start = c, endpos = eye, mask = MASK_SOLID_BRUSHONLY}).Hit then
-				return c
+	local function Clear(c)
+		return not util.TraceLine({start = c, endpos = eye, mask = MASK_SOLID_BRUSHONLY}).Hit
+	end
+	local turns = orbit and {0, 20, 40, 60, 90} or {0, 40, -40, 80, -80, 120, -120, 180}
+
+	local p
+	if maxDown then
+		-- Первое направление (по кругу — вперёд), где нашлось расстояние под угол турели; не нашлось
+		-- нигде — место, откуда цель круче всего не выходит (наименьший угол)
+		local tanMax, far = math.tan(math.rad(maxDown)), orbit and ORBIT_MAX or 2800
+		local best, bestSlope
+		for _, turn in ipairs(turns) do
+			for _, d in ipairs(STANDOFF_DISTS) do
+				if d > far then break end
+				local c = Candidate(base + turn, d)
+				if Clear(c) then
+					local slope = (c.z - eye.z) / d
+					if slope <= tanMax then
+						p = c
+						break
+					end
+					if not best or slope < bestSlope then best, bestSlope = c, slope end
+				end
+			end
+			if p then break end
+		end
+		p = p or best or Candidate(base, dist)
+	else
+		p = Candidate(base, dist)
+		for _, turn in ipairs(turns) do
+			local c = Candidate(base + turn, dist)
+			if Clear(c) then
+				p = c
+				break
 			end
 		end
-		return p
-	end
-
-	-- Дальше от цели место бывает выше (склон, крыши) — тогда отходим ещё (до трёх раз)
-	local p = Search()
-	for _ = 1, maxDown and 3 or 0 do
-		local need = math.min((p.z - eye.z) / math.tan(math.rad(maxDown)), orbit and ORBIT_MAX or 2800)
-		if need <= dist + 50 then break end
-		dist = need
-		p = Search()
 	end
 
 	entry.standTarget, entry.standDist, entry.standAt, entry.standPos = target, asked, now + 1, p
@@ -2059,9 +2126,10 @@ local function HasPilotAmmo(ent, entry)
 	return weapons ~= nil and ((weapons.gun and weapons.gun.ammo(ent)) or (weapons.rockets and weapons.rockets.ammo(ent))) and true or false
 end
 
--- Вертолёт со стрелком: стрелок работает с места сбоку от цели, а раз в 8–14 секунд, пока есть
+-- Вертолёт со стрелком: стрелок работает с места сбоку от цели, а время от времени, пока есть
 -- ракеты или пушки, — заход на цель носом (как у OH-6) с огнём пилота, проскок, отход и назад
--- на место. true — сейчас заход
+-- на место: по технике раз в 4–7 с (ракеты — главное против неё), по пехоте раз в 18–26 с (заход
+-- занимает до 25 с, и при 8–14 стрелок паков GD почти всё время был не на месте). true — сейчас заход
 local function PilotRun(entry, ent)
 	local now = CurTime()
 	if entry.runActive then
@@ -2070,13 +2138,13 @@ local function PilotRun(entry, ent)
 		if (entry.runBroke and not breaking) or now - entry.runStarted > 25 then
 			entry.runActive, entry.runBroke = false, false
 			-- По технике заходы чаще: ракеты — его главное оружие против неё
-			entry.nextRun = now + (entry.targetKind == "vehicle" and math.Rand(4, 7) or math.Rand(8, 14))
+			entry.nextRun = now + (entry.targetKind == "vehicle" and math.Rand(4, 7) or math.Rand(18, 26))
 			return false
 		end
 		return true
 	end
 
-	entry.nextRun = entry.nextRun or now + (entry.targetKind == "vehicle" and 3 or 6)
+	entry.nextRun = entry.nextRun or now + (entry.targetKind == "vehicle" and 3 or 10)
 	if now < entry.nextRun or not HasPilotAmmo(ent, entry) then return false end
 	entry.salvo, entry.salvoCap = 0, SALVO
 	entry.runActive, entry.runBroke, entry.runStarted, entry.breakUntil = true, false, now, nil
@@ -2561,6 +2629,15 @@ local function SetupAI(patrol, entry)
 					return LimitTilt(entry, self, point)
 				end
 
+				-- Стрелять лётчику нечем (транспортный Ми-8, UH-60, кончились патроны и ракеты) — на врага
+				-- не заходит, держится у патруля. OH-6 Гредвича своего описания оружия не имеет — он бьёт
+				-- через HandleWeapons, его не трогаем
+				if WeaponsOf(entry) and not HasPilotAmmo(self, entry) then
+					entry.runActive, entry.faceTarget = false, nil
+					entry.airMode = "escort"
+					return LimitTilt(entry, self, EscortPoint(patrol, entry, self))
+				end
+
 				-- Заход курсовым оружием (вертолёт без стрелка — только так); чем бить — по виду цели
 				if not entry.salvoCap then entry.salvo, entry.salvoCap = 0, SALVO end
 				FirePilot(self, entry, target, kind)
@@ -2602,6 +2679,17 @@ local function SetupAI(patrol, entry)
 			local original = ent[name]
 			if isfunction(original) then
 				ent[name] = function(self, ...)
+					-- Ка-50: 30-мм пушку лётчик-человек водит взглядом (OnTick ставит позы), а у ИИ
+					-- лётчика нет — пушка стояла на 10–13° от носа и била мимо. Ставим позы сами, на цель,
+					-- по формуле аддона
+					if name == "TurretAttack" and entry.class == "lfs_grdn_ka50" and IsValid(entry.faceTarget) then
+						local att = self:GetAttachment(1)
+						if att then
+							local t = self:WorldToLocalAngles((TargetPoint(entry.faceTarget) - att.Pos):Angle())
+							self:SetPoseParameter("turret_yaw", math.Clamp(-math.NormalizeAngle(t.y), -5, 15))
+							self:SetPoseParameter("turret_pitch", math.Clamp(math.NormalizeAngle(t.p) - 12, -24, 11))
+						end
+					end
 					local shooter = IsValid(entry.crew[1]) and entry.crew[1] or self
 					local tab = self:GetTable()
 					local own, oldDriver = rawget(tab, "GetDriver"), rawget(_G, "Driver")
@@ -2935,10 +3023,37 @@ local function WrapAimFunctions(func)
 			func[name] = function(self, ply, vehicle, pod, ...)
 				local entry = IsValid(ply) and ply:IsPlayer() and ply.PR_PatrolCrew
 				if entry and entry.aimAng and IsValid(pod) then
+					-- Стрелок не за пушкой (пулемёт на крыше) — угол от его ствола (прицел места)
+					local aim = entry.aimAng
+					local attName = entry.aimPoint and IsValid(vehicle) and pod ~= vehicle:GetDriverSeat() and pod:GetNWString("Attachment", "") or ""
+					if attName ~= "" then
+						local id = vehicle:LookupAttachment(attName)
+						local att = id and id > 0 and vehicle:GetAttachment(id)
+						if att then aim = (entry.aimPoint - att.Pos):Angle() end
+					end
 					-- simfphys считает ствол как машина:WorldToLocal(сиденье:WorldToLocal(взгляд))
-					return original(self, AimProxy(ply, pod:LocalToWorldAngles(entry.aimAng)), vehicle, pod, ...)
+					return original(self, AimProxy(ply, pod:LocalToWorldAngles(aim)), vehicle, pod, ...)
 				end
 				return original(self, ply, vehicle, pod, ...)
+			end
+		end
+	end
+
+	-- Отдача: пушка БТР-80 (и танков Луны) толкает корпус ApplyForceOffset на каждый выстрел. Машину
+	-- патруля это за бой уносило назад на тысячи юнитов (БТР-80: 3400 за 30 с), и она стреляла на
+	-- ходу мимо. У машин патруля скорость корпуса после выстрела возвращаем как была; у игроков —
+	-- как задумал аддон
+	for _, name in ipairs({"PrimaryAttack", "SecondaryAttack"}) do
+		local original = func[name]
+		if isfunction(original) then
+			func[name] = function(self, vehicle, ...)
+				local phys = IsValid(vehicle) and vehicle.PR_PatrolVehicle and vehicle:GetPhysicsObject()
+				if not IsValid(phys) then return original(self, vehicle, ...) end
+				local vel, angVel = phys:GetVelocity(), phys:GetAngleVelocity()
+				local result = {original(self, vehicle, ...)}
+				phys:SetVelocity(vel)
+				phys:SetAngleVelocity(angVel)
+				return unpack(result)
 			end
 		end
 	end
@@ -2962,6 +3077,17 @@ local function WrapGredwitch()
 			end
 
 			local custom, aim = SeatTab.CustomEyeAngles, entry.aimAng
+			-- Пулемёт командира стоит в стороне от пушки: угол — от его ствола. С углом от пушки он
+			-- бил параллельно ей, на 1200 — в 3° мимо бойца (T-80У: 150 пуль, ни одного попадания)
+			if entry.aimPoint and seat ~= vehicle:GetDriverSeat() then
+				local weapon = istable(SeatTab.Primary) and SeatTab.Primary[1]
+				local name = SeatTab.MuzzleAttachment or (istable(weapon) and istable(weapon.Muzzles) and weapon.Muzzles[1])
+				local id = isstring(name) and vehicle:LookupAttachment(name)
+				local att = id and id > 0 and vehicle:GetAttachment(id)
+				if att then aim = (entry.aimPoint - att.Pos):Angle() end
+			end
+			-- Поправка на сдвиг ствола этого места (меряется по вылетевшим пулям, см. gred.CreateBullet)
+			if ply.PR_BulletFix then aim = aim + ply.PR_BulletFix end
 			local want
 			if isfunction(custom) then
 				-- У места своя функция прицела (пулемёты командира в новых паках: угол от башни, а не
@@ -2986,8 +3112,13 @@ local function WrapGredwitch()
 				local tol = entry.aimTolerance or 4
 				local dy = math.AngleDifference(want.y + (SeatTab.TraverseOffset or 0), result.y)
 				local dp = math.AngleDifference(want.p, result.p)
-				entry.gredAligned = math.abs(dy) < tol and math.abs(dp) < tol
-				entry.gredDebug = string.format("dy=%.1f dp=%.1f tol=%.1f", dy, dp, tol)
+				-- У каждого места своё «встал на цель»: раньше общий признак перезаписывали и пушка, и
+				-- пулемёт командира, и пулемёт жал огонь по пушке (у T-72Б3 не выстрелил ни разу)
+				ply.PR_GredAligned = math.abs(dy) < tol and math.abs(dp) < tol
+				if ply == entry.crew[1] then
+					entry.gredAligned = ply.PR_GredAligned
+					entry.gredDebug = string.format("dy=%.1f dp=%.1f tol=%.1f", dy, dp, tol)
+				end
 			end
 			return result
 		end
@@ -3003,6 +3134,19 @@ local function WrapGredwitch()
 			if istable(ply) and ply.PR_Real then ply = ply.PR_Real end
 			if not IsValid(ply) and istable(filter) and IsValid(filter[1]) and filter[1].PR_PatrolVehicle then
 				ply = filter[1]
+			end
+			-- Пулемёт/автопушка экипажа наземки: у части машин ствол смотрит со сдвигом от того, куда
+			-- его повернули («Мардер»: на 0,7° ниже — очередь ложилась в землю перед целью, ни одного
+			-- попадания). Когда место встало на угол, меряем, куда ушла пуля, и подправляем угол места
+			local crew = IsValid(ply) and ply:IsPlayer() and ply.PR_PatrolCrew
+			local body = crew and crew.kind == "ground" and IsValid(crew.ent) and crew.ent
+			local steady = body and body:GetUp().z > 0.9 and body:GetVelocity():LengthSqr() < 60 * 60
+			if steady and crew.aimPoint and ply.PR_GredAligned and isvector(pos) and isangle(ang) and pos:DistToSqr(crew.aimPoint) > 300 * 300 then
+				local want = (crew.aimPoint - pos):Angle()
+				local fix = ply.PR_BulletFix or Angle(0, 0, 0)
+				ply.PR_BulletFix = Angle(
+					math.Clamp(fix.p + math.AngleDifference(want.p, ang.p) * 0.2, -10, 10),
+					math.Clamp(fix.y + math.AngleDifference(want.y, ang.y) * 0.2, -10, 10), 0)
 			end
 			if PilotAssist then ang = AssistBullet(pos, ang) end
 			return createBullet(ply, pos, ang, cal, filter, ...)
@@ -3082,7 +3226,164 @@ local function WrapSimfphysAim(veh)
 	end
 end
 
--- Наземная: едем за главным патруля, при враге стоим и бьём
+local DriveTo
+
+-- Наземная техника в бою. Раньше при любом видимом враге (а ищем его до 6000) машина вставала
+-- и стояла, пока враг виден, — даже если пулемёт до него не достаёт; скрылся — ждала с патрулём
+local GROUND_HUNT_TIME = 25  -- сколько секунд ищем скрывшегося врага там, где видели последним
+local GROUND_LEASH = 3000    -- дальше от своего патруля не уезжаем
+
+-- Докуда машина бьёт прицельно: пушка — 4000, автопушка (20–40 мм) — 3000, пулемёт — 2000
+local function GroundRange(v)
+	local weapons = GredWeapons(v)
+	local main = weapons and weapons.main
+	if not main then return 2500 end
+	if main.type == "Cannon" or main.type == "Custom" then return 4000 end
+	local cal = tostring(main.caliber or "")
+	if cal:find("20mm", 1, true) or cal:find("30mm", 1, true) or cal:find("40mm", 1, true) then return 3000 end
+	return 2000
+end
+
+-- Есть ли у машины чем стрелять (грузовик и УАЗ — нечем: в бою не встают, идут с патрулём)
+local function GroundArmed(v)
+	local weapons = GredWeapons(v)
+	if weapons then return weapons.main ~= nil end
+	if v.gredWeapons == nil and istable(gred) and istable(gred.simfphys) and gred.simfphys[v.class] then return true end
+	local ent = v.ent
+	local driverSeat = isfunction(ent.GetDriverSeat) and ent:GetDriverSeat()
+	if IsValid(driverSeat) and driverSeat:GetNWBool("HasCrosshair") then return true end
+	for _, seat in ipairs(ent.pSeat or {}) do
+		if IsValid(seat) and seat:GetNWBool("HasCrosshair") then return true end
+	end
+	return false
+end
+
+-- Не дальше поводка от патруля
+local function Leash(goal, center)
+	local d = Vector(goal.x - center.x, goal.y - center.y, 0)
+	if d:Length() <= GROUND_LEASH then return goal end
+	d:Normalize()
+	return Vector(center.x + d.x * GROUND_LEASH, center.y + d.y * GROUND_LEASH, goal.z)
+end
+
+-- true — стоять и бить; вектор — куда ехать (и подпись для журнала); nil — боя нет, едем с патрулём
+local function GroundFightGoal(patrol, v, veh, target)
+	if not GroundArmed(v) then return nil end
+	local now, pos = CurTime(), veh:GetPos()
+	local center = PR_Patrol.Center(patrol) or pos
+	if IsValid(target) and v.seenTarget == target and v.seenAt and now - v.seenAt < 1.5 then
+		local tpos = target:GetPos()
+		v.huntPos, v.huntUntil = tpos, now + GROUND_HUNT_TIME
+		local range = GroundRange(v)
+		-- По самолёту и вертолёту не гоняемся — бьём, пока достаём
+		if FlatDist(pos, tpos) <= range or TargetKind(target) == "air" then return true end
+		-- Далеко: подъезжаем на дальность огня (стрелки бьют на ходу)
+		local back = Vector(pos.x - tpos.x, pos.y - tpos.y, 0):GetNormalized()
+		return Leash(tpos + back * range * 0.7, center), "close in"
+	end
+	-- Враг скрылся: едем к месту, где видели последний раз, пока не увидим снова или не доедем
+	if v.huntUntil and now < v.huntUntil and v.huntPos then
+		if FlatDist(pos, v.huntPos) < 400 then
+			v.huntUntil = nil
+			return nil
+		end
+		return Leash(v.huntPos, center), "hunt"
+	end
+	return nil
+end
+
+-- Оружие и снаряд под цель (машины Гредвича). Раньше стреляли тем, что заряжено с завода: БМП-2
+-- пускала ПТУР «Конкурс» по пехотинцу, БМП-3 била по нему из 100-мм, танк — бронебойными.
+-- Пехота — пулемёт/автопушка, из пушки фугас; техника — пушка бронебойным или ПТУР; воздух —
+-- скорострельное. Порядок — по предпочтению; дымовые не берём
+local SHELLS_VS = {
+	infantry = {"HE", "HEF-T", "HEF-I", "HEFI-T", "HESH", "HEATFS", "HEAT", "APHE", "APHEBC", "APCBC", "APC", "AP", "AP-T", "APBC", "API-T", "APCR", "APDS", "APFSDS"},
+	vehicle = {"APFSDS", "APDS", "APCR", "APCBC", "APHEBC", "APHE", "APBC", "APC", "AP-T", "API-T", "AP", "HEATFS", "HEAT", "HESH", "HE", "HEF-T", "HEF-I", "HEFI-T"},
+}
+SHELLS_VS.air = SHELLS_VS.infantry
+
+local function Rank(list, value)
+	for i, v in ipairs(list) do
+		if v == value then return i end
+	end
+	return math.huge
+end
+
+-- Насколько оружие подходит против цели такого вида (больше — лучше). Технику — ПТУР, пушка,
+-- автопушка; пехоту — автопушка, фугас из пушки, пулемёт; воздух — скорострельное
+local function WeaponScore(weapon, kind)
+	local big = (tonumber(tostring(weapon.Caliber or ""):match("(%d+)mm")) or 0) >= 20
+	if weapon.Type == "Custom" then return kind == "vehicle" and 5 or 0 end
+	if weapon.Type == "Cannon" then return kind == "vehicle" and 4 or (kind == "air" and 1 or 3) end
+	if weapon.Type == "MG" then
+		if kind == "vehicle" then return big and 3 or 1 end
+		return big and 4 or 2
+	end
+	return 1
+end
+
+local function SelectGredAmmo(v, kind)
+	local def = istable(gred) and istable(gred.simfphys) and gred.simfphys[v.class]
+	local ent = v.ent
+	if not (istable(def) and istable(def.Seats) and ent.Mode and kind) then return end
+	local now = CurTime()
+	for _, bot in pairs(v.crew or {}) do
+		local seat = IsValid(bot) and bot:GetVehicle()
+		if IsValid(seat) then
+			local seatId = seat == ent:GetDriverSeat() and 0 or table.KeyFromValue(ent.pSeat or {}, seat)
+			local tab = seatId and istable(def.Seats[seatId]) and def.Seats[seatId][ent.Mode]
+			local primary = istable(tab) and tab.Primary
+			-- Пулемёт командира у части танков стреляет только из открытого люка (RequiresHatch): бот
+			-- открывает его сам, как игрок клавишей (у T-72Б3 пулемёт иначе молчал весь бой)
+			if istable(tab) and istable(tab.RequiresHatch) and seat:GetNWInt("HatchID", 0) == 0 and isfunction(gred.TankToggleHatch) then
+				for hatchId in pairs(tab.RequiresHatch) do
+					if isnumber(hatchId) and hatchId > 0 then
+						pcall(gred.TankToggleHatch, seat, seatId, ent, bot, hatchId, 0, tab)
+						break
+					end
+				end
+			end
+			if istable(primary) and istable(seat.Primary) then
+				-- Слот: лучшее оружие против цели (сменить можно, только если слотов больше одного)
+				local slot = seat:GetNWInt("SlotID", 1)
+				-- Менять только в паузе между очередями: иначе у прежнего оружия залипал звук стрельбы
+				if #primary > 1 and not seat.PrimaryAttacking then
+					local best, bestScore = slot, -1
+					for i, weapon in ipairs(primary) do
+						local score = WeaponScore(weapon, kind)
+						if score > bestScore then best, bestScore = i, score end
+					end
+					if best ~= slot then
+						seat:SetNWInt("SlotID", best)
+						slot = best
+					end
+				end
+				-- Снаряд пушки: первый по предпочтению, который ещё есть
+				local weapon, slotTab = primary[slot], seat.Primary[slot]
+				-- ПТУР (особое оружие) — только по технике (и по воздуху — зенитная ракета): у места, где
+				-- кроме него ничего нет, по пехоте молчим (БМП-2 пускала «Конкурс» по пехотинцу)
+				bot.PR_HoldFire = istable(weapon) and weapon.Type == "Custom" and kind == "infantry" or nil
+				if istable(weapon) and weapon.Type == "Cannon" and istable(weapon.ShellTypes) and istable(slotTab) and istable(slotTab.ShellTypes) then
+					local order = SHELLS_VS[kind] or SHELLS_VS.infantry
+					local best, bestRank = nil, math.huge
+					for i, shell in ipairs(weapon.ShellTypes) do
+						local rank = Rank(order, shell.ShellType)
+						if (slotTab.ShellTypes[i] or 0) > 0 and rank < bestRank then best, bestRank = i, rank end
+					end
+					if best and best ~= slotTab.CurShellID then
+						-- Как при смене снаряда игроком: перезарядка
+						slotTab.CurShellID = best
+						slotTab.NextShot = math.max(slotTab.NextShot or 0, now + (slotTab.ReloadTime or 0))
+						seat:SetNWInt(slot .. "ShellType", best)
+						seat:SetNWFloat(slot .. "NextShot", slotTab.NextShot)
+					end
+				end
+			end
+		end
+	end
+end
+
+-- Наземная: едем за главным патруля, в бою — по GroundFightGoal
 local function DriveGround(patrol, v)
 	local veh = v.ent
 	SeatCrew(v)
@@ -3143,6 +3444,13 @@ local function DriveGround(patrol, v)
 
 	local target = PR_Patrol.VehicleTarget(v, veh:WorldSpaceCenter() + Vector(0, 0, 60), VEHICLE_RANGE)
 	CrewAim(v, target)
+	-- «Видно и пора» — до проверки, встала ли пушка: стрелки других мест жмут огонь по своему стволу
+	v.fireClear = v.fire
+	-- Оружие и снаряд под цель (раз в секунду хватает)
+	if IsValid(target) and CurTime() >= (v.ammoCheckAt or 0) then
+		v.ammoCheckAt = CurTime() + 1
+		SelectGredAmmo(v, TargetKind(target))
+	end
 
 	if not target then
 		-- Врагов нет: башня смотрит по ходу
@@ -3164,9 +3472,22 @@ local function DriveGround(patrol, v)
 		veh:StartEngine()
 	end
 
-	if target then
+	-- Бой: враг виден и достаём — стоим и бьём; виден, но далеко — подъезжаем; скрылся — едем
+	-- туда, где видели последний раз (GroundFightGoal)
+	local fightGoal, fightLabel = GroundFightGoal(patrol, v, veh, target)
+	if fightGoal == true then
 		v.driveState = "fight"
 		SetKeys(veh, false, false, false, false, true)
+		v.stuckSince = nil
+		return
+	elseif fightGoal then
+		if FlatDist(veh:GetPos(), fightGoal) < 250 then
+			v.driveState = fightLabel .. ": on place"
+			SetKeys(veh, false, false, false, false, true)
+			v.stuckSince = nil
+			return
+		end
+		DriveTo(patrol, v, veh, fightGoal, fightLabel)
 		return
 	end
 
@@ -3193,6 +3514,13 @@ local function DriveGround(patrol, v)
 		return
 	end
 
+	DriveTo(patrol, v, veh, goal, ahead and "lead" or "follow")
+end
+
+-- Ехать к goal: застряли — сдаём назад, свои пешие на пути — ждём, иначе рулим. label — в журнал
+function DriveTo(patrol, v, veh, goal, label)
+	local pos = veh:GetPos()
+	local dist = FlatDist(pos, goal)
 	-- Куда смотрит машина (у simfphys «вперёд» модели бывает повёрнуто — берём его собственный)
 	local forward = veh.Forward or veh:GetForward()
 	local yaw = math.AngleDifference((goal - pos):Angle().y, forward:Angle().y)
@@ -3216,7 +3544,9 @@ local function DriveGround(patrol, v)
 	end
 
 	-- Свои пешие на пути (300 юнитов по ходу) — ждём, а не едем по ним
-	local reverse = math.abs(yaw) > 120
+	-- Задним ходом — только к близкой точке: к дальней (подъезд к врагу, поиск) разворачиваемся
+	-- и едем вперёд, иначе машина катилась задом через полкарты и металась (БТР-80: 7400 за 25 с)
+	local reverse = math.abs(yaw) > 120 and dist < 800
 	local heading = reverse and -forward or forward
 	for _, npc in ipairs(patrol.members) do
 		if IsValid(npc) then
@@ -3232,7 +3562,7 @@ local function DriveGround(patrol, v)
 	end
 
 	local turnLeft, turnRight = yaw > 8, yaw < -8
-	v.driveState = string.format("%s %s, goal %d, turn %d", reverse and "reverse" or "forward", ahead and "lead" or "follow", dist, yaw)
+	v.driveState = string.format("%s %s, goal %d, turn %d", reverse and "reverse" or "forward", label, dist, yaw)
 	if reverse then
 		-- Цель позади: разворачиваемся задним ходом
 		SetKeys(veh, false, true, turnRight, turnLeft, false)

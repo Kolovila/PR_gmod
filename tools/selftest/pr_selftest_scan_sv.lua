@@ -36,8 +36,7 @@ local GROUND = {
 
 -- Перепроверка после правок: машины, у которых что-то было не так, и одна Луны со стрелком
 local FIX = {
-	"gred_simfphys_2s6tunguska_late_custom", "gred_simfphys_gazaa_dshk_custom", "simfphys_btr80", "simfphys_btr80a",
-	"sim_fphys_m_atv_mg", "gred_simfphys_t72b3_custom", "wt_king_tiger",
+	"gred_simfphys_t72b3_custom", "gred_simfphys_bmp2_custom", "sim_fphys_m_atv_mg", "simfphys_btr80",
 }
 
 -- Вертолёты для перепроверки после правок: Ми-8 с бортовыми пулемётами (круги), Ми-24П (пушка лётчика),
@@ -45,12 +44,13 @@ local FIX = {
 local AIRFIX = {"gd_lfs_mi8mtv", "gd_lfs_mi8t2", "gd_lfs_mi8t1"}
 -- debugaim: один вертолёт со стрелком и подробный журнал наведения
 local AIMDEBUG = {"gd_lfs_mi8amtsh", "gd_lfs_mi24v"}
+local GROUNDDEBUG = {"simfphys_btr80", "gred_simfphys_marder1a1_ifv_custom"}
 
 -- Что гонять: air / ground (или всё) и половина списка: 1 — нечётные, 2 — чётные (две копии игры);
 -- fix / airfix — ещё и список FIX / AIRFIX целиком (без деления на половины)
 local only = T.only or {}
 local LIST = {}
-local anyList = only["air"] or only["ground"] or only["fix"] or only["airfix"] or only["debugaim"]
+local anyList = only["air"] or only["ground"] or only["fix"] or only["airfix"] or only["debugaim"] or only["debugground"]
 if only["air"] or not anyList then for _, c in ipairs(AIR) do LIST[#LIST + 1] = c end end
 if only["ground"] or not anyList then for _, c in ipairs(GROUND) do LIST[#LIST + 1] = c end end
 local part = only["2"] and 0 or (only["1"] and 1 or nil)
@@ -64,6 +64,7 @@ end
 if only["fix"] then for _, c in ipairs(FIX) do CLASSES[#CLASSES + 1] = c end end
 if only["airfix"] then for _, c in ipairs(AIRFIX) do CLASSES[#CLASSES + 1] = c end end
 if only["debugaim"] then for _, c in ipairs(AIMDEBUG) do CLASSES[#CLASSES + 1] = c end end
+if only["debugground"] then for _, c in ipairs(GROUNDDEBUG) do CLASSES[#CLASSES + 1] = c end end
 
 T.section("common")
 
@@ -83,6 +84,7 @@ step(0, function()
 	local pts = T.findLine({S.host:GetPos()})
 	check("found a walkable line", pts ~= nil)
 	if not pts then return end
+	S.linePts = pts
 	S.spotA = PR_Patrol.AddSpot(pts[1], "Скан-А")
 	S.spotB = PR_Patrol.AddSpot(pts[2], "Скан-Б")
 	S.spotC = PR_Patrol.AddSpot(pts[3], "Скан-В")
@@ -183,6 +185,12 @@ step(0, function()
 		if S.cur and #S.cur.errors < 3 then table.insert(S.cur.errors, (tostring(err):gsub("\n.*", ""))) end
 	end)
 	hook.Add("Think", "PR_SelftestScan", function()
+		-- Бессмертного бота-цель взрывы подбрасывали в воздух (живой игрок бы погиб) — вертолёт
+		-- переходил на «воздушную цель» и уходил на 4000. Возвращаем его на место
+		if S.cur and IsValid(S.b1) and S.b1Pos and S.b1:GetPos():DistToSqr(S.b1Pos) > 60 * 60 then
+			S.b1:SetPos(S.b1Pos)
+			S.b1:SetVelocity(-S.b1:GetVelocity())
+		end
 		local c = S.cur
 		if not (c and IsValid(c.ent)) or CurTime() < (c.nextSample or 0) then return end
 		c.nextSample = CurTime() + 0.5
@@ -200,10 +208,26 @@ step(0, function()
 		c.crewMax = math.max(c.crewMax, crew)
 
 		-- debugaim: раз в секунду — куда смотрит стрелок, куда хотим и куда смотрит ствол
-		if only["debugaim"] and CurTime() > (c.nextAimLog or 0) then
+		if (only["debugaim"] or only["debugground"]) and CurTime() > (c.nextAimLog or 0) then
 			c.nextAimLog = CurTime() + 1
 			local en = c.entry
-			if IsValid(S.b1) then
+			-- Наземка: куда просим, куда смотрит ствол (по прицелу аддона), где башня, поправка
+			if c.kind == "ground" and en.aimAng then
+				local function A(a) return a and string.format("%.1f %.1f", a.p, a.y) or "-" end
+				local att = en.muzzleId and e:GetAttachment(en.muzzleId)
+				local real
+				if att then
+					local dir = Vector(en.crossDir or Vector(1, 0, 0))
+					dir:Rotate(att.Ang)
+					real = dir:Angle()
+				end
+				local toT = att and IsValid(S.b1) and (S.b1:WorldSpaceCenter() - att.Pos):Angle()
+				local asked = e:WorldToLocalAngles(en.aimAng)
+				log(string.format("GAIM %s want=%s fix=%s real=%s toTarget=%s asked(local)=%s pp=%s %s cross=%s fire=%s %s",
+					c.class, A(en.aimAng), A(en.aimFix), A(real), A(toT), A(asked), tostring(e.sm_pp_pitch), tostring(e.sm_pp_yaw),
+					tostring(en.crossDir), tostring(en.fire), tostring(en.aimDebug)))
+			end
+			if IsValid(S.b1) and c.kind ~= "ground" then
 				local tpos = S.b1:GetPos()
 				local flat = Vector(tpos.x - e:GetPos().x, tpos.y - e:GetPos().y, 0)
 				log(string.format("AIR %s mode=%s dist=%d h=%d yawToTarget=%d hidden=%s seenAgo=%s left=%s rockets=%s fire=%s",
@@ -253,8 +277,73 @@ step(0, function()
 	end
 end)
 
+-- Состояние колёс simfphys: повреждено ли, есть ли видимая модель колеса и как она нарисована
+local function WheelState(veh)
+	local out = {}
+	for i, w in ipairs(IsValid(veh) and veh.Wheels or {}) do
+		if IsValid(w) then
+			local g = w.GhostEnt
+			table.insert(out, string.format("%d:dmg=%s ghost=%s mdl=%s a=%d nodraw=%s pos=%d", i, tostring(isfunction(w.GetDamaged) and w:GetDamaged()),
+				tostring(IsValid(g)), IsValid(g) and tostring(g:GetModel()):match("[^/]+$") or "-", IsValid(g) and g:GetColor().a or -1,
+				tostring(IsValid(g) and g:GetNoDraw()), IsValid(g) and g:GetPos():Distance(w:GetPos()) or -1))
+		end
+	end
+	return table.concat(out, " | ")
+end
+
 local function exists(class)
 	return list.Get("simfphys_vehicles")[class] ~= nil or scripted_ents.GetStored(class) ~= nil
+end
+
+-- plain: та же машина, заспавненная обычным способом (без патруля и ботов), и снимок — сравнить,
+-- наша ли беда (колёса-коробки у Sd.Kfz.221) или самого аддона
+local PLAIN = {"gred_simfphys_sdkfz221_custom"}
+if only["plain"] then
+	CLASSES = {}
+	for _, class in ipairs(PLAIN) do
+		step(0, function()
+			if not (S.linePts and simfphys and isfunction(simfphys.SpawnVehicleSimple)) then return end
+			S.plain = simfphys.SpawnVehicleSimple(class, S.linePts[1] + Vector(0, 0, 40), Angle(0, 137, 0))
+			log("PLAIN " .. class .. " spawned " .. tostring(IsValid(S.plain)))
+		end)
+		step(1, function()
+			if not (IsValid(S.plain) and IsValid(S.host)) then return end
+			net.Start("PR_SELFTEST_WATCH")
+				net.WriteUInt(S.plain:EntIndex(), 16)
+				net.WriteUInt(0, 16)
+				net.WriteString("Обычный спавн: " .. class)
+				net.WriteString("")
+			net.Send(S.host)
+		end)
+		step(6, function()
+			log("WHEELS plain " .. class .. " " .. WheelState(S.plain))
+			if IsValid(S.plain) then S.host:SetEyeAngles(Angle(12, S.plain:GetAngles().y + 90, 0)) end
+			net.Start("PR_SELFTEST_SHOT")
+				net.WriteString("plain_" .. class)
+			net.Send(S.host)
+		end)
+		-- Тот же обычный спавн, но с водителем-ботом и заведённым мотором (как у патруля)
+		step(1, function()
+			if not IsValid(S.plain) then return end
+			S.plainBot = player.CreateNextBot("Водитель")
+			local seat = isfunction(S.plain.GetDriverSeat) and S.plain:GetDriverSeat()
+			if IsValid(S.plainBot) and IsValid(seat) then S.plainBot:EnterVehicle(seat) end
+		end)
+		step(2, function()
+			log("PLAIN " .. class .. " driver " .. tostring(IsValid(S.plainBot) and IsValid(S.plainBot:GetVehicle())))
+		end)
+		step(6, function()
+			log("WHEELS plaindriver " .. class .. " " .. WheelState(S.plain))
+			if IsValid(S.plain) then S.host:SetEyeAngles(Angle(12, S.plain:GetAngles().y + 90, 0)) end
+			net.Start("PR_SELFTEST_SHOT")
+				net.WriteString("plaindriver_" .. class)
+			net.Send(S.host)
+		end)
+		step(1, function()
+			if IsValid(S.plainBot) then S.plainBot:Kick("plain test") end
+			if IsValid(S.plain) then S.plain:Remove() end
+		end)
+	end
 end
 
 for _, class in ipairs(CLASSES) do
@@ -279,6 +368,21 @@ for _, class in ipairs(CLASSES) do
 		end
 		patrol.lingerUntil = CurTime() + 600
 		local e = entry.ent
+		-- shots: снимок машины, когда камера уже рядом (видно, все ли колёса и детали на месте)
+		if only["shots"] then
+			timer.Simple(6, function()
+				if not (IsValid(S.host) and S.cur and S.cur.ent == e) then return end
+				log("WHEELS patrol " .. class .. " " .. WheelState(e))
+				-- Ракурс строго сбоку, как у снимка обычного спавна
+				S.host:SetEyeAngles(Angle(12, e:GetAngles().y + 90, 0))
+				timer.Simple(0.5, function()
+					if not IsValid(S.host) then return end
+					net.Start("PR_SELFTEST_SHOT")
+						net.WriteString("scan_" .. class)
+					net.Send(S.host)
+				end)
+			end)
+		end
 		-- Сколько раз ИИ нажал огонь лётчика (PrimaryAttack/SecondaryAttack самой машины)
 		local calls = {}
 		for _, fn in ipairs({"PrimaryAttack", "SecondaryAttack"}) do
@@ -302,9 +406,13 @@ for _, class in ipairs(CLASSES) do
 			ammo0 = {isfunction(e.GetAmmoPrimary) and e:GetAmmoPrimary(), isfunction(e.GetAmmoSecondary) and e:GetAmmoSecondary()}}
 		-- Цель: пеший бот на открытом месте (для земли — в 1200 от машины)
 		if IsValid(S.b1:GetVehicle()) then S.b1:ExitVehicle() end
+		-- far: цель далеко (дальше, чем бьёт пулемёт) — проверяем, подъедет ли машина на дальность огня
 		local p = air and (T.openPointNear(PR_Patrol.Center(patrol) or e:GetPos()) or e:GetPos())
+			or (only["far"] and (T.openFirePoint(e:GetPos(), 4500) or T.openFirePoint(e:GetPos(), 3800)))
 			or (T.openFirePoint(e:GetPos(), 1200) or T.openFirePoint(e:GetPos(), 900) or e:GetPos() + Vector(900, 0, 0))
 		S.b1:SetPos(p + Vector(0, 0, 5))
+		S.b1Pos = p + Vector(0, 0, 5)
+		S.cur.dist0 = Vector(e:GetPos().x - p.x, e:GetPos().y - p.y, 0):Length()
 		entry.forceTarget = S.b1
 	end)
 
@@ -356,6 +464,9 @@ for _, class in ipairs(CLASSES) do
 				c.bullets + c.cannon + c.hitscan + c.proj - c.shotsSeen, c.hits - c.hitsSeen)
 		end
 		local miss = c.missN > 0 and string.format("%d/%d", c.missSum / c.missN, c.missMin) or "-"
+		if IsValid(e) and IsValid(S.b1) then
+			extra = extra .. string.format(" | dist to target %d -> %d", c.dist0 or -1, Vector(e:GetPos().x - S.b1:GetPos().x, e:GetPos().y - S.b1:GetPos().y, 0):Length())
+		end
 		log(string.format("SCAN %s | %s | alive=%s crew=%d/%d | moved=%d maxH=%d minUp=%.2f | bullets=%d cannon=%d hitscan=%d proj=%d%s ammo=%s | hits=%d | aim(avg/min)=%s miss(avg/min)=%s instant=%d calls=P%d/S%d | states=%s | errors=%s",
 			c.class, tostring(c.kind), tostring(alive), c.crewMax, c.seats, c.moved, c.maxH, c.minUp,
 			c.bullets, c.cannon, c.hitscan, c.proj, next(c.projClass) and "(" .. table.concat(table.GetKeys(c.projClass), ",") .. ")" or "",
