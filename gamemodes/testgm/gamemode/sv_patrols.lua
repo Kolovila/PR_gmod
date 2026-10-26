@@ -4375,3 +4375,51 @@ concommand.Add("pr_patrol_edit", function(ply)
 	ply:Give("pr_patrol_tool")
 	ply:SelectWeapon("pr_patrol_tool")
 end)
+
+----------------------------------------------------------------------------------------------------
+-- Диагностика: машину или живого бойца патруля убрал не наш код (2026-10-26 вся техника и пехота
+-- патруля «Техника» разом пропали без урона, игрок ничего не удалял). EntityRemoved приходит позже
+-- Remove, поэтому кто удаляет — записываем в самом Entity:Remove (стек Lua на момент вызова). Нет
+-- записи — Remove из Lua не вызывали: убрал движок (вылет за карту и т. п.). Взорванная машина и
+-- убитый боец — не «извне»
+local removingOurs = false
+local function OwnRemove(fn, ...)
+	removingOurs = true
+	local ok, err = pcall(fn, ...)
+	removingOurs = false
+	if not ok then error(err, 0) end
+end
+local ownRemove, ownRemoveVehicles = PR_Patrol.Remove, PR_Patrol.RemoveVehicles
+PR_Patrol.Remove = function(...) return OwnRemove(ownRemove, ...) end
+PR_Patrol.RemoveVehicles = function(...) return OwnRemove(ownRemoveVehicles, ...) end
+
+local ENTITY = FindMetaTable("Entity")
+local entityRemove = ENTITY.PR_OrigRemove or ENTITY.Remove
+ENTITY.PR_OrigRemove = entityRemove
+function ENTITY:Remove(...)
+	if (self.PR_PatrolVehicle or self.PR_Patrol) and not self.PR_RemovedBy then
+		self.PR_RemovedBy = removingOurs and "ours" or debug.traceback("", 2)
+	end
+	return entityRemove(self, ...)
+end
+
+hook.Add("EntityRemoved", "PR_PatrolForeignRemove", function(ent)
+	local by = ent.PR_RemovedBy
+	if by == "ours" then return end
+	local v = ent.PR_PatrolVehicle
+	local what
+	if v and not v.dead and not Destroyed(ent) then
+		what = VehicleLabel(v)
+	elseif not v and ent.PR_Patrol and ent:IsNPC() and ent:Health() > 0 then
+		what = string.format("боец %s патруля «%s»", ent:GetClass(), tostring(ent.PR_Patrol.cfg and ent.PR_Patrol.cfg.name))
+	end
+	if not what then return end
+	local stack = by and by:gsub("\n%s*%[C%]:[^\n]*", ""):gsub("%s+", " ")
+	PR_Patrol.Log(string.format("%s убран(а) извне у %s%s", what, PosText(ent:GetPos()),
+		stack and (": " .. stack:sub(1, 400)) or " — Remove из Lua не вызывали: убрал движок"))
+end)
+
+hook.Add("PreCleanupMap", "PR_PatrolCleanupLog", function()
+	PR_Patrol.Log("очистка карты (game.CleanUpMap): патрули и техника будут убраны;" ..
+		debug.traceback("", 2):gsub("%s+", " "):sub(1, 300))
+end)
