@@ -352,7 +352,7 @@ local function NewTemplate()
 end
 
 local function NewVehicle()
-	return {name = "", class = {}, count = 1, crew = 1, health = 0, reward = {money = 3000, exp = 15}}
+	return {name = "", class = {}, count = 1, health = 0, reward = {money = 3000, exp = 15}}
 end
 
 local function AsList(value)
@@ -386,7 +386,7 @@ local function ForEditing(data)
 		v.name = v.name or ""
 		v.class = AsList(v.class)
 		v.count = v.count or 1
-		v.crew = v.crew or 1
+		v.crew = nil -- экипаж всегда полный, поле осталось от старых сохранений
 		v.health = v.health or 0
 		v.reward = v.reward or {money = 0, exp = 0}
 	end
@@ -628,8 +628,6 @@ function PR_PatrolEditor.OpenTypes()
 				{hint = "его же видно в килфиде: это имя бота-экипажа"})
 			PickField(scroll, "Машина", function() return v.class end, function(val) v.class = val end, vehicleOptions, false, labels)
 			TextField(scroll, "Сколько", function() return v.count end, function(val) v.count = val end, {numeric = true, hint = "от 1 до 3"})
-			TextField(scroll, "Экипаж, ботов", function() return v.crew end, function(val) v.crew = val end,
-				{numeric = true, hint = "водитель, стрелки; каждый занимает слот игрока"})
 			TextField(scroll, "Здоровье", function() return v.health end, function(val) v.health = val end,
 				{numeric = true, hint = "0 — как задумано у машины"})
 			TextField(scroll, "Награда, $", function() return v.reward.money end, function(val) v.reward.money = val end, {numeric = true})
@@ -650,7 +648,7 @@ function PR_PatrolEditor.OpenTypes()
 		vehicleHint:SetTextColor(C.muted)
 		vehicleHint:SetWrap(true)
 		vehicleHint:SetAutoStretchVertical(true)
-		vehicleHint:SetText("Наземную (simfphys, танки Луны и Гредвича) водит и наводит бот-экипаж. Авиация (LFS/LVS) летает своим ИИ, кружит над патрулём, а бот садится стрелком, если у машины есть место стрелка (Ми-24, AH-1G).")
+		vehicleHint:SetText("Экипаж всегда полный: наземную (simfphys, танки Луны и Гредвича) водит бот, и на каждое место с оружием садится бот-стрелок. Авиация (LFS/LVS) летает своим ИИ, кружит над патрулём, а боты садятся на все места стрелков (Ми-24, Ми-8, AH-1G). Каждый бот занимает слот игрока.")
 	end
 
 	-- Пока свежий список не пришёл, показываем то, что знаем; пришёл — выбираем первый,

@@ -234,6 +234,65 @@ net.Receive("PR_SELFTEST_MINIMAP", function()
 	net.SendToServer()
 end)
 
+-- Камера наблюдателя в скане техники (pr_selftest_scan_sv.lua): летает вокруг машины, которую
+-- сейчас гоняют. Мышь вращает, колёсико — ближе/дальше, pr_scan_cam — вкл/выкл (свободный полёт)
+local watch = {on = true, zoom = 1}
+
+net.Receive("PR_SELFTEST_WATCH", function()
+	watch.idx = net.ReadUInt(16)
+	watch.target = net.ReadUInt(16)
+	watch.title = net.ReadString()
+	watch.info = net.ReadString()
+	watch.active = watch.idx > 0
+	if not watch.active then watch.last = nil end
+end)
+
+concommand.Add("pr_scan_cam", function()
+	watch.on = not watch.on
+	chat.AddText(watch.on and "Камера скана: за техникой" or "Камера скана: свободный полёт")
+end)
+
+local function Watching()
+	return watch.on and watch.active
+end
+
+hook.Add("CalcView", "PR_SelfTestWatch", function(ply, origin, angles, fov)
+	if not Watching() then return end
+	local ent = Entity(watch.idx)
+	-- Машину ещё не прислали или её уже убрали — держим последний кадр
+	if not IsValid(ent) then return watch.last end
+
+	local center = ent:WorldSpaceCenter()
+	local dist = math.Clamp(ent:BoundingRadius() * 2.2 + 150, 300, 3000) * watch.zoom
+	local tr = util.TraceLine({start = center, endpos = center - angles:Forward() * dist, mask = MASK_SOLID_BRUSHONLY})
+	watch.last = {origin = tr.HitPos + tr.HitNormal * 10, angles = angles, fov = fov, drawviewer = true}
+	return watch.last
+end)
+
+hook.Add("PlayerBindPress", "PR_SelfTestWatch", function(ply, bind, pressed)
+	if not (Watching() and pressed) then return end
+	if bind == "invprev" then watch.zoom = math.max(watch.zoom / 1.15, 0.3) return true end
+	if bind == "invnext" then watch.zoom = math.min(watch.zoom * 1.15, 4) return true end
+end)
+
+hook.Add("HUDPaint", "PR_SelfTestWatch", function()
+	if not watch.title then return end
+	draw.SimpleTextOutlined(watch.title, "DermaLarge", ScrW() / 2, 20, color_white, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP, 2, color_black)
+	if watch.info ~= "" then
+		draw.SimpleTextOutlined(watch.info, "DermaDefaultBold", ScrW() / 2, 58, Color(255, 220, 120), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP, 1, color_black)
+	end
+	if not Watching() then return end
+
+	-- Где цель (бот, по которому стреляют)
+	local target = Entity(watch.target or 0)
+	if IsValid(target) then
+		local p = (target:WorldSpaceCenter() + Vector(0, 0, 50)):ToScreen()
+		if p.visible then
+			draw.SimpleTextOutlined("[ ЦЕЛЬ ]", "DermaDefaultBold", p.x, p.y, Color(255, 80, 80), TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM, 1, color_black)
+		end
+	end
+end)
+
 hook.Add("InitPostEntity", "PR_SelfTestClient", function()
 	timer.Simple(10, function()
 		log("purchased tables: " .. tostring(istable(PR_PurchasedWeapons)) .. " " .. tostring(istable(PR_PurchasedModels)))

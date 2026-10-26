@@ -22,6 +22,17 @@ $Suites = @{
     dogfight = @('pr_selftest_vehicles_sv.lua', 'dogfight')
     strike   = @('pr_selftest_vehicles_sv.lua', 'strike')
     helistrike = @('pr_selftest_vehicles_sv.lua', 'helistrike')
+    scan1    = @('pr_selftest_scan_sv.lua', '1')   # diagnostics: every new vehicle in a patrol, half 1
+    scan2    = @('pr_selftest_scan_sv.lua', '2')   # half 2
+    scanground1 = @('pr_selftest_scan_sv.lua', 'ground 1')
+    scanground2 = @('pr_selftest_scan_sv.lua', 'ground 2')
+    scanair1 = @('pr_selftest_scan_sv.lua', 'air 1')
+    scanair2 = @('pr_selftest_scan_sv.lua', 'air 2')
+    scanair2fix = @('pr_selftest_scan_sv.lua', 'air 2 fix')   # half 2 of the helicopters + the FIX list
+    scanairfix = @('pr_selftest_scan_sv.lua', 'airfix')   # a few helicopters with extra aim diagnostics
+    scanaim = @('pr_selftest_scan_sv.lua', 'debugaim prefire')   # one gunner helicopter, aim log every second
+    scanprefireair = @('pr_selftest_scan_sv.lua', 'airfix prefire')   # changed helicopters; target hides in a box after 18 s
+    scanprefireground = @('pr_selftest_scan_sv.lua', 'fix prefire')   # ground recheck list; target hides in a box after 18 s
     mapshot  = @('pr_mapshot_sv.lua', '')   # map picture for the minimap: then stitch_mapshot.ps1
 }
 if (-not $Suites.ContainsKey($Suite)) { "UNKNOWN_SUITE $Suite (known: $($Suites.Keys -join ', '))"; exit 3 }
@@ -102,13 +113,13 @@ if ($Instance -gt 0) {
     $p = Start-Process $EXE -WorkingDirectory $G -PassThru -ArgumentList @(
         '-multirun', '-windowed', '-w', '1280', '-h', '720', '-novid', '-condebug', '-conclearlog',
         '-port', (27105 + 10 * $Instance), '+clientport', (27100 + 10 * $Instance), '-nohltv',
-        '+maxplayers', '8', '+sv_lan', '1', '+gamemode', 'testgm', '+cl_cloud_settings', '0'
+        '+maxplayers', '16', '+sv_lan', '1', '+gamemode', 'testgm', '+cl_cloud_settings', '0'
     )
 } else {
     # Main install: start without a map (the map lives in Workshop, mounted later), then -hijack
     $p = Start-Process $EXE -PassThru -ArgumentList @(
         '-windowed', '-w', '1280', '-h', '720', '-condebug', '-novid',
-        '+maxplayers', '8', '+sv_lan', '1', '+gamemode', 'testgm'
+        '+maxplayers', '16', '+sv_lan', '1', '+gamemode', 'testgm'
     )
 }
 "STARTED pid=$($p.Id)"
@@ -123,7 +134,7 @@ while ((Get-Date) -lt $mountDeadline) {
         if (LogHas '\[PR_AUTOMAP\] TIMEOUT') { break }
     } elseif (LogHas 'Mounted [1-9][0-9]* of [0-9]+ workshop addons') {
         Start-Sleep -Seconds 5
-        Start-Process $EXE -ArgumentList @('-hijack', '+maxplayers', '8', '+gamemode', 'testgm', '+map', 'rp_desert_conflict') | Out-Null
+        Start-Process $EXE -ArgumentList @('-hijack', '+maxplayers', '16', '+gamemode', 'testgm', '+map', 'rp_desert_conflict') | Out-Null
         $mapSent = $true
         break
     }
@@ -133,7 +144,8 @@ while ((Get-Date) -lt $mountDeadline) {
 
 $done = $false
 if ($mapSent) {
-    $deadline = (Get-Date).AddMinutes(8)
+    # The vehicle scan goes through dozens of vehicles: give it longer
+    $deadline = (Get-Date).AddMinutes($(if ($Suite -like 'scan*') { 40 } else { 8 }))
     $sawStart = $false
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 3

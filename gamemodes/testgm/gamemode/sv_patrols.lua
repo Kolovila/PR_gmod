@@ -207,8 +207,7 @@ local function CleanVehicle(def)
 		name = CleanText(def.name, 48),
 		class = classes,
 		count = math.floor(Num(def.count, 1, 3, 1)),
-		-- Ботов в машине: водитель/стрелок, у кого есть место. 0 — без экипажа (только для авиации)
-		crew = math.floor(Num(def.crew, 0, 4, 1)),
+		-- Экипаж всегда полный (водитель и все стрелки), его в редакторе не задают — см. CrewSeats
 		health = math.floor(Num(def.health, 0, 1000000, 0)),
 		reward = {
 			money = math.floor(Num(reward.money, 0, 1000000, 0)),
@@ -744,7 +743,7 @@ function PR_Patrol.Spawn(typeKey, spotId)
 	local vehicles = {}
 	for _, v in ipairs(patrol.vehicles) do
 		local loadout = IsValid(v.ent) and isfunction(v.ent.GetLoadout) and (", подвес " .. v.ent:GetLoadout()) or ""
-		table.insert(vehicles, string.format("%s%s, экипаж %d", tostring(v.class), loadout, v.def.crew or 0))
+		table.insert(vehicles, tostring(v.class) .. loadout)
 	end
 	PR_Patrol.Log(string.format("патруль «%s» вышел на спот #%s: %d NPC, техника: %s", cfg.name, tostring(spotId), #patrol.members,
 		#vehicles > 0 and table.concat(vehicles, "; ") or "нет"))
@@ -889,6 +888,13 @@ end
 --   aiground (LVS наземная): едет своим ИИ за патрулём, бот — стрелком.
 
 local VEHICLE_RANGE = 6000 -- дальше врагов не ищем
+
+-- Префайр: враг только что скрылся (зашёл в дом, за стену) — бьём туда, где его видели последний
+-- раз: экипаж — ещё PREFIRE_TIME секунд, лётчик вертолёта — ракетами (до PREFIRE_ROCKETS на одно
+-- укрытие, пока не прошло PREFIRE_AIR_TIME). Снаряд и ракета рвутся у стены или в проёме двери
+local PREFIRE_TIME = 8 -- пушка танка перезаряжается 6–8 с: за 4 с T-72 в дом так и не выстрелил
+local PREFIRE_AIR_TIME = 6
+local PREFIRE_ROCKETS = 4
 local AIR_ALTITUDE = 1400  -- высота над патрулём, пока врагов нет
 local AIR_ORBIT = 1200     -- радиус круга над патрулём
 
@@ -959,13 +965,14 @@ local function PartOf(e, vehicle)
 	return isfunction(e.GetBaseEnt) and e:GetBaseEnt() == vehicle
 end
 
--- Видимая точка цели (середина или верх) или nil
+-- Видимая точка цели (середина или верх) или nil. Заслоняет только сама карта (дома, скалы);
+-- автотест префайра ставит PR_Patrol.VisibleMask = MASK_SOLID, чтобы «домом» служил проп
 local function VisiblePoint(from, target, shooter)
 	local points, vehicle = PR_Patrol.AimPoints(target)
 	local tr
 	for _, to in ipairs(points) do
 		tr = util.TraceLine({
-			start = from, endpos = to, mask = MASK_SOLID_BRUSHONLY,
+			start = from, endpos = to, mask = PR_Patrol.VisibleMask or MASK_SOLID_BRUSHONLY,
 			filter = function(e) return e ~= target and not PartOf(e, shooter) and not PartOf(e, vehicle) end
 		})
 		if not tr.Hit then return to end
@@ -1030,7 +1037,56 @@ local function KickCrew(entry)
 	entry.crew = {}
 end
 
--- Места для экипажа по порядку: наземной — водитель и пассажиры, авиации — стрелок и пассажиры
+-- Есть ли у стрелка вертолёта оружие. У пака Гордона (Helicopter Pack #3) место стрелка есть и у
+-- машин без турели (BO-105, Hkp 9, EC665, MD-500, SA-316) — бот там сидел без дела, а вертолёт
+-- из-за «стрелка» висел на месте, и лётчик не стрелял вовсе
+local function GunnerArmed(entry, ent)
+	if string.StartWith(entry.class or "", "lfs_grdn_") then return isfunction(ent.TurretAttack) end
+	-- Ми-24П GD: у стрелка только тепловизор, пушка — у лётчика
+	if entry.class == "gd_lfs_mi24p" then return false end
+	return true
+end
+
+-- Оружие машины Гредвича (gred.simfphys): на каком месте пушка, как называется дуло и с какой
+-- скоростью летит снаряд. Дуло у новых машин не всегда «cannon_muzzle»/«muzzle» (у «Тунгуски» —
+-- cannon_muzzle_l_1): целились от середины корпуса, и очередь одного левого автомата шла мимо.
+-- nil — не Гредвич или машина ещё не собралась (режим аркада/реализм не выбран)
+local function GredWeapons(entry)
+	if entry.gredWeapons ~= nil then return entry.gredWeapons or nil end
+	local list = istable(gred) and istable(gred.simfphys) and gred.simfphys
+	local def = list and (list[entry.class] or (IsValid(entry.ent) and entry.ent.CachedSpawnList and list[entry.ent.CachedSpawnList]))
+	if not (istable(def) and istable(def.Seats)) then
+		entry.gredWeapons = false
+		return nil
+	end
+	local mode = IsValid(entry.ent) and entry.ent.Mode
+	if not mode then return nil end
+
+	local info = {seats = {}}
+	for k = 0, 8 do
+		local seatDef = def.Seats[k]
+		local tab = istable(seatDef) and seatDef[mode]
+		local weapon = istable(tab) and istable(tab.Primary) and tab.Primary[1]
+		if weapon then
+			info.seats[k] = true
+			if not info.main then
+				local speed = 50000
+				local cal = istable(gred.CalTable) and gred.CalTable[weapon.Caliber]
+				if weapon.Type == "MG" and cal and cal.Speed then
+					speed = cal.Speed / engine.TickInterval()
+				elseif istable(weapon.ShellTypes) and istable(weapon.ShellTypes[1]) and weapon.ShellTypes[1].MuzzleVelocity then
+					speed = weapon.ShellTypes[1].MuzzleVelocity / 0.01905
+				end
+				info.main = {seat = k, muzzle = tab.MuzzleAttachment or (istable(weapon.Muzzles) and weapon.Muzzles[1]) or nil, speed = speed}
+			end
+		end
+	end
+	entry.gredWeapons = info
+	return info
+end
+
+-- Места экипажа: водитель (у наземной) и все стрелки. Экипаж всегда полный — машина воюет всем
+-- своим оружием. Пассажиров без оружия не сажаем: там бот ничего не делает, а слот игрока занимает
 local function CrewSeats(entry)
 	local ent, seats = entry.ent, {}
 	local function Add(seat)
@@ -1039,11 +1095,27 @@ local function CrewSeats(entry)
 
 	if entry.kind == "ground" then
 		Add(isfunction(ent.GetDriverSeat) and ent:GetDriverSeat() or ent.DriverSeat)
-		for _, seat in ipairs(ent.pSeat or {}) do Add(seat) end
+		-- Стрелки. Гредвич: места, у которых в описании машины есть оружие (у ГАЗ-АА пулемёт только
+		-- на третьем месте; в аркадном режиме у танков всё оружие у водителя). Пока машина не
+		-- собралась (режим не выбран), стрелков не сажаем — места добавятся, когда соберётся.
+		-- Танки Луны и паки на их основе: у места стрелка есть прицел (HasCrosshair)
+		local weapons = GredWeapons(entry)
+		for k, seat in ipairs(ent.pSeat or {}) do
+			if (weapons and weapons.seats[k]) or (entry.gredWeapons == false and IsValid(seat) and seat:GetNWBool("HasCrosshair")) then
+				Add(seat)
+			end
+		end
 	else
-		if isfunction(ent.GetGunnerSeat) then Add(ent:GetGunnerSeat()) end
-		if isfunction(ent.GetPassengerSeats) then
-			for _, seat in ipairs(ent:GetPassengerSeats() or {}) do Add(seat) end
+		-- Стрелки LFS: основной, у Ми-8 GD ещё дверные и кормовые
+		for _, getter in ipairs({"GetGunnerSeat", "GetGunner2Seat", "GetGunner3Seat", "GetGunner4Seat"}) do
+			if isfunction(ent[getter]) and GunnerArmed(entry, ent) then Add(ent[getter](ent)) end
+		end
+		-- LVS: места, у которых есть своё оружие (WEAPONS[номер места])
+		if ent.LVS and istable(ent.WEAPONS) and isfunction(ent.GetPassengerSeats) then
+			for _, seat in ipairs(ent:GetPassengerSeats() or {}) do
+				local list = IsValid(seat) and ent.WEAPONS[seat:GetNWInt("pPodIndex", -1)]
+				if istable(list) and #list > 0 then Add(seat) end
+			end
 		end
 	end
 
@@ -1081,11 +1153,7 @@ local function SeatCrew(entry)
 	local seats = CrewSeats(entry)
 	entry.crewTried = entry.crewTried or {}
 
-	-- Наземной без водителя не поехать: хотя бы один
-	local wanted = entry.def.crew or 1
-	if entry.kind == "ground" then wanted = math.max(wanted, 1) end
-
-	for i = 1, math.min(wanted, #seats) do
+	for i = 1, #seats do
 		local seat, bot = seats[i], entry.crew[i]
 
 		if not bot and not entry.crewTried[i] then
@@ -1113,8 +1181,19 @@ local function CrewAim(entry, target)
 	local ent = entry.ent
 	local from = ent:WorldSpaceCenter() + Vector(0, 0, 60)
 	if entry.kind == "ground" then
-		if entry.muzzleId == nil then
-			local id = ent:LookupAttachment("cannon_muzzle")
+		local weapons = GredWeapons(entry)
+		-- Машина Гредвича ещё не собралась — дуло выберем, когда соберётся
+		if entry.muzzleId == nil and (weapons or entry.gredWeapons == false) then
+			local named = weapons and weapons.main and weapons.main.muzzle
+			-- Танки Луны и паки на их основе: прицел водителя привязан к стволу (у БТР-80 —
+			-- muzzle_KPVT, у БТР-80А — muzzle_2A72)
+			local driverSeat = not named and isfunction(ent.GetDriverSeat) and ent:GetDriverSeat()
+			if IsValid(driverSeat) and driverSeat:GetNWBool("HasCrosshair") then
+				local att = driverSeat:GetNWString("Attachment", "")
+				if att ~= "" then named = att end
+			end
+			local id = named and ent:LookupAttachment(named)
+			if not id or id <= 0 then id = ent:LookupAttachment("cannon_muzzle") end
 			if not id or id <= 0 then id = ent:LookupAttachment("muzzle") end
 			entry.muzzleId = (id and id > 0) and id or false
 		end
@@ -1123,6 +1202,24 @@ local function CrewAim(entry, target)
 	end
 	local visible, blocker = VisiblePoint(from, target, ent)
 	local to = visible or PR_Patrol.AimPoint(target)
+	-- Префайр экипажа: враг только что скрылся — ещё PREFIRE_TIME секунд бьём, где его видели
+	local now = CurTime()
+	local prefire = false
+	if visible then
+		entry.seenAt, entry.seenPos, entry.seenTarget = now, visible, target
+	elseif entry.seenTarget == target and entry.seenAt and now - entry.seenAt < PREFIRE_TIME then
+		to, prefire = entry.seenPos, true
+	end
+	-- По самолёту и вертолёту — с упреждением: куда он долетит, пока летит снаряд (зенитки,
+	-- стрелки вертолётов)
+	if AirTarget(target, 300) then
+		local weapons = GredWeapons(entry)
+		local speed = weapons and weapons.main and weapons.main.speed or 50000
+		local vel = AimBody(target):GetVelocity()
+		local aimAt = to
+		for _ = 1, 2 do aimAt = to + vel * (from:Distance(aimAt) / speed) end
+		to = aimAt
+	end
 	entry.aimAng = (to - from):Angle()
 	-- Насколько можно промахнуться углом: цель ~70 юнитов (на 1000 — 4°, на 3000 — 1.3°)
 	entry.aimTolerance = math.Clamp(math.deg(math.atan(70 / math.max(from:Distance(to), 1))), 0.6, 4)
@@ -1132,11 +1229,12 @@ local function CrewAim(entry, target)
 		entry.aimSince = CurTime()
 	end
 
-	-- Огонь, когда враг виден и прошло время довернуть пушку (у simfphys-танков точнее — по углу башни)
-	local clear = visible ~= nil
+	-- Огонь, когда враг виден (или префайр) и прошло время довернуть пушку (у simfphys-танков
+	-- точнее — по углу башни)
+	local clear = visible ~= nil or prefire
 	local turned = CurTime() - (entry.aimSince or CurTime()) > 3 or entry.ent.sm_pp_yaw ~= nil
 	entry.fire = clear and turned
-	entry.aimDebug = string.format("see=%s%s turned=%s", tostring(clear), blocker and ("(" .. blocker .. ")") or "", tostring(turned))
+	entry.aimDebug = string.format("see=%s%s%s turned=%s", tostring(visible ~= nil), prefire and " prefire" or "", blocker and ("(" .. blocker .. ")") or "", tostring(turned))
 end
 
 hook.Add("StartCommand", "PR_PatrolCrew", function(ply, cmd)
@@ -1155,6 +1253,16 @@ hook.Add("StartCommand", "PR_PatrolCrew", function(ply, cmd)
 	-- simfphys: башню наводим в обход взгляда (WrapSimfphysAim), здесь только огонь
 	if entry.kind == "ground" then
 		cmd:SetViewAngles(seat:WorldToLocalAngles(entry.aimAng))
+		if entry.fire then cmd:SetButtons(IN_ATTACK) end
+		return
+	end
+
+	-- Турели паков GD и Гордона наводятся подменой взгляда (WithCrewEyes); здесь — только огонь
+	-- (и взгляд туда же, чтобы бот хотя бы смотрел на цель)
+	if entry.ent.LFS and not string.StartWith(entry.class or "", "gred_lfs_") then
+		local view = Angle(math.Clamp(entry.aimAng.p, -89, 89), entry.aimAng.y, 0)
+		cmd:SetViewAngles(view)
+		ply.PR_View = view
 		if entry.fire then cmd:SetButtons(IN_ATTACK) end
 		return
 	end
@@ -1391,19 +1499,43 @@ local function AirSpec(entry, ent)
 	return entry.spec
 end
 
+-- На сколько градусов ниже корпуса турель стрелка достаёт (из кода аддонов, с запасом). С места
+-- в 900 от цели и на 600 выше она под ~34° — у этих турелей вне угла, и стрелок бил мимо, в упор
+-- предела. Таким вертолётам стоять дальше и ниже. Нет в списке — турель достаёт (Гредвич, AH-64)
+local GUNNER_DOWN = {
+	gd_lfs_mi24a = 32, gd_lfs_mi24v = 32, gd_lfs_mi24vm = 32, gd_lfs_mi28 = 32, gd_lfs_mi28n = 32,
+	gd_lfs_mi8amtsh = 32, gd_lfs_mi8mtv = 15, gd_lfs_mi8t1 = 15, gd_lfs_mi8t2 = 15,
+	lfs_grdn_ah1g = 20, lfs_grdn_ah1z = 30, lfs_grdn_mi24d = 8, lfs_grdn_mi28nm = 16, lfs_grdn_uh1c_xm30 = 16,
+}
+
+-- Бортовые пулемёты (Ми-8 GD): стрелки сидят в дверях, ствол ходит на ±23–30° от борта — носом к
+-- цели ни один не достаёт. Такие вертолёты кружат вокруг цели против часовой, левым бортом к ней
+-- (левая дверь берёт цель на +90° от носа). Значение — на сколько градусов от носа держать цель
+local GUNNER_SIDE = {gd_lfs_mi8amtsh = 90, gd_lfs_mi8mtv = 90, gd_lfs_mi8t1 = 90, gd_lfs_mi8t2 = 90}
+-- Точка круга — на столько градусов впереди вертолёта, радиус круга — не больше ORBIT_MAX. Круг
+-- в 2800 с точкой на 35° впереди вертолёт проходил на ~570: на склонах то и дело «препятствие
+-- впереди — ухожу вверх», и он набирал до 3000 высоты, где бортовые стволы цель не достают
+local ORBIT_STEP = 20
+local ORBIT_MAX = 1600
+
 -- Сторону берём ближайшую к вертолёту, откуда цель видно (не за домом или краном); пересчёт раз в секунду
 -- dist — как далеко от цели (стрелку — 900, ракетам с места — 1800: оттуда цель под ~20–25° ниже
 -- носа; с 900 на холме она оказывалась на 40–60° под ним, и ракеты не шли)
-local function StandOffPoint(entry, target, from, dist)
+-- maxDown — турель стрелка достаёт только на столько градусов вниз: место ниже (на 350 над целью, а
+-- не на 600) и дальше, чтобы цель была под этим углом (но не дальше 2800)
+-- orbit — кружить: место на круге на orbit градусов впереди (против часовой), и обходим закрытые
+-- места только вперёд по кругу
+local function StandOffPoint(entry, target, from, dist, maxDown, orbit)
 	local now = CurTime()
 	dist = dist or 900
 	if entry.standTarget == target and entry.standDist == dist and entry.standAt and now < entry.standAt and entry.standPos then
 		return entry.standPos
 	end
+	local asked = dist
 
 	local tpos = target:GetPos()
 	local eye = target:WorldSpaceCenter()
-	local base = (from - tpos):Angle().y
+	local base = (from - tpos):Angle().y + (orbit or 0)
 	local ceil = CeilingAt(tpos)
 
 	-- Высота: на 600 выше цели и на 450 выше крыш и склонов вокруг места и на пути от него к цели
@@ -1417,20 +1549,33 @@ local function StandOffPoint(entry, target, from, dist)
 		for _, off in ipairs({Vector(250, 0, 0), Vector(-250, 0, 0), Vector(0, 250, 0), Vector(0, -250, 0)}) do
 			top = math.max(top, TopAt(p.x + off.x, p.y + off.y, ceil, tpos.z))
 		end
-		p.z = math.min(math.max(tpos.z + 600, top + (entry.spec and entry.spec.clear or 350) + 100), ceil - 250)
+		-- Низкое место (стрелку с узкой турелью, круг) — с запасом над склонами больше: иначе
+		-- вертолёт, снижаясь к нему, упирался «взглядом вперёд» в землю и уходил вверх
+		p.z = math.min(math.max(tpos.z + (maxDown and 350 or 600), top + (entry.spec and entry.spec.clear or 350) + (maxDown and 250 or 100)), ceil - 250)
 		return p
 	end
 
-	local p = Candidate(base)
-	for _, turn in ipairs({0, 40, -40, 80, -80, 120, -120, 180}) do
-		local c = Candidate(base + turn)
-		if not util.TraceLine({start = c, endpos = eye, mask = MASK_SOLID_BRUSHONLY}).Hit then
-			p = c
-			break
+	local function Search()
+		local p = Candidate(base)
+		for _, turn in ipairs(orbit and {0, 20, 40, 60, 90} or {0, 40, -40, 80, -80, 120, -120, 180}) do
+			local c = Candidate(base + turn)
+			if not util.TraceLine({start = c, endpos = eye, mask = MASK_SOLID_BRUSHONLY}).Hit then
+				return c
+			end
 		end
+		return p
 	end
 
-	entry.standTarget, entry.standDist, entry.standAt, entry.standPos = target, dist, now + 1, p
+	-- Дальше от цели место бывает выше (склон, крыши) — тогда отходим ещё (до трёх раз)
+	local p = Search()
+	for _ = 1, maxDown and 3 or 0 do
+		local need = math.min((p.z - eye.z) / math.tan(math.rad(maxDown)), orbit and ORBIT_MAX or 2800)
+		if need <= dist + 50 then break end
+		dist = need
+		p = Search()
+	end
+
+	entry.standTarget, entry.standDist, entry.standAt, entry.standPos = target, asked, now + 1, p
 	return p
 end
 
@@ -1611,8 +1756,55 @@ local PILOT_WEAPONS = {
 	gred_lfs_a10 = {
 		gun = {ammo = function(ent) return ent:GetAmmoPrimary() > 0 end, fire = function(ent) ent:PrimaryAttack() end},
 		rockets = {ammo = function(ent) return ent:GetAmmoSecondary() > 0 end, fire = function(ent) ent:SecondaryAttack() end}
+	},
+	-- Ми-24П (GD): неподвижная ГШ-30 — у лётчика (AltPrimaryAttack, патроны — Tertiary), ракеты —
+	-- PrimaryAttack; у стрелка только тепловизор (GunnerArmed)
+	gd_lfs_mi24p = {
+		gun = {ammo = function(ent) return ent:GetAmmoTertiary() > 0 end, fire = function(ent) ent:AltPrimaryAttack(ent:GetLoadout()) end},
+		rockets = {ammo = function(ent) return ent:GetAmmoPrimary() > 0 end, fire = function(ent) ent:PrimaryAttack(ent:GetLoadout()) end}
 	}
 }
+
+-- Новые вертолёты (паки GD — Ми-24/28/8 — и Гордона — Helicopter Pack #3): курсовое оружие у них
+-- обычное для LFS — PrimaryAttack/SecondaryAttack (что из них пушка, а что ракеты, по классам
+-- разное: бьём из обоих, ракеты доворачиваем), подвесы — с номерами. Пустой подвес у них бывает по
+-- умолчанию (у Гордона — всегда 0: вертолёт взлетал без оружия), на некоторых сам аддон падает с
+-- ошибкой (Ка-50 и Ми-24Д — 4, пушка Ми-24Д — 3, Ми-28Н — 4; ПТУР 9М17 у GD — «NULL physics
+-- object» при пуске: Ми-24А — 3, Ми-24В — 1, Ми-8Т2 — 1) — ставим только рабочие
+local LFS_LOADOUTS = {
+	gd_lfs_mi24a = {0, 1}, gd_lfs_mi24p = {0, 1, 2, 3}, gd_lfs_mi24v = {0, 2}, gd_lfs_mi24vm = {0, 1, 2, 3, 4},
+	gd_lfs_mi28 = {0, 1, 2}, gd_lfs_mi28n = {0, 1, 2, 3}, gd_lfs_mi8amtsh = {0, 1, 2, 3}, gd_lfs_mi8mtv = {0, 1, 2},
+	gd_lfs_mi8t1 = {0, 1}, gd_lfs_mi8t2 = {0},
+	lfs_grdn_ah1g = {1, 2, 3}, lfs_grdn_ah1z = {1, 2, 3, 4}, lfs_grdn_ah64d = {1, 2, 3}, lfs_grdn_bo105pah1 = {2, 3},
+	lfs_grdn_ec665uht = {1, 2, 3, 4, 5}, lfs_grdn_hkp9a = {1, 2}, lfs_grdn_ka50 = {1, 2}, lfs_grdn_md500tow = {1, 2},
+	lfs_grdn_mi24d = {1}, lfs_grdn_mi28nm = {1, 2, 3}, lfs_grdn_sa316b = {1}, lfs_grdn_uh1c_xm30 = {1, 2, 3, 4, 5, 6},
+}
+
+-- Пушка лётчика: курсовая (PrimaryAttack) или турель без стрелка (Ка-50 Гордона: 30-мм пушка —
+-- TurretAttack, и смотрит она по носу, пока лётчик-человек её не поворачивает)
+local function PilotTurret(ent)
+	return isfunction(ent.TurretAttack) and not (isfunction(ent.GetGunnerSeat) and IsValid(ent:GetGunnerSeat()))
+		and isfunction(ent.GetTurretAmmo) and ent:GetTurretAmmo() > 0
+end
+
+local GENERIC_LFS_WEAPONS = {
+	gun = {
+		ammo = function(ent) return (isfunction(ent.GetAmmoPrimary) and ent:GetAmmoPrimary() > 0) or PilotTurret(ent) end,
+		fire = function(ent)
+			if isfunction(ent.GetAmmoPrimary) and ent:GetAmmoPrimary() > 0 then ent:PrimaryAttack() end
+			if PilotTurret(ent) then ent:TurretAttack() end
+		end
+	},
+	rockets = {
+		ammo = function(ent) return isfunction(ent.GetAmmoSecondary) and ent:GetAmmoSecondary() > 0 end,
+		fire = function(ent) ent:SecondaryAttack() end
+	}
+}
+
+-- Оружие лётчика этой машины: своё описание (Ми-24, AH-1G, A-10 Гредвича) или общее для LFS
+local function WeaponsOf(entry)
+	return PILOT_WEAPONS[entry.class] or (entry.genericWeapons and GENERIC_LFS_WEAPONS) or nil
+end
 
 -- Ракеты, которым мы дали хозяина (бот экипажа или сама машина). Взрыв пишет урон на Owner, и если
 -- хозяина уберут раньше (вертолёт сбит, бот выкинут), SetAttacker(NULL) падал с ошибкой
@@ -1641,10 +1833,14 @@ local SALVO = 8
 -- Чем бить цель такого вида (по порядку): технику — ракетами и пушкой, самолёт — пушкой,
 -- пехоту — пушкой, а ракетами, только если пушки нет (Ми-24 с одними ракетами)
 local function PilotWeapons(entry, ent, kind)
-	local weapons = PILOT_WEAPONS[entry.class]
+	local weapons = WeaponsOf(entry)
 	if not weapons then return {} end
-	local gun = weapons.gun and weapons.gun.ammo(ent) and weapons.gun or nil
-	local rockets = weapons.rockets and weapons.rockets.ammo(ent) and (entry.salvo or 0) < (entry.salvoCap or SALVO) and weapons.rockets or nil
+	local broken = entry.brokenWeapons or {}
+	local gun = weapons.gun and not broken.gun and weapons.gun.ammo(ent) and weapons.gun or nil
+	if kind == "prefire" then
+		return {weapons.rockets and not broken.rockets and weapons.rockets.ammo(ent) and weapons.rockets or nil}
+	end
+	local rockets = weapons.rockets and not broken.rockets and weapons.rockets.ammo(ent) and (entry.salvo or 0) < (entry.salvoCap or SALVO) and weapons.rockets or nil
 	if kind == "vehicle" then return {rockets, gun} end
 	if kind == "air" then return {gun} end
 	return {gun or rockets}
@@ -1668,6 +1864,41 @@ end
 -- Вертолёт LFS наклоняет нос только движением: чтобы смотреть на технику в 2500 на 13° вниз, ему
 -- надо пикировать, а у холмов он уходит вверх — без доводки ракеты по технике почти не шли
 local ROCKET_AIM_ASSIST = 10
+
+-- Пули лётчика вертолёта (Гредвич и паки на нём) доводим на цель, если ствол уже смотрит на неё
+-- с точностью до 4°: точнее нос вертолёта ИИ LFS не держит, и с 1000+ очередь шла в 2–3° мимо
+-- бойца (BO-105: 204 пули, ни одного попадания). Пока лётчик стреляет — {to, max}, иначе nil
+local BULLET_AIM_ASSIST = 4
+local PilotAssist
+PR_Patrol.AssistStats = PR_Patrol.AssistStats or {tries = 0, done = 0}
+
+local function AssistBullet(pos, ang)
+	local a = PilotAssist
+	if not (a and isvector(pos) and isangle(ang)) then return ang end
+	local stats = PR_Patrol.AssistStats
+	stats.tries = stats.tries + 1
+	local dir = (a.to - pos):GetNormalized()
+	if ang:Forward():Dot(dir) < math.cos(math.rad(a.max)) then return ang end
+	stats.done = stats.done + 1
+	local want = dir:Angle()
+	return Angle(want.p + math.Rand(-0.5, 0.5), want.y + math.Rand(-0.5, 0.5), 0)
+end
+
+-- Цель-точка (где видели врага) для огня лётчика: у неё есть всё, что спрашивает FirePilot
+local function PointTarget(pos)
+	return {
+		PR_Point = pos,
+		IsValid = function() return true end,
+		IsPlayer = function() return false end,
+		WorldSpaceCenter = function() return pos end,
+		GetPos = function() return pos end,
+		GetVelocity = function() return vector_origin end
+	}
+end
+
+local function TargetPoint(target)
+	return target.PR_Point or PR_Patrol.AimPoint(target)
+end
 
 -- Огонь курсовым оружием. На время выстрела машина «без ИИ» и стреляет за неё бот экипажа
 -- (а без экипажа — сама машина): ракетам и пулям нужен хозяин, иначе урон шёл бы от «мира»
@@ -1699,13 +1930,13 @@ local function FirePilot(ent, entry, target, kind, aimed, hover)
 	end
 	entry.pilotNose = (entry.pilotNose or 0) + 1
 
-	if not PILOT_WEAPONS[entry.class] then
+	local weapons = WeaponsOf(entry)
+	if not weapons then
 		-- Остальные (OH-6): обычное «нажать огонь»
 		if isfunction(ent.HandleWeapons) then ent:HandleWeapons(true) end
 		return 0
 	end
 	local list = {}
-	local weapons = PILOT_WEAPONS[entry.class]
 	for _, w in pairs(PilotWeapons(entry, ent, kind)) do
 		if off <= 6 or w == weapons.rockets then list[#list + 1] = w end
 	end
@@ -1719,10 +1950,23 @@ local function FirePilot(ent, entry, target, kind, aimed, hover)
 	tab.GetDriver = function() return shooter end
 	local created = {}
 	hook.Add("OnEntityCreated", "PR_PatrolPilotFire", function(e) created[#created + 1] = e end)
-	local ok, err = pcall(function() for _, w in ipairs(list) do w.fire(ent) end end)
+	-- (хозяина пуль у пака Гордона подставляет обёртка его оружия — см. SetupAI)
+	-- У самолёта наведение своё, с упреждением (aimed) — его пули не трогаем
+	if not aimed then PilotAssist = {to = TargetPoint(target), max = BULLET_AIM_ASSIST} end
+	-- Каждое оружие отдельно: у некоторых аддонов оно падает всегда (у MD-500 и SA-316 Гордона
+	-- PrimaryAttack — ipairs(nil)) — такое выключаем, а не сыплем ошибками каждый тик
+	for _, w in ipairs(list) do
+		local ok, err = pcall(w.fire, ent)
+		if not ok then
+			local slot = w == weapons.gun and "gun" or "rockets"
+			entry.brokenWeapons = entry.brokenWeapons or {}
+			entry.brokenWeapons[slot] = true
+			PR_Patrol.Log(string.format("%s: оружие %s падает с ошибкой — больше не стреляем им: %s", VehicleLabel(entry), slot, tostring(err)))
+		end
+	end
 	hook.Remove("OnEntityCreated", "PR_PatrolPilotFire")
 	tab.GetAI, tab.GetDriver = ownAI, ownDriver
-	if not ok then error(err, 0) end
+	PilotAssist = nil
 
 	-- Ракеты Гредвича не сталкиваются только с корпусом и стартуют с места, а вертолёт на заходе
 	-- летит быстрее: он догонял свои ракеты, и они рвались на нём. Даём им скорость вертолёта
@@ -1738,9 +1982,23 @@ local function FirePilot(ent, entry, target, kind, aimed, hover)
 		if IsValid(rocket) and isfunction(rocket.Launch) then
 			rockets = rockets + 1
 			GiveRocketOwner(rocket, shooter)
+			-- Управляемые (9М114, 9М17 у Ми-24/28/8 GD): аддон через 0,75 с наводит их на то, что было
+			-- по носу в момент пуска (у нас — чаще земля рядом) — перенаводим на саму цель
+			-- Префайр по точке: цель ракеты — мир, смещение — сама точка
+			local point = target.PR_Point
+			local body = not point and AimBody(target)
+			timer.Simple(0.85, function()
+				if not (IsValid(rocket) and rocket.JDAM) then return end
+				if point then
+					rocket.target, rocket.targetOffset = game.GetWorld(), point
+				elseif IsValid(body) then
+					rocket.target = body
+					rocket.targetOffset = body:WorldToLocal(body:WorldSpaceCenter())
+				end
+			end)
 			-- Доводка на цель (у самолёта наведение своё, с упреждением — его не трогаем)
 			if not aimed then
-				local want = (PR_Patrol.AimPoint(target) - rocket:GetPos()):GetNormalized()
+				local want = (TargetPoint(target) - rocket:GetPos()):GetNormalized()
 				local rphys = rocket:GetPhysicsObject()
 				if rocket:GetForward():Dot(want) > math.cos(math.rad(assist + 3)) then
 					rocket:SetAngles(want:Angle())
@@ -1759,8 +2017,45 @@ local function FirePilot(ent, entry, target, kind, aimed, hover)
 	return rockets
 end
 
+-- Префайр лётчика вертолёта: видим ли врага (раз в 0,25 с), а если он только что скрылся и
+-- есть ракеты — висим, доворачиваем нос на место, где его видели, и пускаем ракеты туда.
+-- true — вертолёт занят префайром (RunAI держит его на месте)
+local function HeliPrefire(entry, ent, target)
+	local now = CurTime()
+	if now >= (entry.seenCheckAt or 0) then
+		entry.seenCheckAt = now + 0.25
+		local seen = VisiblePoint(ent:WorldSpaceCenter(), target, ent)
+		if seen then
+			entry.pilotSeenAt, entry.pilotSeenPos, entry.pilotSeenTarget = now, seen, target
+			entry.prefireLeft, entry.prefireHidden = PREFIRE_ROCKETS, false
+		else
+			entry.prefireHidden = true
+		end
+	end
+	if not (entry.prefireHidden and entry.pilotSeenTarget == target and entry.pilotSeenAt) then return false end
+	if now - entry.pilotSeenAt > PREFIRE_AIR_TIME or (entry.prefireLeft or 0) <= 0 then return false end
+	local weapons = WeaponsOf(entry)
+	local rockets = weapons and weapons.rockets
+	if not (rockets and not (entry.brokenWeapons or {}).rockets and rockets.ammo(ent)) then return false end
+
+	if entry.airMode ~= "prefire" then
+		entry.prefireHold = ent:GetPos()
+		PR_Patrol.LogEvery(entry, "prefire", 10, string.format("%s: цель скрылась у %s — префайр ракетами", VehicleLabel(entry), PosText(entry.pilotSeenPos)))
+	end
+	entry.airMode = "prefire"
+	entry.prefirePoint = entry.prefirePoint and entry.prefirePoint.PR_Point == entry.pilotSeenPos and entry.prefirePoint
+		or PointTarget(entry.pilotSeenPos)
+	entry.faceTarget = entry.prefirePoint
+	local fired = FirePilot(ent, entry, entry.prefirePoint, "prefire", false, true)
+	if fired > 0 then
+		entry.prefireLeft = entry.prefireLeft - fired
+		entry.prefireShots = (entry.prefireShots or 0) + fired
+	end
+	return true
+end
+
 local function HasPilotAmmo(ent, entry)
-	local weapons = PILOT_WEAPONS[entry.class]
+	local weapons = WeaponsOf(entry)
 	return weapons ~= nil and ((weapons.gun and weapons.gun.ammo(ent)) or (weapons.rockets and weapons.rockets.ammo(ent))) and true or false
 end
 
@@ -1804,6 +2099,10 @@ local function UpdateFacing(entry, ent, point)
 	if look then
 		local flat = Vector(look.x - pos.x, look.y - pos.y, 0)
 		if flat:LengthSqr() > 100 * 100 then want = flat:Angle().y end
+		-- Кружит с бортовыми пулемётами: цель — сбоку (Ми-8: слева), нос — по кругу
+		if entry.airMode == "circle" and IsValid(entry.faceTarget) then
+			want = want - (GUNNER_SIDE[entry.class] or 0)
+		end
 	end
 
 	local yaw = cur + math.Clamp(math.AngleDifference(want, cur), -AIR_FACE_STEP, AIR_FACE_STEP)
@@ -2221,10 +2520,17 @@ local function SetupAI(patrol, entry)
 					return LimitTilt(entry, self, point)
 				end
 
+				-- Враг только что скрылся (в доме, за стеной) — ракеты туда, где его видели; висим на месте
+				if HeliPrefire(entry, self, target) then
+					entry.runActive = false
+					return LimitTilt(entry, self, entry.prefireHold or self:GetPos())
+				end
+				entry.prefireHold = nil
+
 				-- Вертолёт со стрелком держится сбоку, чтобы турель доставала; время от времени — заход
 				-- (по технике — чаще и с ракетами)
-				local gunner = isfunction(self.GetGunnerSeat) and IsValid(self:GetGunnerSeat())
-				local weapons = PILOT_WEAPONS[entry.class]
+				local gunner = isfunction(self.GetGunnerSeat) and IsValid(self:GetGunnerSeat()) and GunnerArmed(entry, self)
+				local weapons = WeaponsOf(entry)
 				-- По технике с ракетами — бить с места, а не заходами: на заходе у холмов и домов
 				-- вертолёт то и дело уходил вверх и нос на цель не наводился (0 ракет за 9 заходов)
 				local hoverRockets = kind == "vehicle" and weapons and weapons.rockets and weapons.rockets.ammo(self)
@@ -2235,14 +2541,23 @@ local function SetupAI(patrol, entry)
 					end
 					FirePilot(self, entry, target, "vehicle", false, true)
 				end
-				if (gunner and IsValid(entry.crew[1]) or hoverRockets) and (hoverRockets or not PilotRun(entry, self)) then
-					entry.airMode = hoverRockets and "rocket attack" or "stand off"
+				-- Бортовые пулемёты (Ми-8) — только круги, без заходов: заход срывал вертолёт с круга
+				local circler = gunner and IsValid(entry.crew[1]) and GUNNER_SIDE[entry.class]
+				if (gunner and IsValid(entry.crew[1]) or hoverRockets) and (hoverRockets or circler or not PilotRun(entry, self)) then
+					-- Бортовые пулемёты — круги вокруг цели бортом к ней (UpdateFacing)
+					local side = not hoverRockets and GUNNER_SIDE[entry.class]
+					entry.airMode = hoverRockets and "rocket attack" or (side and "circle" or "stand off")
 					entry.faceTarget = target
-					local point = StandOffPoint(entry, target, self:GetPos(), hoverRockets and 1800 or 900)
+					local point = StandOffPoint(entry, target, self:GetPos(), hoverRockets and 1800 or 900,
+						not hoverRockets and GUNNER_DOWN[entry.class] or nil, side and ORBIT_STEP or nil)
 					-- Только что уходил от препятствия — пока не снижаемся
 					if entry.holdAltUntil and CurTime() < entry.holdAltUntil and point.z < self:GetPos().z then
 						point = Vector(point.x, point.y, self:GetPos().z)
 					end
+					-- Снижаемся к месту плавно: быстрый спуск «взглядом вперёд» (3 с полёта) упирался в землю —
+					-- уход вверх и снова вниз (Ми-8 на круге — до 2000 над целью, Ми-24 — 450 ↔ 1000), и
+					-- стволы цель то и дело не доставали
+					point = Vector(point.x, point.y, math.max(point.z, self:GetPos().z - 120))
 					return LimitTilt(entry, self, point)
 				end
 
@@ -2277,8 +2592,44 @@ local function SetupAI(patrol, entry)
 	if weapons and weapons.loadouts and isfunction(ent.GetLoadout) and not table.HasValue(weapons.loadouts, ent:GetLoadout()) then
 		ent:SetLoadout(weapons.loadouts[math.random(#weapons.loadouts)])
 	end
-	-- Управляемые ракеты стрелка (Ми-24) — если стрелок будет
-	if isfunction(ent.SetMissiles) and (entry.def.crew or 0) >= 1 then ent:SetMissiles(true) end
+	-- Пак Гордона пишет пули на лётчика: курсовое оружие — на глобальную Driver, которой нет (баг
+	-- аддона), турель — на GetDriver, а у вертолёта с ИИ лётчика нет. Пули были ничьи: урон «от мира»,
+	-- без счёта убийств и мимо «свои своих не бьют». Огонь жмёт и наш лётчик (FirePilot), и сам ИИ
+	-- LFS, поэтому на время любого выстрела лётчик — стрелок (бот экипажа или сама машина)
+	if string.StartWith(entry.class or "", "lfs_grdn_") and not ent.PR_GordonOwner then
+		ent.PR_GordonOwner = true
+		for _, name in ipairs({"PrimaryAttack", "SecondaryAttack", "TurretAttack"}) do
+			local original = ent[name]
+			if isfunction(original) then
+				ent[name] = function(self, ...)
+					local shooter = IsValid(entry.crew[1]) and entry.crew[1] or self
+					local tab = self:GetTable()
+					local own, oldDriver = rawget(tab, "GetDriver"), rawget(_G, "Driver")
+					tab.GetDriver = function() return shooter end
+					rawset(_G, "Driver", shooter)
+					-- Огонь ИИ LFS (нос на цели): пули доводим так же, как у нашего лётчика
+					local assist = not PilotAssist and name ~= "SecondaryAttack" and IsValid(entry.faceTarget)
+					if assist then PilotAssist = {to = TargetPoint(entry.faceTarget), max = BULLET_AIM_ASSIST} end
+					local ok, err = pcall(original, self, ...)
+					if assist then PilotAssist = nil end
+					tab.GetDriver = own
+					rawset(_G, "Driver", oldDriver)
+					if not ok then error(err, 0) end
+				end
+			end
+		end
+	end
+	-- Новые вертолёты LFS (не Гредвича): огонь лётчика — общим способом, подвес — рабочий
+	-- ent.LFS сам LFS ставит только через секунду после появления (таймер «от Гредвича») — сейчас его
+	-- ещё нет, поэтому смотрим на базовый класс. Без этого лётчики паков GD и Гордона не стреляли вовсе
+	local lfs = ent.LFS or scripted_ents.IsBasedOn(ent:GetClass(), "lunasflightschool_basescript")
+	entry.genericWeapons = lfs and not PILOT_WEAPONS[entry.class] and not string.StartWith(entry.class or "", "gred_lfs_") or nil
+	local lfsLoadouts = LFS_LOADOUTS[entry.class]
+	if lfsLoadouts and isfunction(ent.SetLoadout) and not table.HasValue(lfsLoadouts, ent:GetLoadout()) then
+		ent:SetLoadout(lfsLoadouts[math.random(#lfsLoadouts)])
+	end
+	-- Управляемые ракеты стрелка (Ми-24)
+	if isfunction(ent.SetMissiles) then ent:SetMissiles(true) end
 
 	-- Вертолёт появляется в воздухе, а мотор раскручивается несколько секунд — без этого он
 	-- успевает рухнуть. Держим на месте (каждый тик, LFS сам будит физику), пока мотор не заработает
@@ -2611,7 +2962,18 @@ local function WrapGredwitch()
 			end
 
 			local custom, aim = SeatTab.CustomEyeAngles, entry.aimAng
-			local want = vehicle:WorldToLocalAngles(aim)
+			local want
+			if isfunction(custom) then
+				-- У места своя функция прицела (пулемёты командира в новых паках: угол от башни, а не
+				-- от корпуса) — зовём её с подставным стрелком, смотрящим на цель (взгляд в мере
+				-- сиденья, как у самого Гредвича). Раньше её затирали, и такие пулемёты били мимо на
+				-- угол поворота башни
+				local hatch, poseTab = ...
+				local ok, a = pcall(custom, vehicle, seat, SeatTab, AimProxy(ply, seat:LocalToWorldAngles(aim)), hatch, poseTab)
+				want = ok and isangle(a) and a or vehicle:WorldToLocalAngles(aim)
+			else
+				want = vehicle:WorldToLocalAngles(aim)
+			end
 			SeatTab.CustomEyeAngles = function() return Angle(want.p, want.y, want.r) end
 			local ok, result = pcall(getAngles, vehicle, seat, SeatTab, ply, ...)
 			SeatTab.CustomEyeAngles = custom
@@ -2642,9 +3004,35 @@ local function WrapGredwitch()
 			if not IsValid(ply) and istable(filter) and IsValid(filter[1]) and filter[1].PR_PatrolVehicle then
 				ply = filter[1]
 			end
+			if PilotAssist then ang = AssistBullet(pos, ang) end
 			return createBullet(ply, pos, ang, cal, filter, ...)
 		end
 	end
+end
+
+-- Паки GD (Ми-24/28/8) и Гордона (Helicopter Pack #3) ставят турель стрелка (кости, позы) по
+-- взгляду бота: вертолёт:WorldToLocal(сиденье:WorldToLocal(EyeAngles)) — в своих HandleWeapons и
+-- OnTick. Взгляд бота в кресле от углов его команды почти не зависит (по замеру — смотрит туда же,
+-- куда кресло), и турель стояла на упоре: стрелок бил мимо в 100% очередей. Поэтому на время этих
+-- функций EyeAngles ботов экипажа этой машины отдаёт взгляд на цель. Подмена — в таблице Player:
+-- GMod ищет метод игрока сначала там (потом Entity, потом таблица самой сущности)
+local PLAYER_META = FindMetaTable("Player")
+local ENTITY_META = FindMetaTable("Entity")
+
+local function WithCrewEyes(entry, fn, ...)
+	local own = rawget(PLAYER_META, "EyeAngles")
+	local base = own or ENTITY_META.EyeAngles
+	PLAYER_META.EyeAngles = function(ply)
+		if ply.PR_PatrolCrew == entry and entry.aimAng then
+			local seat = ply:GetVehicle()
+			if IsValid(seat) then return seat:LocalToWorldAngles(entry.aimAng) end
+		end
+		return base(ply)
+	end
+	local result = {pcall(fn, ...)}
+	PLAYER_META.EyeAngles = own
+	if not result[1] then error(result[2], 0) end
+	return unpack(result, 2)
 end
 
 -- LFS/LVS со стрелком (Ми-24, AH-1G): турель стреляет в Alt*Attack по взгляду стрелка —
@@ -2653,7 +3041,19 @@ local function WrapLFSGunner(entry)
 	local ent = entry.ent
 	if ent.PR_GunnerWrapped then return end
 	ent.PR_GunnerWrapped = true
+	-- Не Гредвич: турель смотрит, куда настоящий взгляд стрелка (WithCrewEyes выше). Driver тут —
+	-- хозяин пуль и снарядов: подставной объект туда нельзя (gred.CreateShell падал бы на SetOwner)
+	if not string.StartWith(entry.class or "", "gred_lfs_") then
+		for _, name in ipairs({"HandleWeapons", "OnTick"}) do
+			local original = ent[name]
+			if isfunction(original) then
+				ent[name] = function(self, ...) return WithCrewEyes(entry, original, self, ...) end
+			end
+		end
+		return
+	end
 
+	-- Гредвич: турель считает очередь от Driver:EyeAngles() внутри AltPrimaryAttack
 	for _, name in ipairs({"AltPrimaryAttack", "AltSecondaryAttack"}) do
 		local original = ent[name]
 		if isfunction(original) then
@@ -2932,21 +3332,8 @@ local function GunnerMissiles(entry, target)
 			GiveRocketOwner(e, gunner)
 			e.target = body
 			e.targetOffset = body:WorldToLocal(body:WorldSpaceCenter())
-			-- Цель уничтожили, пока ракета летит: её наведение (self.target:LocalToWorld) падало
-			-- каждый тик (×800 ошибок, «аддон создаёт ошибки»). Тогда летит в последнюю точку цели
-			local steer = e.PhysicsUpdate
-			if isfunction(steer) then
-				e.PhysicsUpdate = function(self, phys)
-					local world = game.GetWorld()
-					if self.target ~= world and IsValid(self.target) then
-						self.PR_LastAim = self.target:LocalToWorld(self.targetOffset)
-					elseif self.target ~= world then
-						self.target = world
-						self.targetOffset = self.PR_LastAim or (self:GetPos() + self:GetForward() * 1000)
-					end
-					return steer(self, phys)
-				end
-			end
+			-- Цель уничтожили, пока ракета летит, — наведение не падает (sv_rocket_compat.lua)
+			if PR_GuardMissileGuidance then PR_GuardMissileGuidance(e) end
 		end
 	end
 	if launched > 0 then
