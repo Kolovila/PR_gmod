@@ -1182,6 +1182,93 @@ local function SeatCrew(entry)
 	end
 end
 
+-- Падение снаряда. Пушки бьют до 9000, а снаряд по дороге падает: у Луны своя «гравитация»
+-- в снаряде, у Гредвича — физика с сопротивлением воздуха и пределом скорости движка, так что
+-- формулой не посчитать. Делаем как игрок: смотрим, куда легли свои снаряды. Каждый снаряд
+-- пушки машины патруля ведём в полёте и пишем, на сколько он ниже линии ствола на каждой
+-- дальности (шаг DROP_STEP); целимся выше на столько же. Таблица — на каждый тип снаряда
+local DROP_STEP = 250
+local trackedShells = {}
+
+hook.Add("OnEntityCreated", "PR_PatrolShellDrop", function(ent)
+	local class = ent:GetClass()
+	if class ~= "base_shell" and class ~= "simfphys_tankprojectile" then return end
+	timer.Simple(0, function()
+		if not IsValid(ent) then return end
+		local owner, entry, key = ent:GetOwner(), nil, nil
+		if class == "simfphys_tankprojectile" then
+			entry = IsValid(owner) and owner.PR_PatrolVehicle
+			key = "luna"
+		else
+			if istable(owner) and owner.PR_Real then owner = owner.PR_Real end
+			entry = IsValid(owner) and owner:IsPlayer() and owner.PR_PatrolCrew
+			-- Только пушка (водитель-наводчик), у неё и считается наведение
+			if entry and owner ~= entry.crew[1] then entry = nil end
+			key = tostring(ent.ShellType) .. ":" .. tostring(ent.MuzzleVelocity)
+		end
+		if not (istable(entry) and entry.kind == "ground") then return end
+		entry.shellKey = key
+		-- Куда на самом деле смотрел ствол: снаряд вылетает по нему. У части танков Гредвича ствол
+		-- стоит со сдвигом от угла, который Гредвич считает «встал на цель» (Leopard 2A6: на 0,6°
+		-- выше — на 7000 снаряды шли над головой). Подправляем угол наполовину ошибки за выстрел.
+		-- У Луны то же делает aimFix по прицелу — там не дублируем
+		if class == "base_shell" and entry.desiredAng and IsValid(entry.ent) and entry.ent:GetUp().z > 0.9 then
+			local got = ent:GetForward():Angle()
+			local fix = entry.shellFix or Angle(0, 0, 0)
+			local dp = math.AngleDifference(entry.desiredAng.p, got.p)
+			local dy = math.AngleDifference(entry.desiredAng.y, got.y)
+			if math.abs(dp) < 5 and math.abs(dy) < 5 then
+				entry.shellFix = Angle(math.Clamp(fix.p + dp * 0.5, -5, 5), math.Clamp(fix.y + dy * 0.5, -5, 5), 0)
+			end
+		end
+		trackedShells[#trackedShells + 1] = {entry = entry, ent = ent, key = key, start = ent:GetPos(),
+			dir = ent:GetForward(), born = CurTime()}
+	end)
+end)
+
+hook.Add("Think", "PR_PatrolShellDrop", function()
+	if #trackedShells == 0 then return end
+	local now = CurTime()
+	for i = #trackedShells, 1, -1 do
+		local s = trackedShells[i]
+		if not IsValid(s.ent) or now - s.born > 6 then
+			table.remove(trackedShells, i)
+		else
+			local pos = s.ent:GetPos()
+			local flat = math.sqrt((pos.x - s.start.x) ^ 2 + (pos.y - s.start.y) ^ 2)
+			local dirFlat = math.sqrt(s.dir.x ^ 2 + s.dir.y ^ 2)
+			if flat > DROP_STEP * 0.5 and dirFlat > 0.1 then
+				local drop = s.start.z + s.dir.z / dirFlat * flat - pos.z
+				local tables = s.entry.dropTables or {}
+				s.entry.dropTables = tables
+				local tab = tables[s.key] or {}
+				tables[s.key] = tab
+				local b = math.Round(flat / DROP_STEP)
+				tab[b] = tab[b] and (tab[b] * 0.5 + drop * 0.5) or drop
+			end
+		end
+	end
+end)
+
+-- На сколько поднять точку прицела для дальности dist (0 — пока не знаем или стреляем пулями)
+local function ShellDrop(entry, dist)
+	local tab = entry.shellKey and entry.dropTables and entry.dropTables[entry.shellKey]
+	if not tab then return 0 end
+	local b = dist / DROP_STEP
+	local lo = math.floor(b)
+	if tab[lo] and tab[lo + 1] then
+		return math.max(0, Lerp(b - lo, tab[lo], tab[lo + 1]))
+	end
+	-- Так далеко ещё не стреляли — по самой дальней замеренной точке, падение растёт как квадрат
+	for m = math.min(lo, 60), 1, -1 do
+		if tab[m] then
+			local d = m * DROP_STEP
+			return math.Clamp(tab[m] / (d * d) * dist * dist, 0, dist * 0.3)
+		end
+	end
+	return 0
+end
+
 -- Куда смотреть боту: на врага. Огонь — когда враг виден и башня успела довернуться
 local function CrewAim(entry, target)
 	if not IsValid(target) then
@@ -1243,7 +1330,14 @@ local function CrewAim(entry, target)
 	end
 	-- Точка, куда целимся: стрелки на других местах (пулемёт командира) считают угол от своего ствола
 	entry.aimPoint = to
-	local desired = (to - from):Angle()
+	-- Пушка наземки — выше на падение снаряда (стрелки других мест бьют пулями по aimPoint)
+	local aimTo = to
+	if entry.kind == "ground" then
+		local drop = ShellDrop(entry, math.sqrt((to.x - from.x) ^ 2 + (to.y - from.y) ^ 2))
+		if drop > 0 then aimTo = to + Vector(0, 0, drop) end
+		entry.shellDropNow = drop
+	end
+	local desired = (aimTo - from):Angle()
 	-- Танки Луны и паки на её основе стреляют туда, куда смотрит точка крепления прицела, а она у
 	-- некоторых моделей стоит со сдвигом от того, куда башню поворачивают (БТР-80: 9–11°, одно
 	-- попадание из 182). Игрок видит прицел и поправляется сам; бот — так же: когда башня
@@ -1270,9 +1364,12 @@ local function CrewAim(entry, target)
 				0)
 		end
 	end
+	entry.desiredAng = desired
 	entry.aimAng = entry.aimFix and (desired + entry.aimFix) or desired
+	if entry.shellFix then entry.aimAng = entry.aimAng + entry.shellFix end
 	-- Насколько можно промахнуться углом: цель ~70 юнитов (на 1000 — 4°, на 3000 — 1.3°)
-	entry.aimTolerance = math.Clamp(math.deg(math.atan(70 / math.max(from:Distance(to), 1))), 0.6, 4)
+	-- На 9000 цель — меньше полуградуса: нижний предел 0.3 (было 0.6 — на 7000 «встал» с промахом в рост)
+	entry.aimTolerance = math.Clamp(math.deg(math.atan(70 / math.max(from:Distance(to), 1))), 0.3, 4)
 
 	if entry.aimTarget ~= target then
 		entry.aimTarget = target
@@ -1291,7 +1388,8 @@ local function CrewAim(entry, target)
 	local turned = CurTime() - (entry.aimSince or CurTime()) > (entry.kind == "ground" and 2 or 3) or entry.ent.sm_pp_yaw ~= nil
 		or (entry.kind == "ground" and entry.gredAligned ~= nil)
 	entry.fire = clear and turned
-	entry.aimDebug = string.format("see=%s%s%s turned=%s", tostring(visible ~= nil), prefire and " prefire" or "", blocker and ("(" .. blocker .. ")") or "", tostring(turned))
+	entry.aimDebug = string.format("see=%s%s%s turned=%s%s", tostring(visible ~= nil), prefire and " prefire" or "", blocker and ("(" .. blocker .. ")") or "", tostring(turned),
+		(entry.shellDropNow or 0) > 0 and string.format(" drop=%d", entry.shellDropNow) or "")
 end
 
 hook.Add("StartCommand", "PR_PatrolCrew", function(ply, cmd)
@@ -3197,6 +3295,8 @@ local function WrapGredwitch()
 					math.Clamp(fix.p + math.AngleDifference(want.p, ang.p) * 0.2, -10, 10),
 					math.Clamp(fix.y + math.AngleDifference(want.y, ang.y) * 0.2, -10, 10), 0)
 			end
+			-- Пушка перешла на пулемёт/автопушку (пули летят прямо): поправка на падение снаряда не нужна
+			if crew and ply == crew.crew[1] then crew.shellKey = nil end
 			if PilotAssist then ang = AssistBullet(pos, ang) end
 			return createBullet(ply, pos, ang, cal, filter, ...)
 		end
@@ -3282,15 +3382,12 @@ local DriveTo
 local GROUND_HUNT_TIME = 25  -- сколько секунд ищем скрывшегося врага там, где видели последним
 local GROUND_LEASH = 3000    -- дальше от своего патруля не уезжаем
 
--- Докуда машина бьёт прицельно: пушка — 6000, автопушка (20–40 мм) — 4500, пулемёт — 3000
+-- Докуда машина бьёт: всё, что видит (GROUND_SIGHT). По исходникам оружие всех паков летит
+-- дальше: пули Гредвича — по прямой без предела, пулемёты Луны — луч на 50000, снаряды Луны
+-- живут 12 с (~160000), снаряды Гредвича — физика без срока. Падение снаряда на такой дальности
+-- выбирает ShellDrop. Если появится оружие с пределом дальности — ограничить здесь
 local function GroundRange(v)
-	local weapons = GredWeapons(v)
-	local main = weapons and weapons.main
-	if not main then return 3500 end
-	if main.type == "Cannon" or main.type == "Custom" then return 6000 end
-	local cal = tostring(main.caliber or "")
-	if cal:find("20mm", 1, true) or cal:find("30mm", 1, true) or cal:find("40mm", 1, true) then return 4500 end
-	return 3000
+	return GROUND_SIGHT
 end
 
 -- Есть ли у машины чем стрелять (грузовик и УАЗ — нечем: в бою не встают, идут с патрулём)

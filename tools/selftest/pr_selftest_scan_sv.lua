@@ -45,12 +45,14 @@ local AIRFIX = {"gd_lfs_mi8mtv", "gd_lfs_mi8t2", "gd_lfs_mi8t1"}
 -- debugaim: один вертолёт со стрелком и подробный журнал наведения
 local AIMDEBUG = {"gd_lfs_mi8amtsh", "gd_lfs_mi24v"}
 local GROUNDDEBUG = {"simfphys_btr80", "gred_simfphys_marder1a1_ifv_custom"}
+-- long: цель в 5000–7000 — пушки Гредвича и Луны, поправка на падение снаряда (ShellDrop)
+local LONG = {"gred_simfphys_t72b3_custom", "gred_simfphys_leopard2a6_custom", "sim_fphys_tank", "simfphys_btr80a"}
 
 -- Что гонять: air / ground (или всё) и половина списка: 1 — нечётные, 2 — чётные (две копии игры);
 -- fix / airfix — ещё и список FIX / AIRFIX целиком (без деления на половины)
 local only = T.only or {}
 local LIST = {}
-local anyList = only["air"] or only["ground"] or only["fix"] or only["airfix"] or only["debugaim"] or only["debugground"]
+local anyList = only["air"] or only["ground"] or only["fix"] or only["airfix"] or only["debugaim"] or only["debugground"] or only["long"]
 if only["air"] or not anyList then for _, c in ipairs(AIR) do LIST[#LIST + 1] = c end end
 if only["ground"] or not anyList then for _, c in ipairs(GROUND) do LIST[#LIST + 1] = c end end
 local part = only["2"] and 0 or (only["1"] and 1 or nil)
@@ -65,6 +67,7 @@ if only["fix"] then for _, c in ipairs(FIX) do CLASSES[#CLASSES + 1] = c end end
 if only["airfix"] then for _, c in ipairs(AIRFIX) do CLASSES[#CLASSES + 1] = c end end
 if only["debugaim"] then for _, c in ipairs(AIMDEBUG) do CLASSES[#CLASSES + 1] = c end end
 if only["debugground"] then for _, c in ipairs(GROUNDDEBUG) do CLASSES[#CLASSES + 1] = c end end
+if only["long"] then for _, c in ipairs(LONG) do CLASSES[#CLASSES + 1] = c end end
 
 T.section("common")
 
@@ -172,6 +175,17 @@ step(0, function()
 		if not e.PR_ScanMine then return end
 		local d = e:GetPos():Distance(S.b1:GetPos())
 		c.missN, c.missSum, c.missMin = c.missN + 1, c.missSum + d, math.min(c.missMin, d)
+		-- long: где разорвался снаряд и что там (снаряд Leopard рвался в 1500 от танка)
+		if only["long"] and IsValid(c.ent) then
+			local pos, vel = e:GetPos(), e:GetVelocity()
+			local tr = util.TraceLine({start = pos - vel * 0.05, endpos = pos + vel * 0.05, filter = e})
+			local near = {}
+			for _, n in ipairs(ents.FindInSphere(pos, 150)) do
+				if n ~= e and #near < 4 then near[#near + 1] = n:GetClass() end
+			end
+			log(string.format("SHELL END %s from tank %d to target %d h=%d hit=%s near=%s", c.class, pos:Distance(c.ent:GetPos()), d,
+				pos.z - c.ent:GetPos().z, tostring(tr.Entity), table.concat(near, ",")))
+		end
 	end)
 	hook.Add("EntityTakeDamage", "PR_SelftestScan", function(victim, dmg)
 		if not (S.cur and victim == S.b1) then return end
@@ -208,7 +222,7 @@ step(0, function()
 		c.crewMax = math.max(c.crewMax, crew)
 
 		-- debugaim: раз в секунду — куда смотрит стрелок, куда хотим и куда смотрит ствол
-		if (only["debugaim"] or only["debugground"]) and CurTime() > (c.nextAimLog or 0) then
+		if (only["debugaim"] or only["debugground"] or only["long"]) and CurTime() > (c.nextAimLog or 0) then
 			c.nextAimLog = CurTime() + 1
 			local en = c.entry
 			-- Наземка: куда просим, куда смотрит ствол (по прицелу аддона), где башня, поправка
@@ -461,6 +475,9 @@ for _, class in ipairs(CLASSES) do
 		-- far: цель далеко (дальше, чем бьёт пулемёт) — проверяем, подъедет ли машина на дальность огня
 		local p = air and (T.openPointNear(PR_Patrol.Center(patrol) or e:GetPos()) or e:GetPos())
 			or (only["far"] and (T.openFirePoint(e:GetPos(), 4500) or T.openFirePoint(e:GetPos(), 3800)))
+			-- long без открытой дальней точки — цель вплотную к машине (а не за домом в 900, как было у Tiger)
+			or (only["long"] and (T.openFirePoint(e:GetPos(), 7000) or T.openFirePoint(e:GetPos(), 6000) or T.openFirePoint(e:GetPos(), 5000)
+				or T.openFirePoint(e:GetPos(), 600) or e:GetPos() + e:GetForward() * 500))
 			or (T.openFirePoint(e:GetPos(), 1200) or T.openFirePoint(e:GetPos(), 900) or e:GetPos() + Vector(900, 0, 0))
 		S.b1:SetPos(p + Vector(0, 0, 5))
 		S.b1Pos = p + Vector(0, 0, 5)
@@ -495,7 +512,7 @@ for _, class in ipairs(CLASSES) do
 		end)
 	end
 
-	step(PREFIRE and (air and 22 or 14) or (air and 35 or 25), function()
+	step(PREFIRE and (air and 22 or 14) or (air and 35 or (only["long"] and 40 or 25)), function()
 		local c = S.cur
 		if not c then return end
 		for _, plate in ipairs(S.box or {}) do if IsValid(plate) then plate:Remove() end end
@@ -519,6 +536,16 @@ for _, class in ipairs(CLASSES) do
 		if IsValid(e) and IsValid(S.b1) then
 			extra = extra .. string.format(" | dist to target %d -> %d", c.dist0 or -1, Vector(e:GetPos().x - S.b1:GetPos().x, e:GetPos().y - S.b1:GetPos().y, 0):Length())
 		end
+		-- Замер падения снаряда: тип → дальность:падение (через 1000)
+		for key, tab in pairs(c.entry.dropTables or {}) do
+			local parts = {}
+			for b = 4, 40, 4 do
+				if tab[b] then parts[#parts + 1] = string.format("%d:%d", b * 250, tab[b]) end
+			end
+			extra = extra .. string.format(" | DROP %s %s", key, table.concat(parts, " "))
+		end
+		if c.entry.shellDropNow then extra = extra .. string.format(" | aim drop now %d", c.entry.shellDropNow) end
+		if c.entry.shellFix then extra = extra .. string.format(" | barrel fix %.2f %.2f", c.entry.shellFix.p, c.entry.shellFix.y) end
 		log(string.format("SCAN %s | %s | alive=%s crew=%d/%d | moved=%d maxH=%d minUp=%.2f | bullets=%d cannon=%d hitscan=%d proj=%d%s ammo=%s | hits=%d | aim(avg/min)=%s miss(avg/min)=%s instant=%d calls=P%d/S%d | states=%s | errors=%s",
 			c.class, tostring(c.kind), tostring(alive), c.crewMax, c.seats, c.moved, c.maxH, c.minUp,
 			c.bullets, c.cannon, c.hitscan, c.proj, next(c.projClass) and "(" .. table.concat(table.GetKeys(c.projClass), ",") .. ")" or "",

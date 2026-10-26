@@ -37,6 +37,7 @@ $Suites = @{
     scanplain = @('pr_selftest_scan_sv.lua', 'plain')   # a few vehicles spawned the normal way + screenshots
     scanfixshots = @('pr_selftest_scan_sv.lua', 'fix shots')   # ground recheck list (FIX) + screenshots and wheel state
     scanfar = @('pr_selftest_scan_sv.lua', 'fix far')   # FIX list, target 4500 away: does the vehicle close in
+    scanlong = @('pr_selftest_scan_sv.lua', 'long')   # cannons vs a target 5000-7000 away: shell drop correction (DROP ...)
     scanfarshots = @('pr_selftest_scan_sv.lua', 'fix far shots')   # the same + screenshots and wheel state   # one gunner helicopter, aim log every second
     scanprefireair = @('pr_selftest_scan_sv.lua', 'airfix prefire')   # changed helicopters; target hides in a box after 18 s
     scanfixground = @('pr_selftest_scan_sv.lua', 'fix')   # ground recheck list (FIX) without hiding the target
