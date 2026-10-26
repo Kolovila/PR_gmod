@@ -36,7 +36,7 @@ local GROUND = {
 
 -- Перепроверка после правок: машины, у которых что-то было не так, и одна Луны со стрелком
 local FIX = {
-	"gred_simfphys_t72b3_custom", "gred_simfphys_bmp2_custom", "sim_fphys_m_atv_mg", "simfphys_btr80",
+	"sim_fphys_m_atv_mg", "gred_simfphys_sdkfz221_custom",
 }
 
 -- Вертолёты для перепроверки после правок: Ми-8 с бортовыми пулемётами (круги), Ми-24П (пушка лётчика),
@@ -254,6 +254,22 @@ step(0, function()
 			end
 		end
 
+		-- far: журнал езды раз в 2 с — расстояние до цели, видно ли её, что решил водитель
+		if only["far"] and c.kind == "ground" and IsValid(S.b1) and CurTime() > (c.nextDriveLog or 0) then
+			c.nextDriveLog = CurTime() + 2
+			local en = c.entry
+			local keys = e.PressedKeys or {}
+			local slope = e:GetForward():Angle().p
+			log(string.format("DRIVE %s dist=%d seenAgo=%s hunt=%s state=%s speed=%d fwd=%s keys=%s%s%s brake=%s hb=%s friction=%s hbp=%s gear=%s rpm=%s throttle=%s slope=%.0f", c.class,
+				Vector(e:GetPos().x - S.b1:GetPos().x, e:GetPos().y - S.b1:GetPos().y, 0):Length(),
+				en.seenAt and string.format("%.1f", CurTime() - en.seenAt) or "-", tostring(en.huntUntil and en.huntUntil > CurTime()),
+				tostring(en.driveState), e:GetVelocity():Length(), tostring(e.ForwardSpeed and math.Round(e.ForwardSpeed)),
+				keys.W and "W" or "-", keys.S and "S" or "-", keys.Space and "_" or "-",
+				tostring(e.Brake and math.Round(e.Brake)), tostring(e.HandBrake and math.Round(e.HandBrake)), tostring(e.PhysicsEnabled),
+				tostring(e.HandBrakePower and math.Round(e.HandBrakePower)), tostring(e.CurrentGear), tostring(e.EngineRPM and math.Round(e.EngineRPM)),
+				tostring(isfunction(e.GetThrottle) and math.Round(e:GetThrottle(), 2)), slope))
+		end
+
 		-- Камера наблюдателя (pr_selftest_cl.lua): за какой машиной лететь и что писать сверху
 		if IsValid(S.host) then
 			net.Start("PR_SELFTEST_WATCH")
@@ -276,6 +292,24 @@ step(0, function()
 		S.host:ChatPrint("Камера летит за техникой: мышь — вращать, колёсико — ближе/дальше. pr_scan_cam в консоли — свободный полёт (V — noclip)")
 	end
 end)
+
+-- Два снимка машины: сбоку и сверху-сзади (как видит игрок рядом)
+local function TwoShots(ent, name)
+	if not (IsValid(ent) and IsValid(S.host)) then return end
+	S.host:SetEyeAngles(Angle(12, ent:GetAngles().y + 90, 0))
+	timer.Simple(0.5, function()
+		if not IsValid(S.host) then return end
+		net.Start("PR_SELFTEST_SHOT") net.WriteString(name .. "_side") net.Send(S.host)
+		timer.Simple(0.5, function()
+			if not (IsValid(S.host) and IsValid(ent)) then return end
+			S.host:SetEyeAngles(Angle(35, ent:GetAngles().y + 30, 0))
+			timer.Simple(0.5, function()
+				if not IsValid(S.host) then return end
+				net.Start("PR_SELFTEST_SHOT") net.WriteString(name .. "_top") net.Send(S.host)
+			end)
+		end)
+	end)
+end
 
 -- Состояние колёс simfphys: повреждено ли, есть ли видимая модель колеса и как она нарисована
 local function WheelState(veh)
@@ -315,13 +349,12 @@ if only["plain"] then
 				net.WriteString("")
 			net.Send(S.host)
 		end)
-		step(6, function()
+		step(1, function() TwoShots(S.plain, "plain2s_" .. class) end)
+		step(5, function()
 			log("WHEELS plain " .. class .. " " .. WheelState(S.plain))
-			if IsValid(S.plain) then S.host:SetEyeAngles(Angle(12, S.plain:GetAngles().y + 90, 0)) end
-			net.Start("PR_SELFTEST_SHOT")
-				net.WriteString("plain_" .. class)
-			net.Send(S.host)
+			TwoShots(S.plain, "plain8s_" .. class)
 		end)
+		step(3, function() end)
 		-- Тот же обычный спавн, но с водителем-ботом и заведённым мотором (как у патруля)
 		step(1, function()
 			if not IsValid(S.plain) then return end
@@ -334,11 +367,33 @@ if only["plain"] then
 		end)
 		step(6, function()
 			log("WHEELS plaindriver " .. class .. " " .. WheelState(S.plain))
-			if IsValid(S.plain) then S.host:SetEyeAngles(Angle(12, S.plain:GetAngles().y + 90, 0)) end
-			net.Start("PR_SELFTEST_SHOT")
-				net.WriteString("plaindriver_" .. class)
-			net.Send(S.host)
+			TwoShots(S.plain, "plaindriver_" .. class)
 		end)
+		step(3, function()
+			-- Как в бою у патруля: ручник каждый тик (PressedKeys.Space)
+			hook.Add("Think", "PR_SelftestPlainKeys", function()
+				if not IsValid(S.plain) then return end
+				S.plain.PressedKeys = S.plain.PressedKeys or {}
+				S.plain.PressedKeys["Space"] = true
+			end)
+		end)
+		step(6, function()
+			TwoShots(S.plain, "plainbrake_" .. class)
+		end)
+		step(3, function()
+			hook.Remove("Think", "PR_SelftestPlainKeys")
+			if IsValid(S.plain) then
+				-- Не {}: там и служебные клавиши джойстика, без них simfphys падает в руле
+				S.plain.PressedKeys["Space"] = false
+				S.plain:SetNWBool("TurretSafeMode", false)
+				S.plain.ForceTransmission = 1
+				if isfunction(S.plain.StartEngine) then S.plain:StartEngine() end
+			end
+		end)
+		step(6, function()
+			TwoShots(S.plain, "plainengine_" .. class)
+		end)
+		step(3, function() end)
 		step(1, function()
 			if IsValid(S.plainBot) then S.plainBot:Kick("plain test") end
 			if IsValid(S.plain) then S.plain:Remove() end
@@ -370,17 +425,14 @@ for _, class in ipairs(CLASSES) do
 		local e = entry.ent
 		-- shots: снимок машины, когда камера уже рядом (видно, все ли колёса и детали на месте)
 		if only["shots"] then
-			timer.Simple(6, function()
+			-- Сразу после появления и через 8 с
+			timer.Simple(2, function()
+				if S.cur and S.cur.ent == e then TwoShots(e, "scan2s_" .. class) end
+			end)
+			timer.Simple(8, function()
 				if not (IsValid(S.host) and S.cur and S.cur.ent == e) then return end
 				log("WHEELS patrol " .. class .. " " .. WheelState(e))
-				-- Ракурс строго сбоку, как у снимка обычного спавна
-				S.host:SetEyeAngles(Angle(12, e:GetAngles().y + 90, 0))
-				timer.Simple(0.5, function()
-					if not IsValid(S.host) then return end
-					net.Start("PR_SELFTEST_SHOT")
-						net.WriteString("scan_" .. class)
-					net.Send(S.host)
-				end)
+				TwoShots(e, "scan8s_" .. class)
 			end)
 		end
 		-- Сколько раз ИИ нажал огонь лётчика (PrimaryAttack/SecondaryAttack самой машины)

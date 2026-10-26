@@ -1376,6 +1376,21 @@ local function VehicleFits(p, used, yaw, full)
 	return spot
 end
 
+-- На какой высоте над землёй ставить машину simfphys. Меню спавна ставит на 25 + SpawnOffset из
+-- описания машины, а патруль ставил на 20: у Sd.Kfz.221 колёса на 15 ниже центра и радиусом 18 —
+-- появлялись в земле и проваливались, корпус ложился на дорогу (колёс не видно) и машина не ехала
+local function SimfphysSpawnHeight(class)
+	local data = list.Get("simfphys_vehicles")[class]
+	if not istable(data) then return 25 end
+	local height = 25 + (isvector(data.SpawnOffset) and data.SpawnOffset.z or 0)
+	local m = istable(data.Members) and data.Members or {}
+	local radius = math.max(tonumber(m.FrontWheelRadius) or 0, tonumber(m.RearWheelRadius) or 0)
+	for _, key in ipairs({"CustomWheelPosFL", "CustomWheelPosFR", "CustomWheelPosRL", "CustomWheelPosRR", "CustomWheelPosML", "CustomWheelPosMR"}) do
+		if isvector(m[key]) then height = math.max(height, radius - m[key].z + 10) end
+	end
+	return math.min(height, 120)
+end
+
 -- Место для машины: сперва на линиях к соседним спотам (это проверенные проходимые улицы,
 -- машина встаёт вдоль улицы; пробуем и чуть в сторону — к середине улицы), потом — где
 -- получится вокруг спота. Сначала ищем место на весь корпус, и только если его нет — потеснее
@@ -1555,6 +1570,8 @@ local GUNNER_DOWN = {
 -- Бортовые пулемёты (Ми-8 GD): стрелки сидят в дверях, ствол ходит на ±23–30° от борта — носом к
 -- цели ни один не достаёт. Такие вертолёты кружат вокруг цели против часовой, левым бортом к ней
 -- (левая дверь берёт цель на +90° от носа). Значение — на сколько градусов от носа держать цель
+-- (Транспортные Ми-8 пробовали водить заходами, как вертолёт без стрелка: в городе заход упирался
+-- в дома, НУРы не шли — попаданий не больше, чем с круга, 0–13 за вылет. Оставили круг.)
 local GUNNER_SIDE = {gd_lfs_mi8amtsh = 90, gd_lfs_mi8mtv = 90, gd_lfs_mi8t1 = 90, gd_lfs_mi8t2 = 90}
 -- Точка круга — на столько градусов впереди вертолёта, радиус круга — не больше ORBIT_MAX. Круг
 -- в 2800 с точкой на 35° впереди вертолёт проходил на ~570: на склонах то и дело «препятствие
@@ -2772,7 +2789,7 @@ function PR_Patrol.SpawnVehicles(patrol, spot, infantry)
 				local pos, yaw = VehicleSpotNear(spot, used)
 				if pos then
 					table.insert(used, pos)
-					local veh = simfphys.SpawnVehicleSimple(class, pos + Vector(0, 0, 20), Angle(0, yaw, 0))
+					local veh = simfphys.SpawnVehicleSimple(class, pos + Vector(0, 0, SimfphysSpawnHeight(class)), Angle(0, yaw, 0))
 					if IsValid(veh) then entry.ent = veh end
 				end
 			elseif kind == "air" or kind == "aiground" then
@@ -2991,6 +3008,21 @@ local function SetKeys(veh, w, s, a, d, brake)
 	veh.PressedKeys["A"] = a
 	veh.PressedKeys["D"] = d
 	veh.PressedKeys["Space"] = brake
+end
+
+-- Встать на месте: ручник, а на скорости больше 80 — ещё и тормоз (S; медленнее simfphys с
+-- автоматом тормоз сам сбрасывает и ставит нейтраль). Раньше только ручник: M-ATV на 600 юзом
+-- прокатывался мимо цели на 1500.
+-- Силу ручника simfphys считает, когда в машину садится водитель, и только если машина к этому
+-- времени готова (OnActiveChanged). Боты патруля садятся сразу после появления — раньше, и у машин
+-- Луны (M-ATV, БТР-80, «Тигр») ручник оставался нулевым: встав на 2100, M-ATV катился на 70 ещё
+-- 1200 к цели. У машин Гредвича сила своя (CachedHandBrakePower), их не трогаем
+local function Halt(veh)
+	if (veh.HandBrakePower or 0) <= 0 and not veh.CachedHandBrakePower and isfunction(veh.IsInitialized) and veh:IsInitialized()
+		and isfunction(veh.GetMaxTraction) and isfunction(veh.GetTractionBias) then
+		veh.HandBrakePower = veh:GetMaxTraction() + 20 - veh:GetTractionBias() * veh:GetMaxTraction()
+	end
+	SetKeys(veh, false, (veh.ForwardSpeed or 0) > 80, false, false, true)
 end
 
 -- simfphys armed наводит пушки по взгляду водителя/стрелка (ply:EyeAngles()), но в машине
@@ -3477,13 +3509,13 @@ local function DriveGround(patrol, v)
 	local fightGoal, fightLabel = GroundFightGoal(patrol, v, veh, target)
 	if fightGoal == true then
 		v.driveState = "fight"
-		SetKeys(veh, false, false, false, false, true)
+		Halt(veh)
 		v.stuckSince = nil
 		return
 	elseif fightGoal then
 		if FlatDist(veh:GetPos(), fightGoal) < 250 then
 			v.driveState = fightLabel .. ": on place"
-			SetKeys(veh, false, false, false, false, true)
+			Halt(veh)
 			v.stuckSince = nil
 			return
 		end
@@ -3494,7 +3526,7 @@ local function DriveGround(patrol, v)
 	local center = PR_Patrol.Center(patrol)
 	if not center then
 		v.driveState = "no patrol"
-		SetKeys(veh, false, false, false, false, true)
+		Halt(veh)
 		return
 	end
 
@@ -3509,12 +3541,60 @@ local function DriveGround(patrol, v)
 	local dist = FlatDist(pos, goal)
 	if dist < 220 then
 		v.driveState = ahead and "in place ahead" or "in place behind"
-		SetKeys(veh, false, false, false, false, true)
+		Halt(veh)
 		v.stuckSince = nil
 		return
 	end
 
 	DriveTo(patrol, v, veh, goal, ahead and "lead" or "follow")
+end
+
+-- Объезд препятствий: карта без навигации, а ехали строго на точку — в городе машина упиралась в
+-- стену и только через 4 с сдавала назад (M-ATV по пути к цели накатал 7500). Четыре раза в
+-- секунду пробуем полосу шириной с машину на 250–900 вперёд: прямо на цель, затем ±25…100°, и
+-- рулим в ближайшую свободную. Склон (поверхность смотрит вверх) — не препятствие
+local AVOID_OFFSETS = {25, -25, 50, -50, 75, -75, 100, -100}
+
+local function AvoidHeading(v, veh, wantYaw, speed)
+	local now = CurTime()
+	if v.avoidAt and now < v.avoidAt and v.avoidGoalYaw and math.abs(math.AngleDifference(v.avoidGoalYaw, wantYaw)) < 20 then
+		return wantYaw + (v.avoidOffset or 0)
+	end
+	v.avoidAt, v.avoidGoalYaw = now + 0.25, wantYaw
+
+	local mins, maxs = veh:OBBMins(), veh:OBBMaxs()
+	local half = math.Clamp(math.min(maxs.x - mins.x, maxs.y - mins.y) * 0.4, 30, 90)
+	local origin = veh:WorldSpaceCenter() + Vector(0, 0, 20)
+	local length = math.Clamp(250 + speed * 1.5, 350, 900)
+	local function filter(e)
+		if e == veh or e:GetParent() == veh or e:IsPlayer() or e:IsNPC() then return false end
+		return e:GetClass() ~= "gmod_sent_vehicle_fphysics_wheel"
+	end
+	local function Free(off)
+		local dir = Angle(0, wantYaw + off, 0):Forward()
+		local tr = util.TraceHull({start = origin, endpos = origin + dir * length, mins = Vector(-half, -half, -10), maxs = Vector(half, half, 30), filter = filter, mask = MASK_SOLID})
+		if tr.StartSolid then return 0 end
+		if tr.Hit and tr.HitNormal.z > 0.6 then return 1 end
+		return tr.Fraction
+	end
+
+	-- Прямо на цель свободно — едем прямо; иначе прежний объезд, если всё ещё свободен; иначе ищем
+	local best, bestFree = 0, Free(0)
+	if bestFree < 0.95 then
+		local order = {}
+		if v.avoidOffset and v.avoidOffset ~= 0 then order[1] = v.avoidOffset end
+		for _, off in ipairs(AVOID_OFFSETS) do order[#order + 1] = off end
+		for _, off in ipairs(order) do
+			local free = Free(off)
+			if free > 0.95 then
+				best, bestFree = off, free
+				break
+			end
+			if free > bestFree + 0.05 then best, bestFree = off, free end
+		end
+	end
+	v.avoidOffset = best
+	return wantYaw + best
 end
 
 -- Ехать к goal: застряли — сдаём назад, свои пешие на пути — ждём, иначе рулим. label — в журнал
@@ -3554,20 +3634,30 @@ function DriveTo(patrol, v, veh, goal, label)
 			d.z = 0
 			if d:LengthSqr() < 300 * 300 and heading:Dot(d:GetNormalized()) > 0.3 then
 				v.driveState = "infantry in the way"
-				SetKeys(veh, false, false, false, false, true)
+				Halt(veh)
 				v.stuckSince = nil
 				return
 			end
 		end
 	end
 
+	-- Вперёд — с объездом стен и домов (задним ходом едем только к близкой точке, там без него)
+	if not reverse then
+		local steer = AvoidHeading(v, veh, (goal - pos):Angle().y, speed)
+		yaw = math.AngleDifference(steer, forward:Angle().y)
+	end
 	local turnLeft, turnRight = yaw > 8, yaw < -8
-	v.driveState = string.format("%s %s, goal %d, turn %d", reverse and "reverse" or "forward", label, dist, yaw)
+	v.driveState = string.format("%s %s, goal %d, turn %d%s", reverse and "reverse" or "forward", label, dist, yaw,
+		(not reverse and (v.avoidOffset or 0) ~= 0) and (", avoid " .. v.avoidOffset) or "")
 	if reverse then
 		-- Цель позади: разворачиваемся задним ходом
 		SetKeys(veh, false, true, turnRight, turnLeft, false)
 	else
-		SetKeys(veh, true, false, turnLeft, turnRight, false)
+		-- К точке на большой скорости — тормозим заранее, а не проскакиваем её
+		local fwd = veh.ForwardSpeed or 0
+		local slow = fwd > 300 and dist < fwd * 0.8
+		if slow then v.driveState = v.driveState .. ", slowing" end
+		SetKeys(veh, not slow, slow, turnLeft, turnRight, false)
 	end
 end
 
