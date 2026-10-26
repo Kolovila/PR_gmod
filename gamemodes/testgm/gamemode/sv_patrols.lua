@@ -888,6 +888,12 @@ end
 --   aiground (LVS наземная): едет своим ИИ за патрулём, бот — стрелком.
 
 local VEHICLE_RANGE = 6000 -- дальше врагов не ищем
+-- Наземка видит дальше: карта 30000 в поперечнике, и на 6000 танк не замечал врага, который уже
+-- бил по нему. Огонь всё равно ведут только по видимому, а подъезжают на свою дальность (GroundRange)
+local GROUND_SIGHT = 9000
+-- Сколько башня ещё смотрит туда, где врага видели последний раз (а не разворачивается по ходу):
+-- раньше через 4 с после потери цели башня уходила вперёд, и вернувшегося врага докручивала заново
+local GROUND_WATCH_TIME = 30
 
 -- Префайр: враг только что скрылся (зашёл в дом, за стену) — бьём туда, где его видели последний
 -- раз: экипаж — ещё PREFIRE_TIME секунд, лётчик вертолёта — ракетами (до PREFIRE_ROCKETS на одно
@@ -985,7 +991,8 @@ local function VisiblePoint(from, target, shooter)
 	return nil, tr and string.format("%s@%d", tostring(tr.Entity), from:Distance(tr.HitPos))
 end
 
-function PR_Patrol.VehicleTarget(entry, from, range)
+-- memory — сколько секунд помнить скрывшегося врага (по умолчанию 4)
+function PR_Patrol.VehicleTarget(entry, from, range, memory)
 	-- Для автотеста: forceTarget — бить только его, ignoreTargets — никого не искать
 	if IsValid(entry.forceTarget) then return entry.forceTarget end
 	if entry.ignoreTargets then return nil end
@@ -993,7 +1000,6 @@ function PR_Patrol.VehicleTarget(entry, from, range)
 		if IsValid(entry.target) then return entry.target end
 		return nil
 	end
-	entry.targetAt = CurTime() + 1
 
 	local best, bestD = nil, range * range
 	local function Consider(ent)
@@ -1020,13 +1026,17 @@ function PR_Patrol.VehicleTarget(entry, from, range)
 	-- Враг на миг скрылся (за домом, за краном) — помним его ещё 4 секунды, а не мечемся
 	-- между ним и патрулём. Стреляют всё равно, только когда его видно (CrewAim)
 	local now = CurTime()
+	local seen = best ~= nil
 	if best then
 		entry.targetSeen = now
-	elseif Enemy(entry.target) and now - (entry.targetSeen or 0) < 4
+	elseif Enemy(entry.target) and now - (entry.targetSeen or 0) < (memory or 4)
 		and entry.target:WorldSpaceCenter():DistToSqr(from) < range * range then
 		best = entry.target
 	end
 
+	-- Видим врага — переискиваем раз в секунду (вдруг ближе); не видим никого — каждые 0.3 с,
+	-- чтобы вышедшего из-за угла заметить сразу, а не через секунду
+	entry.targetAt = now + (seen and 1 or 0.3)
 	entry.target = best
 	return best
 end
@@ -1267,12 +1277,19 @@ local function CrewAim(entry, target)
 	if entry.aimTarget ~= target then
 		entry.aimTarget = target
 		entry.aimSince = CurTime()
+		-- «Встал на цель» был про прежнюю цель: ждём, пока перехват Гредвича пересчитает его для новой
+		entry.gredAligned = nil
+		for _, bot in pairs(entry.crew or {}) do
+			if IsValid(bot) then bot.PR_GredAligned = nil end
+		end
 	end
 
-	-- Огонь, когда враг виден (или префайр) и прошло время довернуть пушку (у simfphys-танков
-	-- точнее — по углу башни)
+	-- Огонь, когда враг виден (или префайр) и пушка довернулась. У simfphys-танков и Гредвича это
+	-- известно точно (угол башни, gredAligned — проверка в DriveGround), там не ждём; у остальных —
+	-- пауза на доворот. Раньше Гредвич тоже ждал 3 с, даже когда башня уже смотрела на врага
 	local clear = visible ~= nil or prefire
-	local turned = CurTime() - (entry.aimSince or CurTime()) > 3 or entry.ent.sm_pp_yaw ~= nil
+	local turned = CurTime() - (entry.aimSince or CurTime()) > (entry.kind == "ground" and 2 or 3) or entry.ent.sm_pp_yaw ~= nil
+		or (entry.kind == "ground" and entry.gredAligned ~= nil)
 	entry.fire = clear and turned
 	entry.aimDebug = string.format("see=%s%s%s turned=%s", tostring(visible ~= nil), prefire and " prefire" or "", blocker and ("(" .. blocker .. ")") or "", tostring(turned))
 end
@@ -3474,7 +3491,7 @@ local function DriveGround(patrol, v)
 		end
 	end
 
-	local target = PR_Patrol.VehicleTarget(v, veh:WorldSpaceCenter() + Vector(0, 0, 60), VEHICLE_RANGE)
+	local target = PR_Patrol.VehicleTarget(v, veh:WorldSpaceCenter() + Vector(0, 0, 60), GROUND_SIGHT, PREFIRE_TIME + 2)
 	CrewAim(v, target)
 	-- «Видно и пора» — до проверки, встала ли пушка: стрелки других мест жмут огонь по своему стволу
 	v.fireClear = v.fire
@@ -3485,8 +3502,20 @@ local function DriveGround(patrol, v)
 	end
 
 	if not target then
-		-- Врагов нет: башня смотрит по ходу
-		v.aimAng = (veh.Forward or veh:GetForward()):Angle()
+		-- Врага потеряли недавно — башня ждёт его там, где видели последний раз (и пулемёт
+		-- командира туда же, через aimPoint); давно никого — смотрит по ходу
+		-- Убили его — ждать и искать некого
+		local seen = v.seenTarget
+		if IsValid(seen) and (seen:IsPlayer() and not seen:Alive() or not seen:IsPlayer() and seen:Health() <= 0) then
+			v.seenPos, v.seenTarget, v.huntUntil = nil, nil, nil
+		end
+		if v.seenPos and v.seenAt and CurTime() - v.seenAt < GROUND_WATCH_TIME then
+			v.aimPoint = v.seenPos
+			v.aimAng = (v.seenPos - (veh:WorldSpaceCenter() + Vector(0, 0, 60))):Angle()
+			if v.aimFix then v.aimAng = v.aimAng + v.aimFix end
+		else
+			v.aimAng = (veh.Forward or veh:GetForward()):Angle()
+		end
 	elseif v.fire and veh.sm_pp_yaw then
 		-- Танки simfphys armed помнят, куда повёрнута башня: стреляем, только когда она довернулась
 		local want = veh:WorldToLocalAngles(v.aimAng)

@@ -97,12 +97,13 @@ step(0, function()
 	if istable(gred) and not gred.PR_SelftestWrapped then
 		gred.PR_SelftestWrapped = true
 		local startShooting, createBullet = gred.TankStartShooting, gred.CreateBullet
-		gred.TankStartShooting = function(vehicle, ...)
-			if S.tank and vehicle == S.tank.ent then
+		-- Только пушка (место водителя): пулемёт командира наводится быстрее и бьёт сам по себе
+		gred.TankStartShooting = function(vehicle, seat, ...)
+			if S.tank and vehicle == S.tank.ent and isfunction(vehicle.GetDriverSeat) and seat == vehicle:GetDriverSeat() then
 				S.cannonShots = S.cannonShots + 1
 				if S.measureShot and not S.firstShotErr then S.firstShotErr = S.MuzzleError and S.MuzzleError(vehicle) end
 			end
-			return startShooting(vehicle, ...)
+			return startShooting(vehicle, seat, ...)
 		end
 		gred.CreateBullet = function(ply, pos, ang, cal, filter, ...)
 			local real = istable(ply) and ply.PR_Real or ply
@@ -231,7 +232,8 @@ end)
 
 -- Башня King Tiger поворачивается медленно (6.5 на тик), плюс ствол и выстрел, плюс полёт снаряда
 waitFor(35, function()
-	return not alive(S.tank) or not IsValid(S.targetVeh) or (S.tankHits or 0) > 0
+	-- Ждём и выстрела пушки: пулемёт командира попадает раньше, чем довернётся башня
+	return not alive(S.tank) or not IsValid(S.targetVeh) or ((S.tankHits or 0) > 0 and S.cannonShots > (S.cannonBefore or 0))
 end, "tank hits the player's vehicle")
 
 step(0, function()
