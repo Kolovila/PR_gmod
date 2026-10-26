@@ -22,6 +22,9 @@ $Suites = @{
     dogfight = @('pr_selftest_vehicles_sv.lua', 'dogfight')
     strike   = @('pr_selftest_vehicles_sv.lua', 'strike')
     helistrike = @('pr_selftest_vehicles_sv.lua', 'helistrike')
+    vehground = @('pr_selftest_vehicles_sv.lua', 'tank gepard')   # vehicles split in 3 for run_parallel -Suites all
+    vehair   = @('pr_selftest_vehicles_sv.lua', 'air helistrike')
+    vehplane = @('pr_selftest_vehicles_sv.lua', 'plane strike dogfight')
     scan1    = @('pr_selftest_scan_sv.lua', '1')   # diagnostics: every new vehicle in a patrol, half 1
     scan2    = @('pr_selftest_scan_sv.lua', '2')   # half 2
     scanground1 = @('pr_selftest_scan_sv.lua', 'ground 1')
@@ -31,6 +34,7 @@ $Suites = @{
     scanair1 = @('pr_selftest_scan_sv.lua', 'air 1')
     scanair2 = @('pr_selftest_scan_sv.lua', 'air 2')
     scanair2fix = @('pr_selftest_scan_sv.lua', 'air 2 fix')   # half 2 of the helicopters + the FIX list
+    scanshow = @('pr_selftest_scan_sv.lua', 'show')   # rocket helicopters 60 s each, camera follows, screenshot every 6 s
     scanairfix = @('pr_selftest_scan_sv.lua', 'airfix')   # a few helicopters with extra aim diagnostics
     scanaim = @('pr_selftest_scan_sv.lua', 'debugaim prefire')
     scangroundaim = @('pr_selftest_scan_sv.lua', 'debugground')   # BTR-80 / Marder aim log every second
@@ -45,6 +49,9 @@ $Suites = @{
     scanfixground = @('pr_selftest_scan_sv.lua', 'fix')   # ground recheck list (FIX) without hiding the target
     scanprefireground = @('pr_selftest_scan_sv.lua', 'fix prefire')   # ground recheck list; target hides in a box after 18 s
     mapshot  = @('pr_mapshot_sv.lua', '')   # map picture for the minimap: then stitch_mapshot.ps1
+    recordclimb = @('pr_record_sv.lua', 'climb')   # does the helicopter climb over the range (AI aims 3000 up)
+    recordcheck = @('pr_record_sv.lua', 'auto')   # the range itself: presses F6/F7 on its own
+    record   = @('pr_record_sv.lua', '')   # player flies a helicopter at a target; F6 record, F7 save and quit (data/pr_selftest/flight_*.csv)
     vanish   = @('pr_vanish_sv.lua', '')   # patrol «Техника» on spot 5: who removes its vehicles (VANISH lines)
     mapinfo  = @('pr_mapinfo_sv.lua', '')   # fog, draw distance, navmesh of the map (MAPINFO lines)
     navgen   = @('pr_navgen_sv.lua', '')   # build the map's navmesh (maps/<map>.nav in the test copy), up to 90 min
@@ -159,7 +166,7 @@ while ((Get-Date) -lt $mountDeadline) {
 $done = $false
 if ($mapSent) {
     # The vehicle scan goes through dozens of vehicles: give it longer
-    $deadline = (Get-Date).AddMinutes($(if ($Suite -eq 'navgen') { 95 } elseif ($Suite -like 'scan*') { 40 } else { 8 }))
+    $deadline = (Get-Date).AddMinutes($(if ($Suite -eq 'navgen') { 95 } elseif ($Suite -eq 'record') { 65 } elseif ($Suite -like 'scan*') { 40 } else { 8 }))
     $sawStart = $false
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 3

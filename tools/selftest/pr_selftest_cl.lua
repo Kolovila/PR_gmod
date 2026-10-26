@@ -139,8 +139,10 @@ end)
 
 -- Скриншот следующего кадра в data/pr_selftest/<name>.jpg
 local pendingShot
+local director = {on = true}
 net.Receive("PR_SELFTEST_SHOT", function()
 	pendingShot = net.ReadString()
+	director.pauseUntil = CurTime() + 2   -- скриншот теста — с глаз игрока, не с камеры-режиссёра
 end)
 
 hook.Add("DrawOverlay", "PR_SelfTestShot", function()
@@ -289,6 +291,92 @@ hook.Add("HUDPaint", "PR_SelfTestWatch", function()
 		local p = (target:WorldSpaceCenter() + Vector(0, 0, 50)):ToScreen()
 		if p.visible then
 			draw.SimpleTextOutlined("[ ЦЕЛЬ ]", "DermaDefaultBold", p.x, p.y, Color(255, 80, 80), TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM, 1, color_black)
+		end
+	end
+end)
+
+-- Камера-режиссёр в тестах техники и полном наборе (pr_selftest_lib.lua): сервер раз в 7 с
+-- присылает участника и план — «follow» (облёт сзади), «flyby» (камера впереди по курсу), «fixed»
+-- (неподвижная сбоку). pr_test_cam — вкл/выкл
+net.Receive("PR_SELFTEST_DIRECTOR", function()
+	director.idx = net.ReadUInt(16)
+	if director.idx == 0 then director.active = false return end
+	director.target = net.ReadUInt(16)
+	director.label = net.ReadString()
+	director.plan = net.ReadString()
+	director.cam = net.ReadVector()
+	director.since = CurTime()
+	director.active = true
+	director.shots = (director.shots or 0) + 1
+	if director.shots == 1 or director.shots % 20 == 0 then log("director #" .. director.shots .. ": " .. director.label .. " (" .. director.plan .. ")") end
+end)
+
+concommand.Add("pr_test_cam", function()
+	director.on = not director.on
+	chat.AddText(director.on and "Камера теста: режиссёр" or "Камера теста: глаза игрока")
+end)
+
+local function Directing()
+	return director.on and director.active and not watch.active and CurTime() > (director.pauseUntil or 0)
+end
+
+hook.Add("CalcView", "PR_SelfTestDirector", function(ply, origin, angles, fov)
+	if not Directing() then return end
+	local ent = Entity(director.idx)
+	if not IsValid(ent) then return director.last end
+	local center = ent:WorldSpaceCenter()
+	if director.plan == "follow" then
+		-- Сзади по ходу (стоит — медленно облетаем), чуть сверху
+		local vel = ent:GetVelocity()
+		local yaw = vel:Length2D() > 100 and vel:Angle().y or (director.since * 7 + (CurTime() - director.since) * 15) % 360
+		director.yaw = director.yaw and director.yaw + math.AngleDifference(yaw, director.yaw) * math.min(FrameTime() * 2, 1) or yaw
+		local dist = math.Clamp(ent:BoundingRadius() * 2.5 + 200, 300, 2500)
+		local ang = Angle(18, director.yaw, 0)
+		local tr = util.TraceLine({start = center, endpos = center - ang:Forward() * dist, mask = MASK_SOLID_BRUSHONLY})
+		director.last = {origin = tr.HitPos + tr.HitNormal * 10, angles = ang, fov = 75, drawviewer = true}
+	else
+		director.yaw = nil
+		local dir = center - director.cam
+		local d = dir:Length()
+		-- Издали — ближе (узкий угол), рядом — шире
+		local f = math.Clamp(75 * 700 / math.max(d, 1), 25, 80)
+		director.last = {origin = director.cam, angles = dir:Angle(), fov = f, drawviewer = true}
+	end
+	return director.last
+end)
+
+hook.Add("HUDPaint", "PR_SelfTestDirector", function()
+	if not Directing() then return end
+	local names = {follow = "за объектом", flyby = "пролёт", fixed = "с места"}
+	draw.SimpleTextOutlined("Камера: " .. tostring(director.label) .. " (" .. (names[director.plan] or director.plan) .. ")",
+		"DermaDefaultBold", 16, ScrH() - 40, Color(255, 220, 120), TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP, 1, color_black)
+	local target = Entity(director.target or 0)
+	if IsValid(target) then
+		local p = (target:WorldSpaceCenter() + Vector(0, 0, 50)):ToScreen()
+		if p.visible then
+			draw.SimpleTextOutlined("[ ЦЕЛЬ ]", "DermaDefaultBold", p.x, p.y, Color(255, 80, 80), TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM, 1, color_black)
+		end
+	end
+end)
+
+-- Полигон (pr_record_sv.lua): игрок в машине — над ботами-целями метка и расстояние, всегда
+-- (не только во время записи и без камеры наблюдателя)
+hook.Add("HUDPaint", "PR_SelfTestTargets", function()
+	local me = LocalPlayer()
+	if not (IsValid(me) and me:InVehicle()) or Watching() then return end
+	local from = me:GetVehicle():GetPos()
+	for _, bot in ipairs(player.GetBots()) do
+		if IsValid(bot) and bot:Alive() then
+			local pos = bot:WorldSpaceCenter()
+			local p = (pos + Vector(0, 0, 60)):ToScreen()
+			local flat = math.floor(Vector(pos.x - from.x, pos.y - from.y, 0):Length())
+			if p.visible then
+				surface.SetDrawColor(255, 60, 60)
+				surface.DrawOutlinedRect(p.x - 14, p.y - 14, 28, 28, 2)
+				draw.SimpleTextOutlined("ЦЕЛЬ " .. flat, "DermaDefaultBold", p.x, p.y - 18, Color(255, 80, 80), TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM, 1, color_black)
+			else
+				draw.SimpleTextOutlined("цель позади · " .. flat, "DermaDefaultBold", ScrW() / 2, ScrH() - 140, Color(255, 80, 80), TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM, 1, color_black)
+			end
 		end
 	end
 end)

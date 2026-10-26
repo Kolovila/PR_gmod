@@ -895,20 +895,19 @@ end
 local VEHICLE_RANGE = 6000 -- дальше врагов не ищем
 -- Наземка видит дальше: карта 30000 в поперечнике, и на 6000 танк не замечал врага, который уже
 -- бил по нему. Огонь всё равно ведут только по видимому, а подъезжают на свою дальность (GroundRange)
-local GROUND_SIGHT = 9000
 -- Сколько башня ещё смотрит туда, где врага видели последний раз (а не разворачивается по ходу):
 -- раньше через 4 с после потери цели башня уходила вперёд, и вернувшегося врага докручивала заново
-local GROUND_WATCH_TIME = 300
+local GROUND_OPT = {sight = 9000, watch = 300}
 
 -- Префайр: враг только что скрылся (зашёл в дом, за стену) — бьём туда, где его видели последний
--- раз: экипаж — ещё PREFIRE_TIME секунд, лётчик вертолёта — ракетами (до PREFIRE_ROCKETS на одно
--- укрытие, пока не прошло PREFIRE_AIR_TIME). Снаряд и ракета рвутся у стены или в проёме двери
+-- раз: экипаж — ещё PREFIRE_TIME секунд, лётчик вертолёта — ракетами (до AIR_OPT.prefireRockets на одно
+-- укрытие, пока не прошло AIR_OPT.prefireTime). Снаряд и ракета рвутся у стены или в проёме двери
 local PREFIRE_TIME = 5 -- дольше — экипаж слишком долго лупит в пустое место
-local PREFIRE_AIR_TIME = 10
-local PREFIRE_ROCKETS = 8
+-- prefireTime / prefireRockets — префайр лётчика вертолёта: сколько секунд и ракет на одно укрытие
+local AIR_OPT = {prefireTime = 10, prefireRockets = 8}
 -- Сколько авиация помнит скрывшегося врага. Было 4 с (по умолчанию) — меньше префайра (6 с): он
 -- обрывался, едва начавшись
-local AIR_MEMORY = 12
+AIR_OPT.memory = 12
 local AIR_ALTITUDE = 1400  -- высота над патрулём, пока врагов нет
 local AIR_ORBIT = 1200     -- радиус круга над патрулём
 
@@ -1285,6 +1284,10 @@ local function ShellDrop(entry, dist)
 	return 0
 end
 
+-- Сколько градусов вбок от носа достаёт турель стрелка (нет в списке — 100°). Турель Ми-24
+-- Гредвича: ±30° вбок, 0–60° вниз
+local GUNNER_YAW = {gred_lfs_mi24a = 30}
+
 -- Куда смотреть боту: на врага. Огонь — когда враг виден и башня успела довернуться
 local function CrewAim(entry, target)
 	if not IsValid(target) then
@@ -1438,6 +1441,20 @@ local function CrewAim(entry, target)
 	local turned = CurTime() - (entry.aimSince or CurTime()) > (entry.kind == "ground" and 2 or 3) or entry.ent.sm_pp_yaw ~= nil
 		or (entry.kind == "ground" and entry.gredAligned ~= nil)
 	entry.fire = clear and turned
+	-- Стрелок вертолёта: огонь, только когда цель в секторе турели (под носом, вниз до её предела,
+	-- вбок до GUNNER_YAW). На заходах (отход, разворот) цель то сзади, то над вертолётом — стрелок
+	-- поливал в небо. Бортовые (Ми-8) — сбоку, у них своя схема (круг), не трогаем
+	if entry.fire and entry.kind == "air" and not (PR_Patrol.GunnerSide or {})[entry.class] then
+		local l = ent:WorldToLocal(to)
+		local yaw = math.deg(math.atan2(l.y, l.x))
+		local down = math.deg(math.atan2(-l.z, math.max(math.sqrt(l.x * l.x + l.y * l.y), 1)))
+		local maxDown = (PR_Patrol.GunnerDown or {})[entry.class] or 70
+		local maxYaw = GUNNER_YAW[entry.class] or 100
+		if math.abs(yaw) > maxYaw or down < -10 or down > maxDown + 5 then
+			entry.fire = false
+			entry.sectorOut = (entry.sectorOut or 0) + 1
+		end
+	end
 	entry.aimDebug = string.format("see=%s%s%s turned=%s%s", tostring(visible ~= nil), prefire and " prefire" or "", blocker and ("(" .. blocker .. ")") or "", tostring(turned),
 		(entry.shellDropNow or 0) > 0 and string.format(" drop=%d", entry.shellDropNow) or "")
 end
@@ -1738,6 +1755,8 @@ local GUNNER_DOWN = {
 -- (Транспортные Ми-8 пробовали водить заходами, как вертолёт без стрелка: в городе заход упирался
 -- в дома, НУРы не шли — попаданий не больше, чем с круга, 0–13 за вылет. Оставили круг.)
 local GUNNER_SIDE = {gd_lfs_mi8amtsh = 90, gd_lfs_mi8mtv = 90, gd_lfs_mi8t1 = 90, gd_lfs_mi8t2 = 90}
+-- Для CrewAim (объявлен выше): пределы турели стрелка — огонь, только когда цель в её секторе
+PR_Patrol.GunnerDown, PR_Patrol.GunnerSide = GUNNER_DOWN, GUNNER_SIDE
 -- Точка круга — на столько градусов впереди вертолёта, радиус круга — не больше ORBIT_MAX. Круг
 -- в 2800 с точкой на 35° впереди вертолёт проходил на ~570: на склонах то и дело «препятствие
 -- впереди — ухожу вверх», и он набирал до 3000 высоты, где бортовые стволы цель не достают
@@ -1898,49 +1917,380 @@ local function StrafePoint(entry, ent, target, opts)
 	return ent:LocalToWorld(Vector(50 * dive + 5 * forwardSpeed + push, 0, climb)), true
 end
 
--- Ракетный заход вертолёта «ипподромом», как у штурмовика: run — нос на цель, огонь издали, без
--- торможения; проскочил цель (или она уже за спиной) — extend: прямо по курсу, пока не уйдёт на
--- extend от цели; turn — широкая дуга (точка всё время впереди, курс +45°), пока нос снова не
--- смотрит на цель, и снова run. Раньше отход шёл к точке за целью: LFS у точки тормозит, и
--- вертолёт зависал и разворачивался на месте. Возвращает точку и «на заходе ли» (огонь, нос на цель)
-local function RocketRunPoint(entry, ent, target, opts)
+-- Ракетный заход вертолёта «бум-зум» — по записи полёта игрока на полигоне (Ка-50, 76 с, 6 заходов):
+-- с горки ~3000 над целью пике носом на цель (30–48°), разгон до 2000+, огонь с ~8000 до ~2000;
+-- у цели выход и проскок, горка (нос вверх, полный газ) с уходом на ~4500, на вершине — скорость
+-- маленькая — разворот с креном, каждый раз в другую сторону (восьмёрка), и снова пике.
+--   dive — пике на цель (огонь);  zoom — горка после проскока;  turn — разворот на вершине
+-- Раньше заход шёл низко (~900) и не быстрее ~520 (diveSpeed), отход — к точке, у которой LFS
+-- тормозит: вертолёт зависал у цели и разворачивался на месте. Возвращает точку и «пикирует ли»
+local function RocketRunPoint(entry, ent, target, o)
+	local now = CurTime()
 	local pos = ent:GetPos()
 	local tpos = target:WorldSpaceCenter()
+	entry.rrTargetPos = tpos
 	local flat = Vector(tpos.x - pos.x, tpos.y - pos.y, 0)
 	local dist = flat:Length()
-	local heading = ent:GetVelocity()
-	heading.z = 0
-	if heading:LengthSqr() < 150 * 150 then heading = ent:GetForward() heading.z = 0 end
+	local lvel = ent:WorldToLocal(pos + ent:GetVelocity())
+	local fwd = lvel.x
+	local vel = ent:GetVelocity()
+	local heading = Vector(vel.x, vel.y, 0)
+	if heading:LengthSqr() < 200 * 200 then heading = ent:GetForward() heading.z = 0 end
 	heading:Normalize()
-	local toTarget = dist > 1 and flat / dist or heading
-	local spec = AirSpec(entry, ent)
-	local wantZ = StrafeAltitude(pos, tpos, spec.clear) + (opts.extraAlt or 0)
-	local climb = math.Clamp(wantZ - pos.z, -400, 400)
-	local mode = entry.rrMode or "run"
+	local ceil = CeilingAt(tpos)
+	local apexZ = math.min(tpos.z + o.apexHeight, ceil - 600)
+	local ground = util.TraceLine({start = pos, endpos = pos - Vector(0, 0, 8000), mask = MASK_SOLID_BRUSHONLY})
+	local agl = pos.z - ground.HitPos.z
+	local below = math.deg(math.atan2(pos.z - tpos.z, math.max(dist, 1)))
+	local noseYawOff = math.abs(math.AngleDifference(flat:Angle().y, ent:GetAngles().y))
+	-- Куда на самом деле летит (а не куда смотрит нос): разворот кончается, когда на цель смотрит траектория
+	local pathYawOff = math.abs(math.AngleDifference(flat:Angle().y, heading:Angle().y))
+	-- На малой скорости направление полёта шумит: «траектория смотрит на цель» срабатывало ложно, и
+	-- пике доворачивало нос на месте — до 400 считаем, что не смотрит
+	if vel:Length2D() < 400 then pathYawOff = 180 end
 
-	if mode == "run" and (dist < opts.breakDist or (heading:Dot(toTarget) < 0 and dist < opts.fireFrom)) then
-		mode = "extend"
-	elseif mode == "extend" and dist > opts.extend then
-		mode = "turn"
-		-- Разворот в ту сторону, куда ближе довернуть на цель
-		entry.rrTurnDir = math.AngleDifference(toTarget:Angle().y, heading:Angle().y) >= 0 and 1 or -1
-	elseif mode == "turn" and math.abs(math.AngleDifference(toTarget:Angle().y, ent:GetAngles().y)) < 25 then
-		mode = "run"
-		entry.rrNewRun = true
+	-- Начало: рядом с целью — сперва отойти для разгона, далеко — развернуться на неё
+	local mode = entry.rrMode or (dist < o.extend and "zoom" or "turn")
+	if mode == "dive" then
+		-- Выход: близко к цели, низко, до земли меньше 2,5 с или цель уже круто под брюхом
+		local impact = vel.z < -50 and agl / -vel.z or math.huge
+		-- «Проскочил» (летит уже прочь) — только вблизи: сразу после разворота скорость ещё смотрит
+		-- от цели, и выход срабатывал мгновенно (пике ↔ отход дёргались, 23 «захода» за минуту)
+		if dist < o.pullDist or agl < o.minAGL or impact < 2.5 or below > 65 or (dist < 3000 and heading:Dot(flat:GetNormalized()) < 0) then
+			mode = "zoom"
+		end
+	elseif mode == "zoom" then
+		-- Отход: прочь от цели с разгоном, пока не уйдёт на extend (только по расстоянию: раньше
+		-- отход кончался, едва набрав высоту вершины, — у самой цели, и вертолёт крутился над ней)
+		-- Отход «завис» (скорость < 300 дольше 3 с: у Ка-50 у потолка неба) — разворачиваемся
+		if fwd < 300 then entry.rrSlowSince = entry.rrSlowSince or now else entry.rrSlowSince = nil end
+		local stalled = entry.rrSlowSince and now - entry.rrSlowSince > 3 and dist > 3000
+		if dist > o.extend or stalled then
+			entry.rrSlowSince = nil
+			mode = "turn"
+			entry.rrTurnSign = -(entry.rrTurnSign or 1)   -- каждый раз в другую сторону: восьмёрка
+		end
+	elseif mode == "turn" then
+		if pathYawOff < 25 and noseYawOff < 30 and dist > o.pullDist + 500 then
+			mode = "approach"
+		elseif vel:Length2D() < 400 and noseYawOff < 20 and dist > o.pullDist + 500 then
+			-- Медленно, но нос уже на цели — подход (разгон к цели), а не кружение до таймера
+			mode = "approach"
+		elseif pathYawOff < 25 then
+			-- Развернулся, а цель совсем рядом — ещё горка (уйти подальше для пике)
+			mode = "zoom"
+		end
 	end
-	if mode ~= entry.rrMode then entry.rrModeAt = CurTime() end
-	-- Застрял в развороте или отходе (уходил от препятствия) дольше 20 с — новый заход
-	if mode ~= "run" and CurTime() - (entry.rrModeAt or CurTime()) > 20 then mode, entry.rrNewRun = "run", true end
+	-- Подход: после разворота — к цели на высоте вершины, пике — когда цель под углом diveAngle и круче
+	-- (как у игрока: 30–48°). Раньше пике начиналось сразу после разворота в 11–13 тыс. от цели —
+	-- полого (16–28°), к цели подходил низко и цеплял краны и крыши
+	if mode == "approach" then
+		if below >= o.diveAngle or dist < o.pullDist + 1500 then
+			mode = "dive"
+			entry.rrNewRun = true
+		elseif pathYawOff > 60 and vel:Length2D() >= 400 then
+			mode = "turn"
+		end
+	end
+	if mode ~= entry.rrMode then entry.rrModeAt = now end
+	-- Застрял: отход дольше 35 с (медленный AH-64) — разворот; разворот или подход дольше 20 с — пике.
+	-- Раньше по 20 с отхода сразу пике — нос доворачивался на месте
+	local stuckFor = now - (entry.rrModeAt or now)
+	if mode == "zoom" and stuckFor > 35 then
+		mode, entry.rrModeAt = "turn", now
+		entry.rrTurnSign = -(entry.rrTurnSign or 1)
+	elseif ((mode == "turn" and stuckFor > 8) or (mode == "approach" and stuckFor > 20)) and dist > o.pullDist then
+		mode, entry.rrNewRun, entry.rrModeAt = "dive", true, now
+	end
 	entry.rrMode = mode
 
-	if mode == "run" then
-		return StrafePoint(entry, ent, target, {extraAlt = opts.extraAlt, breakDist = 0, arc = opts.arc, minSpeed = opts.minSpeed}), true
+	-- Точки для ИИ вертолёта LFS (в осях вертолёта): тангаж P = x·0.02 − скорость·0.1, крен
+	-- R = −y·0.02 + скорость_вбок·0.1, тяга — по z. Курс — UpdateFacing (faceYaw)
+	if mode == "approach" then
+		-- К цели на высоте вершины, нос ровно-чуть вниз (разгон), курс на цель
+		entry.faceYaw = flat:Angle().y
+		return ent:LocalToWorld(Vector(500 + 5 * fwd, 0, math.Clamp(apexZ - pos.z, -300, 3000))), false
 	end
-	local yaw = heading:Angle().y
-	if mode == "turn" then yaw = yaw + (entry.rrTurnDir or 1) * 45 end
-	return pos + Angle(0, yaw, 0):Forward() * opts.arc + Vector(0, 0, climb), false
+	if mode == "dive" then
+		entry.faceYaw = nil
+		local d = math.Clamp(math.NormalizeAngle((tpos - ent:WorldSpaceCenter()):Angle().p), 0, 45)
+		return ent:LocalToWorld(Vector(50 * d + 5 * fwd, 0, 0)), true
+	elseif mode == "zoom" then
+		-- Отход с разгоном: нос чуть вниз (10°) и газ на подъём — вертолёт и разгоняется, и набирает
+		-- высоту (раньше нос вверх на 15° — на отходе он полз на 250–550). Курс — прямо по ходу: из
+		-- пике, вышедшего до цели, он пролетает над ней и уходит на другую сторону (восьмёрка). Раньше
+		-- курс был «прочь от цели» — он разворачивался назад, не долетев, и кружил овалом с одной стороны
+		entry.faceYaw = heading:Angle().y
+		local climb = pos.z < apexZ and 3000 or 0
+		return ent:LocalToWorld(Vector(750 + 5 * fwd, 0, climb)), false
+	end
+	-- Разворот по дуге: нос — на 35° впереди направления полёта (не от носа: раньше нос крутился на
+	-- месте быстрее, чем поворачивала траектория, — пируэт с потерей скорости). Крен не задаём: ИИ LFS
+	-- сам кренит против бокового скольжения (скорость_вбок·0.1) — в сторону разворота. Нос вниз на 15°
+	-- держит скорость (медленнее 600 — без набора высоты: сначала разгон); высота — к вершине
+	local sign = entry.rrTurnSign or 1
+	-- Нос впереди траектории — тем больше, чем быстрее: на малой скорости (< 300) не ведём вовсе,
+	-- сперва разгон по прямой (иначе нос и скорость вращались вместе — вертолёт кружил на месте)
+	local lead = 55 * math.Clamp((vel:Length2D() - 300) / 400, 0, 1)
+	entry.faceYaw = heading:Angle().y + sign * lead
+	return ent:LocalToWorld(Vector(750 + 5 * fwd, 0, fwd < 600 and 0 or math.Clamp(apexZ - pos.z, -300, 3000))), false
+end
+-- «Доебался» — лёгкие вертолёты (Little Bird и подобные): кружат вокруг цели носом на неё и бьют
+-- почти непрерывно, всё время в движении, чтобы их было трудно сбить. По записи игрока на полигоне
+-- (OH-6, 64 с): ~20°/с вокруг цели, боком (боковая ~600, вперёд ~0), нос на цели 72% времени, огонь
+-- 71%; расстояние «дышит» 500–3500 (в среднем ~1700), ~1200 над землёй. Здесь: точка на круге на
+-- lead градусов впереди, радиус качается между rMin и rMax, высота — ±200, сторона кружения
+-- меняется раз в 8–15 с (не идёт по ровному кругу, в который легко прицелиться)
+local DOEBALSYA = {
+	-- OH-6 — по циклу «круг → заход → проскок → отход» (phased, см. DoebalsyaPhased)
+	-- OH-6 — «устрашитель» (ring): быстро по ровному кругу носом на цель и почти непрерывный огонь
+	-- (пушка при носе до suppress° от цели). Поля phased-цикла оставлены — ring = false вернёт заходы
+	gred_lfs_oh6 = {phased = true, ring = true, ringR = 1900, ringVt = 860, flip = false, suppress = 14, height = 1200,
+		rOrbit = 2000, rMin = 550, wMax = 24, k = 1, minAGL = 1100, orbitTime = {6, 10}, runVt = 400, yawLead = 0.3, noseUpMax = 5},
+	lfs_grdn_md500tow = {rMin = 3500, rMax = 6000, height = 2200, vt = 800, vr = 250},   -- с ПТУР — шире (по записи ~4700)
+	lfs_grdn_bo105pah1 = {rMin = 1800, rMax = 3400, height = 1400},
+	lfs_grdn_hkp9a = {rMin = 1800, rMax = 3400, height = 1400},
+	lfs_grdn_sa316b = {rMin = 900, rMax = 2500, height = 1250, vt = 450, vr = 350},
+}
+PR_Patrol.DOEBALSYA = DOEBALSYA
+-- lead — на сколько градусов вперёд по кругу точка (30 — полз маятником); breath — период «дыхания»
+-- радиуса, с; assist — доводка пуль по курсу, ° (по высоте — до 50: нос, кружа боком, вниз не смотрит)
+local DB_OPT = {lead = 70, breath = 11, assist = 15}
+
+-- OH-6 «доебался» по циклу (совет эксперта по реальной тактике: «колесо» с заходами). Нос — в центр
+-- круга, значит «вперёд» = к цели: чтобы держать круг, нужен постоянный наклон носа вниз
+-- atan(vt²/(R·g)), и при vt ≈ √(g·h) он сам равен углу на цель — нос лежит на цели без «нырков».
+-- ORBIT (6–10 с, ≤ wMax°/с) → RUN-IN (разгон к цели носом на неё, огонь) → PASS (проскок мимо, без
+-- огня) → EXTEND (накат, затем торможение носом на цель — огонь на отходе) → ORBIT. Тангаж в точке:
+-- pitch = 0.02·x − 0.1·v_fwd ⇒ x = 5·v_нужная + 50·pitch
+local function DoebalsyaPhased(entry, ent, target, cfg)
+	local now = CurTime()
+	local pos, vel = ent:GetPos(), ent:GetVelocity()
+	local tpos = target:WorldSpaceCenter()
+	local rel = Vector(pos.x - tpos.x, pos.y - tpos.y, 0)
+	local dist = math.max(rel:Length(), 1)
+	local inward = -rel / dist
+	if not entry.dbDir then
+		entry.dbDir = math.random(0, 1) * 2 - 1
+		entry.dbPhase = math.Rand(0, math.pi * 2)
+	end
+	local tangent = Vector(-inward.y, inward.x, 0) * entry.dbDir
+	local vIn = vel:Dot(inward)                                   -- к цели (+) / от цели (−)
+	local fwd = ent:WorldToLocal(pos + vel).x
+	local hRel = math.max(pos.z - tpos.z, 200)
+	local delta = math.deg(math.atan2(hRel, dist))               -- угол на цель вниз
+	local G = 600
+	local w = math.min(cfg.wMax, math.deg(math.sqrt(cfg.k * G * hRel) / dist))
+	local vt = math.rad(w) * dist
+	local thC = math.deg(math.atan(vt * vt / (dist * G)))
+	-- Упреждение курса на угловую скорость облёта: нос отставал от цели > 6° — огня не было
+	local omega = math.deg((rel.x * vel.y - rel.y * vel.x) / (dist * dist))
+	entry.dbYawLead = math.Clamp(omega * (cfg.yawLead or 0.3), -12, 12)
+	entry.rrTargetPos = tpos
+
+	if cfg.ring then
+		-- Только круг (по совету эксперта): при vt ≈ √(g·h) центростремительный наклон = углу на цель,
+		-- нос сам лежит на цели. R 1900 / 830 → ~25°/с (быстрее нос LFS не успевает). Против прицела
+		-- «дышит» скорость (±8%, 6 с), радиус — медленно (±150, 25 с); направление — раз в 30–45 с,
+		-- плавно за ~3 с (нос на это время поднимается — огня нет, честно)
+		local dt = math.Clamp(now - (entry.dbLastT or now), 0, 0.5)
+		entry.dbLastT = now
+		local t0 = Vector(-inward.y, inward.x, 0)                    -- против часовой
+		if not entry.dbK then entry.dbK, entry.dbKWant, entry.dbFlipAt = entry.dbDir, entry.dbDir, now + math.Rand(30, 45) end
+		if cfg.flip and now > entry.dbFlipAt then entry.dbKWant, entry.dbFlipAt = -entry.dbKWant, now + math.Rand(30, 45) end
+		entry.dbK = math.Approach(entry.dbK, entry.dbKWant, dt * 2 / 3)
+		local flipping = entry.dbK ~= entry.dbKWant
+		-- Без «дыхания» скорости: с периодом 6 с оно раскачивало радиус (собственный период ~6–7 с).
+		-- Тангаж — не в упор в предел 40°: в насыщении круг не держался, вертолёт выносило наружу
+		local R = cfg.ringR + 100 * math.sin(now * 2 * math.pi / 25 + entry.dbPhase)
+		local v2 = vel:Length2D()
+		-- Нос — ТОЧНО на цель (вблизи он был на 9–12° выше — пули за цель, вдали на 13–17° ниже).
+		-- Тогда наклон к центру = углу на цель, и круг держится при v = √(g·h) на любом радиусе;
+		-- радиус держим скоростью: дальше R — медленнее (затягивает внутрь), ближе — быстрее
+		local vt0 = math.sqrt(G * hRel) * math.Clamp(1 - 0.6 * (dist - R) / R, 0.75, 1.2)
+		local vtW = vt0 - 0.6 * math.max(0, v2 - vt0)
+		local vtA = vel:Dot(t0)
+		local thA = math.min(math.deg(math.atan(vtA * vtA / (dist * G))), 34)
+		entry.dbRI = math.Clamp((entry.dbRI or 0) + 0.004 * (dist - R) * dt, -4, 4)
+		local vRad = math.Clamp(0.6 * (dist - R), -150, 150)
+		if flipping then vRad = math.min(vRad, 0) end
+		local dAim = math.deg(math.atan2(ent:WorldSpaceCenter().z - target:WorldSpaceCenter().z, dist))
+		local pitchCmd = math.Clamp(dAim + (cfg.aimOff or 0) + math.Clamp(-0.02 * vIn, -4, 4), -5, 37)   -- −0,02·vIn: гасит качание радиуса
+		-- На смене направления касательная проходит через ноль — круг держать нечем, и нос «на цель»
+		-- тянул к ней (проваливался до ~360, потом подъём выносил на 6000): наклон — только для круга
+		if flipping then pitchCmd = math.Clamp(thA + math.Clamp(0.1 * (vRad - vIn), -8, 8), -5, 37) end
+		-- Вынесло далеко (подъём от препятствия на скорости) — вернуться к кругу носом вниз, а не дрейфом
+		if dist > 1.4 * R and vIn < 400 then pitchCmd = math.max(pitchCmd, 28) end
+		-- Низко над землёй (или цель почти под нами) — нос вниз не больше 15°: иначе пикирует в землю
+		local gtr = util.TraceLine({start = pos, endpos = pos - Vector(0, 0, 8000), mask = MASK_SOLID_BRUSHONLY})
+		if pos.z - gtr.HitPos.z < 900 then pitchCmd = math.min(pitchCmd, 15) end
+		local x = 5 * fwd + 50 * pitchCmd
+		if cfg.noseUpMax then x = math.max(x, 5 * fwd - 50 * cfg.noseUpMax) end
+		local yawAng = Angle(0, ent:GetAngles().y, 0)
+		local y = 5 * (t0 * vtW * entry.dbK):Dot(yawAng:Right() * -1)
+		local ceil = CeilingAt(tpos)
+		local spec = AirSpec(entry, ent)
+		local z = tpos.z + cfg.height + 100 * math.sin(now * 2 * math.pi / 9 + entry.dbPhase)
+		for _, f in ipairs({0, 0.3, 0.6}) do
+			z = math.max(z, TopAt(pos.x - rel.x * f, pos.y - rel.y * f, ceil, tpos.z) + math.max(spec.clear + 450, cfg.minAGL or 0))
+		end
+		z = math.min(z, ceil - 300)
+		-- Нос LFS отстаёт от заданного курса на ~10° при 25°/с — упреждения ω·0,3 мало: интегратор по
+		-- фактической ошибке курса на цель доводит её до нуля (в обе стороны облёта)
+		local yawErr = math.AngleDifference(ent:GetAngles().y, (tpos - pos):Angle().y)
+		if flipping then
+			entry.dbYawI, entry.dbYawLead = 0, 0
+		else
+			entry.dbYawI = math.Clamp((entry.dbYawI or 0) - 1.2 * yawErr * dt, -15, 15)
+			entry.dbYawLead = math.Clamp(entry.dbYawLead + entry.dbYawI, -25, 25)
+		end
+		entry.dbState, entry.dbNoFire = flipping and "flip" or "ring", false
+		entry.dbRadius, entry.dbClosing = dist, false
+		return ent:LocalToWorld(Vector(x, y, math.Clamp(z - pos.z, -400, 600)))
+	end
+
+	-- Наклон и скорость — по ФАКТИЧЕСКОЙ касательной (по заданной лишний наклон утягивал к цели);
+	-- радиус круга — от высоты над целью: δ на круге ≈ 32°
+	local vtAct = vel:Dot(tangent)
+	local thA = math.deg(math.atan(vtAct * vtAct / (dist * G)))
+	local rEff = math.Clamp(1.6 * hRel, 1600, 3200)
+	local vtWant = math.min(math.sqrt(dist * G * math.tan(math.rad(math.max(delta, 15)))), math.rad(cfg.wMax) * dist)
+
+	local st = entry.dbState
+	if not st or not entry.dbStateAt then
+		st, entry.dbStateAt, entry.dbOrbitFor = dist < 600 and "extend" or "orbit", now, math.Rand(cfg.orbitTime[1], cfg.orbitTime[2])
+	end
+	local since = now - entry.dbStateAt
+	local function go(s) st, entry.dbStateAt, since = s, now, 0 end
+	if st == "orbit" and since > entry.dbOrbitFor and delta <= 34 and vtAct >= 500 and vIn > -80 and math.abs(dist - rEff) <= 300 then
+		-- Хорда захода чиста (заход + проскок + 900 на накат)? Иначе ещё полкруга
+		local beyond = tpos + inward * 900 + Vector(0, 0, hRel * 0.4)
+		local tr = util.TraceLine({start = pos, endpos = beyond, mask = MASK_SOLID_BRUSHONLY})
+		if tr.Fraction > 0.97 then
+			go("runin")
+			-- Точка захода замораживается: иначе она ехала вместе с вертолётом и заход шёл по дуге
+			entry.dbAim = tpos + tangent * 400
+		else entry.dbOrbitFor = since + 3 end
+	elseif st == "runin" and (dist < 900 or delta > 46 or since > 3.5) then
+		go("pass")
+		local c = Vector(entry.dbAim.x - pos.x, entry.dbAim.y - pos.y, 0)
+		entry.dbChord = c:LengthSqr() > 100 and c:GetNormalized() or inward
+	elseif st == "pass" and ((vIn < -200 and dist > 700) or since > 2.5) then go("extend")
+	elseif st == "extend" and (dist > 0.75 * rEff or since > 8) then
+		go("orbit"); entry.dbOrbitFor = math.Rand(cfg.orbitTime[1], cfg.orbitTime[2])
+		if math.random(0, 2) == 0 then entry.dbDir = -entry.dbDir; tangent = -tangent; vtAct = -vtAct end   -- иногда — в другую сторону
+	end
+	entry.dbState = st
+
+	local yawAng = Angle(0, ent:GetAngles().y, 0)
+	local fwd2, left2 = yawAng:Forward(), yawAng:Right() * -1
+	local x, y, side
+	local noseUp, noFire = cfg.noseUpMax, false
+	if st == "orbit" then
+		-- Входит с отхода (vIn ≈ −400): радиальная связь тормозит отход носом вниз на цель — огонь,
+		-- пока крен набирает касательную. Внутрь — не быстрее 150 (меньше утягивания к цели)
+		x = 5 * math.Clamp(0.6 * (dist - rEff), -250, 150) + 50 * thA
+		side = math.min(math.rad(cfg.wMax) * math.max(dist, rEff), 850)
+	elseif st == "runin" then
+		local want = Vector(entry.dbAim.x - pos.x, entry.dbAim.y - pos.y, 0):GetNormalized() * 900
+		x, side = 5 * fwd + 50 * math.min(delta, 40), want:Dot(tangent)
+	elseif st == "pass" then
+		-- Проскок по хорде на скорости ≥ 650: сам выносит наружу, без зависания у цели
+		local want = entry.dbChord * math.max(vel:Length2D(), 650)
+		x, y = 5 * want:Dot(fwd2), 5 * want:Dot(left2)
+		noFire = true
+	else
+		-- Отход — накат по инерции; медленный проскок — честный задний ход (нос вверх до 12°, без огня)
+		x, side = 5 * fwd, vtAct
+		if vIn > -150 and dist < 0.6 * rEff then
+			x, noseUp, noFire = 5 * -350, 12, true
+		end
+	end
+	entry.dbNoFire = noFire
+	if noseUp then x = math.max(x, 5 * fwd - 50 * noseUp) end
+	y = y or 5 * (tangent * side):Dot(left2)
+
+	-- Высота: над целью, выше крыш под вертолётом и по пути к цели (в заходе — чуть ниже, на проскоке выше)
+	local ceil = CeilingAt(tpos)
+	local spec = AirSpec(entry, ent)
+	local low = st == "runin" or st == "pass"
+	local z = tpos.z + (low and 0.8 or 1) * cfg.height + (st == "pass" and 200 or 0)
+	local agl = math.max(spec.clear + 450, low and 850 or (cfg.minAGL or 0))
+	for _, f in ipairs({0, 0.3, 0.6}) do
+		z = math.max(z, TopAt(pos.x - rel.x * f, pos.y - rel.y * f, ceil, tpos.z) + agl)
+	end
+	z = math.min(z, ceil - 300)
+	entry.dbRadius, entry.dbClosing = dist, st == "runin"
+	return ent:LocalToWorld(Vector(x, y, math.Clamp(z - pos.z, -400, 600)))
 end
 
+local function DoebalsyaPoint(entry, ent, target, cfg)
+	if cfg.phased then return DoebalsyaPhased(entry, ent, target, cfg) end
+	local now = CurTime()
+	local pos = ent:GetPos()
+	local tpos = target:WorldSpaceCenter()
+	-- Сторона кружения: меняется только после полного круга (и то с вероятностью 1/2): раньше смена
+	-- раз в 8–15 с давала маятник по дуге в 60–80° с одной стороны цели
+	local bearingNow = math.deg(math.atan2(pos.y - tpos.y, pos.x - tpos.x))
+	if entry.dbLastBearing then
+		entry.dbAccum = (entry.dbAccum or 0) + math.abs(math.AngleDifference(bearingNow, entry.dbLastBearing))
+	end
+	entry.dbLastBearing = bearingNow
+	if not entry.dbDir then
+		entry.dbDir = math.random(0, 1) * 2 - 1
+		entry.dbPhase = math.Rand(0, math.pi * 2)
+	elseif (entry.dbAccum or 0) >= 360 then
+		entry.dbAccum = 0
+		if math.random(0, 1) == 1 then entry.dbDir = -entry.dbDir end
+	end
+	-- Управление скоростью, а не точками (ИИ LFS: в равновесии скорость по оси ≈ 0,2 × точка по этой
+	-- оси): вокруг цели — постоянная скорость vt, по радиусу — к «дышащему» радиусу (не быстрее vr).
+	-- Раньше фазы «атака/отход» давали йо-йо по радиусу: отход по инерции на 5500 (MD-500 — на 17600),
+	-- проскоки у цели на 80°/с, кружения почти не было. Нос (курс) — на цель; на сближении нос ниже —
+	-- стреляет, только когда действительно навёлся (честно: игрок видел подкрутку пуль)
+	local flat = Vector(tpos.x - pos.x, tpos.y - pos.y, 0)
+	local dist = flat:Length()
+	local inward = dist > 1 and flat / dist or ent:GetForward()
+	local tangent = Vector(-inward.y, inward.x, 0) * entry.dbDir   -- +dbDir — против часовой
+	local mid, amp = (cfg.rMin + cfg.rMax) / 2, (cfg.rMax - cfg.rMin) / 2
+	local rWant = mid + amp * math.sin(now * 2 * math.pi / 14 + entry.dbPhase)
+	local closing = math.cos(now * 2 * math.pi / 14 + entry.dbPhase) < 0   -- радиус сейчас уменьшается
+	local vr = cfg.vr or 350
+	local vOut = math.Clamp((rWant - dist) * 0.8, -vr, vr)
+	if dist < (cfg.minDist or 800) then vOut = vr end
+	-- На сближении и на ближней стороне круга — медленнее: нос успевает за целью (вблизи на 18–23°/с не успевал)
+	local vt = (cfg.vt or 450) * (closing and 0.7 or 1) * ((cfg.nearSlow and dist < (cfg.rMin + cfg.rMax) / 2) and cfg.nearSlow or 1)
+	local want = tangent * vt + (-inward) * vOut
+	-- Высота: над целью ± качание, выше крыш и склонов под вертолётом и по пути к цели (с запасом)
+	local ceil = CeilingAt(tpos)
+	local spec = AirSpec(entry, ent)
+	local z = tpos.z + cfg.height + math.sin(now * 2 * math.pi / 7 + entry.dbPhase) * 200
+	for _, f in ipairs({0, 0.3, 0.6}) do
+		z = math.max(z, TopAt(pos.x + flat.x * f, pos.y + flat.y * f, ceil, tpos.z) + math.max(spec.clear + 450, cfg.minAGL or 0))
+	end
+	z = math.min(z, ceil - 300)
+	-- В осях вертолёта по курсу (без тангажа и крена)
+	local fwd = ent:WorldToLocal(pos + ent:GetVelocity()).x
+	local yawAng = Angle(0, ent:GetAngles().y, 0)
+	local fwd2, left2 = yawAng:Forward(), yawAng:Right() * -1
+	local x = 5 * want:Dot(fwd2)
+	local y = 5 * want:Dot(left2)
+	-- Нос вниз к цели (сверх нужного для скорости), чтобы навестись по высоте: «нырки» раз в 3 с
+	-- на 2,5 с — очередь (как у игрока), плюс слегка на сближении. Кружа боком, нос сам вниз не смотрит
+	-- (период и длина нырка — свои у каждого класса; по умолчанию 4 с / 1,6 с; nearSlow — нырки только
+	-- на дальней стороне круга, где нос успевает за целью)
+	local dip = (now + entry.dbPhase) % (cfg.dipEvery or 4) < (cfg.dipLen or 1.6)
+	if cfg.dipFarOnly and dist < (cfg.rMin + cfg.rMax) / 2 then dip = false end
+	if (dip or closing) and dist > (cfg.minDist or 800) then
+		local d = math.Clamp(math.NormalizeAngle((tpos - ent:WorldSpaceCenter()):Angle().p), 0, 45)
+		x = x + (dip and 50 or 25) * math.min(d, cfg.dipMax or 45)
+	end
+	-- Нос вверх не больше noseUpMax° (тангаж = x·0.02 − скорость·0.1): после нырка OH-6 задирал нос на
+	-- 25° — «кивал» на месте. Тормозит пусть дольше, зато ровно
+	if cfg.noseUpMax then x = math.max(x, 5 * fwd - 50 * cfg.noseUpMax) end
+	entry.dbRadius, entry.dbClosing = dist, closing
+	return ent:LocalToWorld(Vector(x, y, math.Clamp(z - pos.z, -400, 600)))
+end
 -- Свой ИИ LFS облетает препятствия, но мы его точки подменяем — значит, и смотреть вперёд нам.
 -- Если за 2–3 секунды полёта по ходу что-то есть, под винтом меньше запаса (AirSpec) или лопасти
 -- уже чиркают (LFS ломает винт после ~20 касаний) — тормозим и набираем высоту, пока не станет чисто
@@ -1968,7 +2318,12 @@ local function NeedsPullUp(entry, ent)
 	-- Под всем винтом, а не одной точкой: склон сбоку винт заденет раньше, чем брюхо
 	local rb = r * 0.7
 	local below = util.TraceHull({start = pos, endpos = pos - Vector(0, 0, spec.clear), mins = Vector(-rb, -rb, 0), maxs = Vector(rb, rb, 10), filter = filter, mask = MASK_SOLID_BRUSHONLY})
-	if (front.Hit and not front.HitSky) or below.Hit or ent.RotorHit then
+	-- Пике ракетного захода: «препятствие» по ходу — земля у самой цели (пикируем на неё же), выход
+	-- из пике считает сам заход (RocketRunPoint: высота, время до земли). Иначе на 2000 юнитов в
+	-- секунду взгляд на 2–3 с вперёд упирался в землю, и пике срывалось сразу
+	local frontHit = front.Hit and not front.HitSky
+	if frontHit and (entry.rrMode == "dive" or (entry.airMode == "doebalsya" and entry.dbState == "runin")) and entry.rrTargetPos and front.HitPos:Distance(entry.rrTargetPos) < 4000 then frontHit = false end
+	if frontHit or below.Hit or ent.RotorHit then
 		entry.pullUntil = now + 1.5
 		entry.holdAltUntil = now + 4.5
 		entry.pullUps = (entry.pullUps or 0) + 1
@@ -2083,7 +2438,7 @@ local LFS_LOADOUTS = {
 	gd_lfs_mi28 = {0, 1, 2}, gd_lfs_mi28n = {0, 1, 2, 3}, gd_lfs_mi8amtsh = {0, 1, 2, 3}, gd_lfs_mi8mtv = {0, 1, 2},
 	gd_lfs_mi8t1 = {0, 1}, gd_lfs_mi8t2 = {0},
 	lfs_grdn_ah1g = {1, 2, 3}, lfs_grdn_ah1z = {1, 2, 3, 4}, lfs_grdn_ah64d = {1, 2, 3}, lfs_grdn_bo105pah1 = {2, 3},
-	lfs_grdn_ec665uht = {1, 2, 3, 4, 5}, lfs_grdn_hkp9a = {1, 2}, lfs_grdn_ka50 = {1, 2}, lfs_grdn_md500tow = {1, 2},
+	lfs_grdn_ec665uht = {1, 2, 3, 4, 5}, lfs_grdn_hkp9a = {1, 2}, lfs_grdn_ka50 = {2}, lfs_grdn_md500tow = {1, 2},
 	lfs_grdn_mi24d = {1}, lfs_grdn_mi28nm = {1, 2, 3}, lfs_grdn_sa316b = {1}, lfs_grdn_uh1c_xm30 = {1, 2, 3, 4, 5, 6},
 }
 
@@ -2139,7 +2494,7 @@ local SALVO = 8
 -- Ракетный заход вертолёта (RunAI): огонь с fireFrom, отворот в breakDist, уход на breakAway за цель
 -- arc — разворот по дуге: точка на столько впереди по ходу (вертолёт не зависает)
 -- minSpeed — не медленнее (разгон наклоном носа), assist — пуск ракет при носе до стольких градусов от цели
-local ROCKET_RUN = {fireFrom = 6000, breakDist = 500, extend = 2500, extraAlt = 500, arc = 1500, minSpeed = 500, assist = 20}
+local ROCKET_RUN = {apexHeight = 4500, diveAngle = 28, fireFrom = 8000, fireTo = 1800, pullDist = 2000, minAGL = 900, extend = 6000, assist = 20, tilt = 38}
 
 -- Чем бить цель такого вида (по порядку): технику — ракетами и пушкой, самолёт — пушкой,
 -- пехоту — пушкой, а ракетами, только если пушки нет (Ми-24 с одними ракетами)
@@ -2191,7 +2546,13 @@ local function AssistBullet(pos, ang)
 	local stats = PR_Patrol.AssistStats
 	stats.tries = stats.tries + 1
 	local dir = (a.to - pos):GetNormalized()
-	if ang:Forward():Dot(dir) < math.cos(math.rad(a.max)) then return ang end
+	if a.maxYaw then
+		-- Раздельно по курсу и по высоте («доебался»: нос по курсу на цели, но вниз почти не смотрит)
+		local want = dir:Angle()
+		if math.abs(math.AngleDifference(want.y, ang.y)) > a.maxYaw or math.abs(math.AngleDifference(want.p, ang.p)) > a.maxPitch then return ang end
+	elseif ang:Forward():Dot(dir) < math.cos(math.rad(a.max)) then
+		return ang
+	end
 	stats.done = stats.done + 1
 	local want = dir:Angle()
 	return Angle(want.p + math.Rand(-0.5, 0.5), want.y + math.Rand(-0.5, 0.5), 0)
@@ -2230,7 +2591,7 @@ local function FirePilot(ent, entry, target, kind, aimed, hover)
 	local off, clear = 0, true
 	-- На ракетном заходе (ипподром) — пуск при носе до ROCKET_RUN.assist от цели: нос на цель
 	-- встаёт поздно, уже вблизи, и залп не успевал выйти целиком (3–5 ракет вместо 8)
-	local assist = hover and HOVER_ASSIST or (entry.rrMode == "run" and ROCKET_RUN.assist) or ROCKET_AIM_ASSIST
+	local assist = hover and HOVER_ASSIST or (entry.rrMode == "dive" and ROCKET_RUN.assist) or ROCKET_AIM_ASSIST
 	if not aimed then
 		off, clear = NoseOff(ent, target)
 		if not clear then return 0 end
@@ -2238,8 +2599,14 @@ local function FirePilot(ent, entry, target, kind, aimed, hover)
 			local l = ent:WorldToLocal(target:WorldSpaceCenter())
 			local yaw = math.deg(math.atan2(l.y, l.x))
 			local down = math.deg(math.atan2(-l.z, math.max(l.x, 1)))
-			if l.x <= 0 or math.abs(yaw) > 8 or down < -5 or down > 40 then return 0 end
-		elseif off > (kind == "vehicle" and assist or 6) then
+			-- «Доебался» кружит боком, нос LFS вниз не смотрит: по курсу до 12°, ниже носа до 60°, пушку и
+			-- ракеты доводим (иначе OH-6 за минуту не выстрелил ни разу)
+			local loose = entry.airMode == "doebalsya"
+			if l.x <= 0 or math.abs(yaw) > (loose and 10 or 8) or down < -5 or down > (loose and 60 or 40) then return 0 end
+			-- Пушку — по курсу; ракеты и ПТУР — только когда нос на цели целиком (≤ 15°): в третьем прогоне
+			-- MD-500 выпускал все ПТУР на развороте мимо
+			if loose then entry.dbRocketsOK, off = off <= 15, 0 end
+		elseif off > (kind == "vehicle" and assist or (entry.airMode == "doebalsya" and entry.dbSuppress or 6)) then
 			return 0
 		end
 	end
@@ -2248,12 +2615,19 @@ local function FirePilot(ent, entry, target, kind, aimed, hover)
 	local weapons = WeaponsOf(entry)
 	if not weapons then
 		-- Остальные (OH-6): обычное «нажать огонь»
-		if isfunction(ent.HandleWeapons) then ent:HandleWeapons(true) end
+		if isfunction(ent.HandleWeapons) then
+			-- Обычная поправка пуль (4°), как у остальных вертолётов; с места — шире
+			if not aimed then PilotAssist = {to = TargetPoint(target), max = hover and HOVER_ASSIST or BULLET_AIM_ASSIST} end
+			local ok, err = pcall(ent.HandleWeapons, ent, true)
+			PilotAssist = nil
+			if not ok then error(err, 0) end
+		end
 		return 0
 	end
 	local list = {}
 	for _, w in pairs(PilotWeapons(entry, ent, kind)) do
-		if off <= 6 or w == weapons.rockets then list[#list + 1] = w end
+		local rocketsOK = w ~= weapons.rockets or not (hover and entry.airMode == "doebalsya") or entry.dbRocketsOK
+		if (off <= (entry.airMode == "doebalsya" and entry.dbSuppress or 6) or w == weapons.rockets) and rocketsOK then list[#list + 1] = w end
 	end
 	entry.pilotDebug = string.format("pilot %s: tries %d, nose on %d, weapons %d", kind, entry.pilotTries, entry.pilotNose, #list)
 	if #list == 0 then return 0 end
@@ -2267,7 +2641,7 @@ local function FirePilot(ent, entry, target, kind, aimed, hover)
 	hook.Add("OnEntityCreated", "PR_PatrolPilotFire", function(e) created[#created + 1] = e end)
 	-- (хозяина пуль у пака Гордона подставляет обёртка его оружия — см. SetupAI)
 	-- У самолёта наведение своё, с упреждением (aimed) — его пули не трогаем
-	if not aimed then PilotAssist = {to = TargetPoint(target), max = BULLET_AIM_ASSIST} end
+	if not aimed then PilotAssist = (hover and entry.airMode == "doebalsya") and {to = TargetPoint(target), maxYaw = DB_OPT.assist, maxPitch = 50} or {to = TargetPoint(target), max = BULLET_AIM_ASSIST} end
 	-- Каждое оружие отдельно: у некоторых аддонов оно падает всегда (у MD-500 и SA-316 Гордона
 	-- PrimaryAttack — ipairs(nil)) — такое выключаем, а не сыплем ошибками каждый тик
 	for _, w in ipairs(list) do
@@ -2312,19 +2686,83 @@ local function FirePilot(ent, entry, target, kind, aimed, hover)
 				end
 			end)
 			-- Доводка на цель (у самолёта наведение своё, с упреждением — его не трогаем)
+			-- Ракета в полёте падает: точку поднимаем на замеренное падение для этой дальности (ShellDrop —
+			-- по своим же ракетам этого вида; с 4000–8000 по прямой Ка-50 не попадал ни одной)
+			local key = rocket:GetClass()
+			entry.shellKey, entry.rocketKey = key, key
 			if not aimed then
-				local want = (TargetPoint(target) - rocket:GetPos()):GetNormalized()
+				local tp = TargetPoint(target)
+				local rpos = rocket:GetPos()
+				tp = tp + Vector(0, 0, ShellDrop(entry, math.sqrt((tp.x - rpos.x) ^ 2 + (tp.y - rpos.y) ^ 2)))
+				local want = (tp - rpos):GetNormalized()
 				local rphys = rocket:GetPhysicsObject()
 				if rocket:GetForward():Dot(want) > math.cos(math.rad(assist + 3)) then
 					rocket:SetAngles(want:Angle())
 					if IsValid(rphys) then rphys:SetVelocity(want * rphys:GetVelocity():Length()) end
 				end
 			end
+			-- ПТУР (TOW, Hellfire, 9М…) без своего наведения летели как НУР — в «доебался» MD-500 мазал
+			-- всеми. Ведём их на цель в полёте (как проводное наведение)
+			local cls = string.lower(key)
+			if not rocket.JDAM and not target.PR_Point and (cls:find("bgm71", 1, true) or cls:find("tow", 1, true) or cls:find("hellfire", 1, true)
+				or cls:find("agm", 1, true) or cls:find("9m1", 1, true)) then
+				local aimBody = AimBody(target)
+				-- На пуске — сразу на цель (как TOW по линии прицела): вертолёт, кружа боком, держит нос
+				-- почти горизонтально, и ракета уходила на 60–70° мимо, а потом разгонялась до 7000 и уже
+				-- не доворачивала
+				if IsValid(aimBody) then
+					local w = (aimBody:WorldSpaceCenter() - rocket:GetPos()):GetNormalized()
+					if w:Dot(ent:GetForward()) > 0 then
+						rocket:SetAngles(w:Angle())
+						local rp0 = rocket:GetPhysicsObject()
+						if IsValid(rp0) then rp0:SetVelocity(w * rp0:GetVelocity():Length()) end
+					end
+				end
+				rocket.PR_ATGM = true
+				local id = "PR_ATGM" .. rocket:EntIndex()
+				timer.Create(id, 0.05, 200, function()
+					local rp = IsValid(rocket) and rocket:GetPhysicsObject()
+					if not (IsValid(rp) and IsValid(aimBody)) then timer.Remove(id) return end
+					local v = rp:GetVelocity()
+					local speed = v:Length()
+					if speed < 50 then return end
+					local dir, want = v / speed, (aimBody:WorldSpaceCenter() - rocket:GetPos()):GetNormalized()
+					local ang = math.deg(math.acos(math.Clamp(dir:Dot(want), -1, 1)))
+					-- Прямо на цель (проводное наведение): постепенный доворот не успевал — ракета разгонялась
+					-- до 7000 и проскакивала. Скорость постоянная 3500: с переустановкой скорости каждый тик
+					-- двигатель её не разгонял, и TOW ползли на ~700 («слоумо»)
+					-- Физика ракеты Гредвича съедала скорость (ставили 3500 — сближалась на ~450/с, топливо
+					-- кончалось раньше, «слоумо» и промахи). Ведём её сами: шаг по линии на цель, перед шагом
+					-- луч — задела что-то (цель, землю, стену) — подрыв там
+					local newDir = want
+					speed = 3200
+					local from = rocket:GetPos()
+					local step = newDir * speed * 0.05
+					local hit = util.TraceLine({start = from, endpos = from + step, filter = function(e2)
+						return e2 ~= rocket and not PartOf(e2, ent) end, mask = MASK_SHOT})
+					if hit.Hit then
+						rocket:SetPos(hit.HitPos - newDir * 10)
+						timer.Remove(id)
+						if isfunction(rocket.Explode) then rocket:Explode(hit.HitPos) end
+						return
+					end
+					rocket:SetPos(from + step)
+					rp:SetVelocityInstantaneous(newDir * speed)
+					rocket:SetAngles(newDir:Angle())
+					if PR_Patrol.DebugATGM and (rocket.PR_DbgAt or 0) < CurTime() then
+						rocket.PR_DbgAt = CurTime() + 0.25
+						MsgN(string.format("[PR] ATGM %d dist %d ang %.0f speed %d vz %d", rocket:EntIndex(), rocket:GetPos():Distance(aimBody:WorldSpaceCenter()), ang, speed, v.z))
+					end
+				end)
+			end
+			trackedShells[#trackedShells + 1] = {entry = entry, ent = rocket, key = key, start = rocket:GetPos(),
+				dir = rocket:GetForward(), born = CurTime()}
 			for _, part in ipairs(parts) do
 				if IsValid(part) and part ~= rocket then constraint.NoCollide(rocket, part, 0, 0) end
 			end
 			local phys = rocket:GetPhysicsObject()
-			if IsValid(phys) then phys:AddVelocity(vel) end
+			-- ПТУР — без скорости вертолёта: при кружении боком она сбивала ракету с линии на цель
+			if IsValid(phys) and not rocket.PR_ATGM then phys:AddVelocity(vel) end
 		end
 	end
 	entry.salvo = (entry.salvo or 0) + rockets
@@ -2342,13 +2780,13 @@ local function HeliPrefire(entry, ent, target)
 		local seen = VisiblePoint(ent:WorldSpaceCenter(), target, ent)
 		if seen then
 			entry.pilotSeenAt, entry.pilotSeenPos, entry.pilotSeenTarget = now, seen, target
-			entry.prefireLeft, entry.prefireHidden = PREFIRE_ROCKETS, false
+			entry.prefireLeft, entry.prefireHidden = AIR_OPT.prefireRockets, false
 		else
 			entry.prefireHidden = true
 		end
 	end
 	if not (entry.prefireHidden and entry.pilotSeenTarget == target and entry.pilotSeenAt) then return false end
-	if now - entry.pilotSeenAt > PREFIRE_AIR_TIME then return false end
+	if now - entry.pilotSeenAt > AIR_OPT.prefireTime then return false end
 	-- Ракеты на это укрытие кончились — дальше одной пушкой; ни того ни другого — не префайрим
 	local weapons = WeaponsOf(entry)
 	local broken = entry.brokenWeapons or {}
@@ -2415,9 +2853,14 @@ local function UpdateFacing(entry, ent, point)
 	local cur = ent:GetAngles().y
 	local want = cur
 	local look = IsValid(entry.faceTarget) and entry.faceTarget:GetPos() or point
-	if look then
+	-- Ракетный заход (горка, разворот): курс задан прямо
+	if entry.faceYaw and not IsValid(entry.faceTarget) then
+		want = entry.faceYaw
+	elseif look then
 		local flat = Vector(look.x - pos.x, look.y - pos.y, 0)
 		if flat:LengthSqr() > 100 * 100 then want = flat:Angle().y end
+		-- «Доебался»: курс с упреждением на угловую скорость облёта (иначе нос отстаёт от цели)
+		if entry.airMode == "doebalsya" and entry.dbYawLead then want = want + entry.dbYawLead end
 		-- Кружит с бортовыми пулемётами: цель — сбоку (Ми-8: слева), нос — по кругу
 		if entry.airMode == "circle" and IsValid(entry.faceTarget) then
 			want = want - (GUNNER_SIDE[entry.class] or 0)
@@ -2568,9 +3011,9 @@ local PLANE_RUNS = {
 	infantry = {angle = 14, height = 1800, rockets = 0, sweep = 600},
 	vehicle = {angle = 20, height = 2200, rockets = 6, sweep = 0},   -- по технике — точно (ракетам нос на цель)
 }
-local PLANE_FIRE_FROM = 8000    -- с какой дальности пушка
-local PLANE_FIRE_OFF = 8        -- на сколько градусов нос может смотреть мимо точки очереди
-local PLANE_PREFIRE_TIME = 10   -- цель скрылась — столько секунд заход и огонь туда, где её видели
+-- from — с какой дальности пушка; off — на сколько градусов нос может смотреть мимо точки очереди;
+-- prefire — цель скрылась: столько секунд заход и огонь туда, где её видели
+local PLANE_FIRE = {from = 8000, off = 8, prefire = 10}
 local ROCKET_SPEED = 5000 -- примерно, для упреждения (у Hydra разгон ~700 за тик, сопротивление воздуха)
 
 local function PlaneAttack(entry, ent, target, kind)
@@ -2580,7 +3023,7 @@ local function PlaneAttack(entry, ent, target, kind)
 	local body = AimBody(target)
 	local tpos = PR_Patrol.AimPoint(target)
 	-- Префайр: видим ли цель (раз в 0,25 с); скрылась (в доме, за стеной) — заход и огонь туда, где
-	-- видели, ещё PLANE_PREFIRE_TIME секунд. Раньше самолёт по скрывшейся цели не стрелял вовсе
+	-- видели, ещё PLANE_FIRE.prefire секунд. Раньше самолёт по скрывшейся цели не стрелял вовсе
 	if now >= (entry.planeSeenCheck or 0) then
 		entry.planeSeenCheck = now + 0.25
 		local seen = VisiblePoint(ent:WorldSpaceCenter(), target, ent)
@@ -2591,7 +3034,7 @@ local function PlaneAttack(entry, ent, target, kind)
 		end
 	end
 	local prefire = entry.planeHidden and entry.planeSeenTarget == target and entry.planeSeenAt
-		and now - entry.planeSeenAt < PLANE_PREFIRE_TIME or false
+		and now - entry.planeSeenAt < PLANE_FIRE.prefire or false
 	if prefire then tpos = entry.planeSeenPos end
 	local ceil = CeilingAt(pos)
 	local flat = Vector(tpos.x - pos.x, tpos.y - pos.y, 0)
@@ -2680,22 +3123,32 @@ local function PlaneAttack(entry, ent, target, kind)
 		local range = pos:Distance(tpos)
 		-- Упреждение на скорость цели (по технике — под ракеты; в префайр — точка неподвижна)
 		local aimPos = tpos
-		if kind == "vehicle" and not prefire then aimPos = tpos + body:GetVelocity() * (muzzle:Distance(tpos) / ROCKET_SPEED) end
+		if kind == "vehicle" and not prefire then
+			aimPos = tpos + body:GetVelocity() * (muzzle:Distance(tpos) / ROCKET_SPEED)
+			-- Ракеты с 2000–6000 падают: нос выше на замеренное падение своих же ракет (без этого 24 ракеты
+			-- при носе на цели до 0,6° — ни одного попадания)
+			if entry.rocketKey then
+				local saved = entry.shellKey
+				entry.shellKey = entry.rocketKey
+				aimPos = aimPos + Vector(0, 0, ShellDrop(entry, Vector(tpos.x - pos.x, tpos.y - pos.y, 0):Length()))
+				entry.shellKey = saved
+			end
+		end
 		-- Очередь ведём вдоль захода: издали — с недолётом, ближе к выходу — с перелётом
-		local sweepK = math.Clamp((range - 3000) / (PLANE_FIRE_FROM - 3000), 0, 1) * 2 - 1
+		local sweepK = math.Clamp((range - 3000) / (PLANE_FIRE.from - 3000), 0, 1) * 2 - 1
 		local runFlat = Vector(pos.x - tpos.x, pos.y - tpos.y, 0):GetNormalized()
 		local gunPos = aimPos + runFlat * (run.sweep or 0) * sweepK
 		local aim = (gunPos - muzzle):Angle()
 		local off = math.deg(math.acos(math.Clamp(ent:GetForward():Dot(aim:Forward()), -1, 1)))
 		local offTarget = math.deg(math.acos(math.Clamp(ent:GetForward():Dot((aimPos - muzzle):GetNormalized()), -1, 1)))
 		if not entry.planeBestAim or off < entry.planeBestAim then entry.planeBestAim = off end
-		if off <= PLANE_FIRE_OFF and range < PLANE_FIRE_FROM then
+		if off <= PLANE_FIRE.off and range < PLANE_FIRE.from then
 			-- Видно ли точку очереди: в префайр — стена дома у самого места тоже годится (снаряд там и рванёт)
 			local los = util.TraceLine({start = muzzle, endpos = gunPos, filter = function(e) return e ~= target and not PartOf(e, ent) and not PartOf(e, body) end, mask = SIGHT_MASK})
 			if los.Hit and los.HitPos:Distance(gunPos) > (prefire and 400 or 150) then
 				entry.planeNoFire = string.format("цель закрыта (%s в %d от цели)", los.HitSky and "небо" or "стена/земля", los.HitPos:Distance(tpos))
 			else
-				-- Ракеты — только точно (≤ 2.5° на саму цель) и с 2000–6000; пушка — с PLANE_FIRE_OFF
+				-- Ракеты — только точно (≤ 2.5° на саму цель) и с 2000–6000; пушка — с PLANE_FIRE.off
 				local useRockets = kind == "vehicle" and offTarget <= 2.5 and range > 2000 and range < 6000
 				local before = ent.NextPrimary
 				FirePilot(ent, entry, prefire and PointTarget(gunPos) or target, useRockets and "vehicle" or "infantry", true)
@@ -2809,7 +3262,7 @@ local function SetupAI(patrol, entry)
 	-- смотреть (UpdateFacing)
 	ent.AIGetTarget = function(self)
 		if entry.heli then return entry.facer end
-		return PR_Patrol.VehicleTarget(entry, self:WorldSpaceCenter(), VEHICLE_RANGE * 1.5, AIR_MEMORY)
+		return PR_Patrol.VehicleTarget(entry, self:WorldSpaceCenter(), VEHICLE_RANGE * 1.5, AIR_OPT.memory)
 	end
 
 	local baseRunAI = ent.RunAI
@@ -2818,7 +3271,7 @@ local function SetupAI(patrol, entry)
 			-- Сбитый самолёт падает сам: не рулим и не пишем в журнал заходы обломков
 			if not entry.heli and isfunction(self.IsDestroyed) and self:IsDestroyed() then return self:GetAngles() end
 
-			local target = PR_Patrol.VehicleTarget(entry, self:WorldSpaceCenter(), VEHICLE_RANGE * 1.5, AIR_MEMORY)
+			local target = PR_Patrol.VehicleTarget(entry, self:WorldSpaceCenter(), VEHICLE_RANGE * 1.5, AIR_OPT.memory)
 
 			-- Самолёт по врагу — своими заходами (у ИИ LFS на этой карте не хватает высоты)
 			if IsValid(target) and not entry.heli and entry.class and string.StartWith(entry.class, "lvs_") then return baseRunAI(self, ...) end
@@ -2845,6 +3298,29 @@ local function SetupAI(patrol, entry)
 			if NeedsPullUp(entry, self) then
 				entry.airMode = "pull up"
 				if IsValid(target) then FirePilot(self, entry, target) end
+				-- На заходе — вверх с сохранением скорости (нос ровно, полный газ), а не торможение на месте:
+				-- раньше подъём срывал заход и гасил скорость над целью
+				if entry.rrMode then
+					local f = self:WorldToLocal(self:GetPos() + self:GetVelocity()).x
+					-- Нос вверх на 10° (на 20°, если до земли меньше 3 с): ровным носом на 1800 одна тяга
+					-- не успевала поднять над растущим рельефом — Ми-24 врезался на подъёме
+					local vz = self:GetVelocity().z
+					local gtr = util.TraceLine({start = self:GetPos(), endpos = self:GetPos() - Vector(0, 0, 8000), mask = MASK_SOLID_BRUSHONLY})
+					local impact = vz < -50 and (self:GetPos().z - gtr.HitPos.z) / -vz or math.huge
+					local up = (impact < 3 or f > 1400) and 20 or 10
+					return LimitTilt(entry, self, self:LocalToWorld(Vector(5 * f - 50 * up, 0, 3000)), ROCKET_RUN.tilt, true)
+				end
+				-- «Устрашитель» — тоже вверх на той же скорости (вперёд и вбок), иначе торможение до висения
+				-- срывало круг: после смены направления скорость падала до 200–500 на 20 с
+				local db = DOEBALSYA[entry.class]
+				-- (только с запасом высоты и креном до 30°: низко, на 380, OH-6 кружа задел винтом и разбился)
+				local gtr = util.TraceLine({start = self:GetPos(), endpos = self:GetPos() - Vector(0, 0, 8000), mask = MASK_SOLID_BRUSHONLY})
+				if db and db.ring and entry.dbState and IsValid(target) and self:GetPos().z - gtr.HitPos.z > 800 then
+					-- вбок — с той же скоростью (не тормозить до висения), вперёд — гасим, нос чуть вверх, вверх —
+					-- полный газ. Точкой круга нельзя: цель почти под вертолётом — нос вниз на 37°, пике в землю
+					local l = self:WorldToLocal(self:GetPos() + self:GetVelocity())
+					return LimitTilt(entry, self, self:LocalToWorld(Vector(5 * l.x - 50 * 8, 5 * l.y, 3000)), 30, true)
+				end
 				return LimitTilt(entry, self, PullUpPoint(self), nil, true)
 			end
 
@@ -2870,7 +3346,9 @@ local function SetupAI(patrol, entry)
 				end
 
 				-- Враг только что скрылся (в доме, за стеной) — ракеты туда, где его видели; висим на месте
-				if HeliPrefire(entry, self, target) then
+				-- На ракетных заходах (бум-зум) не зависаем: цель на отходе за рельефом теряется всегда,
+				-- и префайр с места держал вертолёт, пуская ракеты в склон, — до пике он не доходил
+				if not entry.rrMode and not DOEBALSYA[entry.class] and HeliPrefire(entry, self, target) then
 					entry.runActive = false
 					return LimitTilt(entry, self, entry.prefireHold or self:GetPos())
 				end
@@ -2883,12 +3361,35 @@ local function SetupAI(patrol, entry)
 				-- Бортовые пулемёты (Ми-8) — только круги, без заходов: заход срывал вертолёт с круга
 				local circler = gunner and IsValid(entry.crew[1]) and GUNNER_SIDE[entry.class]
 
+				-- Лёгкий вертолёт (Little Bird и подобные) — «доебался»: кружит вокруг цели носом на неё и бьёт
+				local db = DOEBALSYA[entry.class]
+				if db then
+					entry.runActive, entry.rrMode, entry.faceYaw = false, nil, nil
+					entry.airMode = "doebalsya"
+					entry.faceTarget = target
+					-- Подавляющий огонь (по просьбе игрока — «устрашитель»): пушка — при носе до suppress° от
+					-- цели; пули идут строго по носу (подкрутка — обычные 4°), промахи ложатся рядом с целью
+					entry.dbSuppress = db.suppress
+					-- Ракеты — по 2 раз в 2,5 с: не весь подвес за 12 с, и поправка на падение успевает замериться
+					if not entry.salvoCap or CurTime() > (entry.salvoResetAt or 0) then
+						entry.salvo, entry.salvoCap, entry.salvoResetAt = 0, 2, CurTime() + 2.5
+					end
+					-- Огонь — по-честному: нос на цели (пушка ≤ 6°, обычная поправка пуль 4°)
+					if not entry.dbNoFire then FirePilot(self, entry, target, kind) end
+					return LimitTilt(entry, self, DoebalsyaPoint(entry, self, target, db), db.ring and 44 or 50)   -- круг: с запасом до 50° (команда 50 — по факту 51–52°)
+				end
+
 				-- Ракеты есть — заходы на цель (и по технике, и по пехоте): издали нос на цель, залп
 				-- ракет и пушка, отворот в ROCKET_RUN.breakDist и новый заход с другой стороны. Идёт
 				-- выше обычного (extraAlt): раньше заходы у холмов и домов срывались в уход вверх, и
 				-- вертолёты били с места (по просьбе игрока вернули заходы). Стрелок бьёт и на заходе
 				local broken = entry.brokenWeapons or {}
-				local rocketRun = not circler and weapons and weapons.rockets and not broken.rockets and weapons.rockets.ammo(self)
+				-- Заходы — у всех ударных: с ракетами или с курсовой пушкой (Ка-50 с подвесом без ракет
+				-- летал по-старому — зависал у цели и разворачивался на месте)
+				-- Кончилось курсовое, но есть стрелок — заходы продолжаются, стрелок бьёт на пике (раньше Ми-24
+				-- без ракет зависал в 1300 от цели на 30+ с)
+				local rocketRun = not circler and ((weapons and ((weapons.rockets and not broken.rockets and weapons.rockets.ammo(self))
+					or (weapons.gun and not broken.gun and weapons.gun.ammo(self)))) or (gunner and IsValid(entry.crew[1])))
 				if rocketRun then
 					entry.runActive = false
 					if entry.rrNewRun or not entry.salvoCap then
@@ -2898,12 +3399,13 @@ local function SetupAI(patrol, entry)
 					local point, diving = RocketRunPoint(entry, self, target, ROCKET_RUN)
 					local tpos = target:WorldSpaceCenter()
 					local flatDist = Vector(tpos.x - self:GetPos().x, tpos.y - self:GetPos().y, 0):Length()
-					if diving and flatDist < ROCKET_RUN.fireFrom then FirePilot(self, entry, target, "vehicle") end
-					entry.airMode = "rocket " .. (entry.rrMode or "run")
+					if diving and flatDist < ROCKET_RUN.fireFrom and flatDist > ROCKET_RUN.fireTo then FirePilot(self, entry, target, "vehicle") end
+					entry.airMode = "rocket " .. (entry.rrMode or "dive")
 					entry.faceTarget = diving and target or nil
-					return LimitTilt(entry, self, point, diving and 40 or nil)
+					-- Наклоны быстрые и глубже обычного (до 45°, без плавности): пике, горка, разворот с креном
+					return LimitTilt(entry, self, point, ROCKET_RUN.tilt, true)
 				end
-				entry.rrMode = nil
+				entry.rrMode, entry.faceYaw = nil, nil
 				local hoverRockets = false
 				if (gunner and IsValid(entry.crew[1]) or hoverRockets) and (hoverRockets or circler or not PilotRun(entry, self)) then
 					-- Бортовые пулемёты — круги вокруг цели бортом к ней (UpdateFacing)
@@ -3008,7 +3510,11 @@ local function SetupAI(patrol, entry)
 	local lfs = ent.LFS or scripted_ents.IsBasedOn(ent:GetClass(), "lunasflightschool_basescript")
 	entry.genericWeapons = lfs and not PILOT_WEAPONS[entry.class] and not string.StartWith(entry.class or "", "gred_lfs_") or nil
 	local lfsLoadouts = LFS_LOADOUTS[entry.class]
-	if lfsLoadouts and isfunction(ent.SetLoadout) and not table.HasValue(lfsLoadouts, ent:GetLoadout()) then
+	-- PR_Patrol.ForceLoadout[класс] — подвес для автотеста (у MD-500: 1 — НУР FFAR, 2 — ПТУР TOW)
+	local forced = PR_Patrol.ForceLoadout and PR_Patrol.ForceLoadout[entry.class]
+	if forced and isfunction(ent.SetLoadout) then
+		ent:SetLoadout(forced)
+	elseif lfsLoadouts and isfunction(ent.SetLoadout) and not table.HasValue(lfsLoadouts, ent:GetLoadout()) then
 		ent:SetLoadout(lfsLoadouts[math.random(#lfsLoadouts)])
 	end
 	-- Управляемые ракеты стрелка (Ми-24)
@@ -3459,7 +3965,7 @@ local function WrapGredwitch()
 					math.Clamp(fix.y + math.AngleDifference(want.y, ang.y) * 0.2, -10, 10), 0)
 			end
 			-- Пушка перешла на пулемёт/автопушку (пули летят прямо): поправка на падение снаряда не нужна
-			if crew and ply == crew.crew[1] then crew.shellKey = nil end
+			if crew and crew.kind == "ground" and ply == crew.crew[1] then crew.shellKey = nil end
 			if PilotAssist then ang = AssistBullet(pos, ang) end
 			return createBullet(ply, pos, ang, cal, filter, ...)
 		end
@@ -3545,12 +4051,12 @@ local DriveTo
 local GROUND_HUNT_TIME = 25  -- сколько секунд ищем скрывшегося врага там, где видели последним
 local GROUND_LEASH = 3000    -- дальше от своего патруля не уезжаем
 
--- Докуда машина бьёт: всё, что видит (GROUND_SIGHT). По исходникам оружие всех паков летит
+-- Докуда машина бьёт: всё, что видит (GROUND_OPT.sight). По исходникам оружие всех паков летит
 -- дальше: пули Гредвича — по прямой без предела, пулемёты Луны — луч на 50000, снаряды Луны
 -- живут 12 с (~160000), снаряды Гредвича — физика без срока. Падение снаряда на такой дальности
 -- выбирает ShellDrop. Если появится оружие с пределом дальности — ограничить здесь
 local function GroundRange(v)
-	return GROUND_SIGHT
+	return GROUND_OPT.sight
 end
 
 -- Есть ли у машины чем стрелять (грузовик и УАЗ — нечем: в бою не встают, идут с патрулём)
@@ -3751,7 +4257,7 @@ local function DriveGround(patrol, v)
 		end
 	end
 
-	local target = PR_Patrol.VehicleTarget(v, veh:WorldSpaceCenter() + Vector(0, 0, 60), GROUND_SIGHT, PREFIRE_TIME + 2)
+	local target = PR_Patrol.VehicleTarget(v, veh:WorldSpaceCenter() + Vector(0, 0, 60), GROUND_OPT.sight, PREFIRE_TIME + 2)
 	CrewAim(v, target)
 	-- «Видно и пора» — до проверки, встала ли пушка: стрелки других мест жмут огонь по своему стволу
 	v.fireClear = v.fire
@@ -3769,7 +4275,7 @@ local function DriveGround(patrol, v)
 		if IsValid(seen) and (seen:IsPlayer() and not seen:Alive() or not seen:IsPlayer() and seen:Health() <= 0) then
 			v.seenPos, v.seenTarget, v.huntUntil = nil, nil, nil
 		end
-		if v.seenPos and v.seenAt and CurTime() - v.seenAt < GROUND_WATCH_TIME then
+		if v.seenPos and v.seenAt and CurTime() - v.seenAt < GROUND_OPT.watch then
 			v.aimPoint = v.seenPos
 			v.aimAng = (v.seenPos - (veh:WorldSpaceCenter() + Vector(0, 0, 60))):Angle()
 			if v.aimFix then v.aimAng = v.aimAng + v.aimFix end
@@ -4072,7 +4578,7 @@ local function CrewForAI(patrol, v)
 	SeatCrew(v)
 	WrapGredwitch()
 	WrapLFSGunner(v)
-	local target = PR_Patrol.VehicleTarget(v, v.ent:WorldSpaceCenter(), VEHICLE_RANGE * 1.5, AIR_MEMORY)
+	local target = PR_Patrol.VehicleTarget(v, v.ent:WorldSpaceCenter(), VEHICLE_RANGE * 1.5, AIR_OPT.memory)
 	CrewAim(v, target)
 	GunnerMissiles(v, target)
 end

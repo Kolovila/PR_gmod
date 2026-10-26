@@ -305,6 +305,13 @@ step(0, function()
 	end
 end)
 
+-- Танковая секция не идёт (секции разбиты по копиям: run_parallel -Suites all) — танк охраны жив и
+-- бьёт по боту-цели: машины-мишени вертолётов гибли за секунды не от них. Танк никого не ищет
+T.section("common")
+step(0, function()
+	if not T.enabled("tank") and S.tank then S.tank.ignoreTargets, S.tank.forceTarget = true, nil end
+end)
+
 ----------------------------------------------------------------------------------------------------
 -- Вертолёты
 ----------------------------------------------------------------------------------------------------
@@ -355,7 +362,9 @@ end)
 
 -- Здесь только стрелок Ми-24: цель у патруля стоит меж домов, и OH-6 на заходе часто уходит от
 -- препятствий, не успев выстрелить. Его стрельба проверяется в раундах ниже
-waitFor(25, function()
+-- 50 с: Ми-24 летает заходами «бум-зум» (разгон, горка, разворот — 30–45 с), а стрелок бьёт в своём
+-- секторе (±30° от носа) — то есть на заходе
+waitFor(50, function()
 	return S.heliShots > S.airStart.heli
 end, "heli gunner firing")
 
@@ -385,6 +394,14 @@ step(0, function()
 			end
 		end
 		S.b1:GodDisable()
+		-- Пока ждём рану от стрелка, урон по цели от остальных (ракеты пилота, OH-6, обломки) не
+		-- проходит: иначе цель погибала за доли секунды, и до пуль стрелка дело не доходило
+		-- OH-6 («устрашитель» стреляет почти без перерыва) на это время цели не ищет: его пули идут к
+		-- VIVO в обход EntityTakeDamage и добивали цель раньше стрелка
+		if S.oh6 then S.oh6.ignoreTargets, S.oh6.forceTarget = true, nil end
+		hook.Add("EntityTakeDamage", "PR_SelftestGunnerOnly", function(ent, dmg)
+			if S.gunnerWounds and ent == S.b1 and (dmg:GetAttacker() ~= crewOf(S.heli, 1) or not dmg:IsBulletDamage()) then return true end
+		end)
 	end
 end)
 
@@ -411,6 +428,8 @@ step(0, function()
 			S.heliShots - (S.woundShots or 0), S.woundHp, S.b1:Health(), tostring(S.b1:Alive())))
 		check("Mi-24 gunner's bullets wound a player (VIVO)", S.gunnerWounds > 0, S.gunnerWounds)
 		S.gunnerWounds = nil
+		hook.Remove("EntityTakeDamage", "PR_SelftestGunnerOnly")
+		if S.oh6 then S.oh6.ignoreTargets, S.oh6.forceTarget = nil, S.b1 end
 		S.b1:GodEnable()
 		-- Убили — поднимаем там же, где стоял
 		if not S.b1:Alive() then
@@ -937,6 +956,14 @@ step(0, function()
 	v.planeMode, v.planeRunYaw = nil, nil
 	v.forceTarget = S.b1
 	watchStrike(v)
+	-- Куда легли ракеты самолёта: расстояние до машины и высота над ней в момент взрыва
+	S.planeMiss = {}
+	hook.Add("EntityRemoved", "PR_SelftestPlaneRockets", function(e)
+		if IsValid(e) and isfunction(e.Launch) and IsValid(S.strikeVeh) and #S.planeMiss < 30 then
+			local d = e:GetPos() - S.strikeVeh:WorldSpaceCenter()
+			table.insert(S.planeMiss, string.format("%d(dz %d)", d:Length2D(), d.z))
+		end
+	end)
 end)
 
 waitFor(75, function()
@@ -953,6 +980,8 @@ step(1, function()
 	for _, line in ipairs(string.Explode("\n", lines)) do
 		if line:find("заход по технике", 1, true) and line:find("dive", 1, true) then log("  " .. line) end
 	end
+	hook.Remove("EntityRemoved", "PR_SelftestPlaneRockets")
+	log("strike: plane rockets blew up this far from the vehicle: " .. table.concat(S.planeMiss or {}, ", "))
 	check("plane flies vehicle runs against a player in a vehicle", lines:find("заход по технике", 1, true) ~= nil)
 	check("plane fires rockets at the vehicle", rockets > 0, rockets)
 	check("plane's fire damages the vehicle (or destroys it)", strikeDamaged(), strikeVehicleState())
@@ -1053,7 +1082,9 @@ step(0, function()
 	end)
 end)
 
-waitFor(40, function()
+-- Окно 120 с: цикл «бум-зум» (разгон до ~1800, горка, разворот) уводит Ми-24 на 12–15 тысяч и длится
+-- до минуты, а управляемые стрелок пускает только на заходе
+waitFor(120, function()
 	local v = S.hs
 	return not (v and IsValid(v.ent)) or ((v.missilesFired or 0) > (S.heliMissiles0 or 0) and strikeDamaged())
 end, "Mi-24 gunner missiles hit the vehicle")
@@ -1110,7 +1141,7 @@ step(0, function()
 	end)
 end)
 
-waitFor(40, function()
+waitFor(80, function()   -- 80 с: управляемые — на заходе, а цикл «бум-зум» длиннее 40 с
 	local v = S.hs
 	return not (v and IsValid(v.ent)) or ((v.missilesFired or 0) > (S.vanishMissiles0 or 0) and not IsValid(S.strikeVeh))
 end, "missile launched and its target gone")
@@ -1216,9 +1247,11 @@ step(0, function()
 	for _, h in ipairs({S.heli, S.oh6}) do
 		if h and IsValid(h.ent) then h.forceTarget = drone end
 	end
+	-- Удаление считаем через 10 с: Ми-24 мог быть ещё на разгоне захода («бум-зум» уводит на ~5000)
+	local defenseFrom = CurTime() + 10
 	hook.Add("Think", "PR_SelftestHeliDefense", function()
 		local center = S.armor and PR_Patrol.Center(S.armor)
-		if not center then return end
+		if not center or CurTime() < defenseFrom then return end
 		for _, h in ipairs({S.heli, S.oh6}) do
 			if h and IsValid(h.ent) then
 				local p = h.ent:GetPos()

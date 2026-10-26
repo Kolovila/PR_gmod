@@ -46,13 +46,15 @@ local AIRFIX = {"gred_lfs_a10", "gd_lfs_mi24v", "lfs_grdn_ka50"}
 local AIMDEBUG = {"gd_lfs_mi8amtsh", "gd_lfs_mi24v"}
 local GROUNDDEBUG = {"simfphys_btr80", "gred_simfphys_marder1a1_ifv_custom"}
 -- long: цель в 5000–7000 — пушки Гредвича и Луны, поправка на падение снаряда (ShellDrop)
+-- show: вертолёты с ракетами по минуте — посмотреть заходы глазами (камера наблюдателя), снимок раз в 6 с
+local HELISHOW = {"gred_lfs_oh6"}
 local LONG = {"gred_simfphys_t72b3_custom", "gred_simfphys_leopard2a6_custom", "sim_fphys_tank", "simfphys_btr80a"}
 
 -- Что гонять: air / ground (или всё) и половина списка: 1 — нечётные, 2 — чётные (две копии игры);
 -- fix / airfix — ещё и список FIX / AIRFIX целиком (без деления на половины)
 local only = T.only or {}
 local LIST = {}
-local anyList = only["air"] or only["ground"] or only["fix"] or only["airfix"] or only["debugaim"] or only["debugground"] or only["long"]
+local anyList = only["air"] or only["ground"] or only["fix"] or only["airfix"] or only["debugaim"] or only["debugground"] or only["long"] or only["show"]
 if only["air"] or not anyList then for _, c in ipairs(AIR) do LIST[#LIST + 1] = c end end
 if only["ground"] or not anyList then for _, c in ipairs(GROUND) do LIST[#LIST + 1] = c end end
 local part = only["2"] and 0 or (only["1"] and 1 or nil)
@@ -68,6 +70,15 @@ if only["airfix"] then for _, c in ipairs(AIRFIX) do CLASSES[#CLASSES + 1] = c e
 if only["debugaim"] then for _, c in ipairs(AIMDEBUG) do CLASSES[#CLASSES + 1] = c end end
 if only["debugground"] then for _, c in ipairs(GROUNDDEBUG) do CLASSES[#CLASSES + 1] = c end end
 if only["long"] then for _, c in ipairs(LONG) do CLASSES[#CLASSES + 1] = c end end
+if only["show"] then
+	for _, c in ipairs(HELISHOW) do CLASSES[#CLASSES + 1] = c end
+	local n = 0
+	timer.Create("PR_ScanShowShots", 6, 0, function()
+		if not (S.cur and IsValid(S.cur.ent)) then return end
+		n = n + 1
+		T.shot(string.format("show_%02d_%s_%s", n, S.cur.class, tostring(S.cur.entry.airMode or "-"):gsub("[^%w]", "_")))
+	end)
+end
 
 T.section("common")
 
@@ -87,6 +98,8 @@ step(0, function()
 	-- moving: цель бегает боком к машине туда-обратно (смена каждые 3 с) — проверка упреждения;
 	-- nolead — то же без упреждения у наземки (сравнить)
 	PR_Patrol.NoGroundLead = only["nolead"] and true or nil
+	PR_Patrol.DebugATGM = only["show"] and true or nil
+	PR_Patrol.ForceLoadout = only["show"] and {lfs_grdn_md500tow = 2} or nil
 	if only["moving"] then
 		hook.Add("StartCommand", "PR_SelftestScanMove", function(ply, cmd)
 			if ply ~= S.b1 or not (S.cur and IsValid(S.cur.ent)) or IsValid(ply:GetVehicle()) then return end
@@ -229,6 +242,20 @@ step(0, function()
 		local h = e:WorldSpaceCenter().z - tr.HitPos.z
 		c.maxH = math.max(c.maxH, h)
 		c.minUp = math.min(c.minUp, e:GetUp().z)
+		-- show: раз в 2 с — стадия ракетного захода, дальность, высота над землёй, скорость
+		if only["show"] and IsValid(S.b1) and CurTime() > (c.nextRRLog or 0) then
+			c.nextRRLog = CurTime() + 1
+			local tp = S.b1:GetPos()
+			local down = util.TraceLine({start = e:GetPos(), endpos = e:GetPos() - Vector(0, 0, 8000), mask = MASK_SOLID_BRUSHONLY})
+			local en = c.entry
+			local dropTab = en.shellKey and en.dropTables and en.dropTables[en.shellKey]
+			log(string.format("RR %s x=%d y=%d tx=%d ty=%d mode=%s dist=%d agl=%d speed=%d pitch=%.0f roll=%.0f rockets=%d hits=%d gunnerOutOfSector=%d dropAt4000=%s yawErr=%.0f pitchErr=%.0f lead=%.0f", c.class, e:GetPos().x, e:GetPos().y, tp.x, tp.y, tostring(c.entry.airMode == "doebalsya" and c.entry.dbState and ("db_" .. c.entry.dbState) or c.entry.airMode),
+				Vector(tp.x - e:GetPos().x, tp.y - e:GetPos().y, 0):Length(), e:GetPos().z - down.HitPos.z, e:GetVelocity():Length(),
+				e:GetAngles().p, e:GetAngles().r, c.entry.rocketsFired or 0, c.hits, en.sectorOut or 0, tostring(dropTab and dropTab[16] and math.Round(dropTab[16])),
+				-- нос относительно цели: >0 — нос левее (против часовой) / ниже цели
+				math.AngleDifference(e:GetAngles().y, (tp - e:GetPos()):Angle().y),
+				e:GetAngles().p - (tp + Vector(0, 0, 40) - e:GetPos()):Angle().p, en.dbYawLead or 0))
+		end
 		-- moving: джип с целью едет по кругу
 		local jeep = S.moveVeh
 		if IsValid(jeep) and IsValid(jeep:GetDriver()) then
@@ -557,7 +584,7 @@ for _, class in ipairs(CLASSES) do
 		end)
 	end
 
-	step(PREFIRE and (air and 22 or 14) or (air and 35 or (only["long"] and 40 or 25)), function()
+	step(PREFIRE and (air and 22 or 14) or (only["show"] and 60) or (air and 35 or (only["long"] and 40 or 25)), function()
 		local c = S.cur
 		if not c then return end
 		for _, plate in ipairs(S.box or {}) do if IsValid(plate) then plate:Remove() end end
@@ -633,4 +660,5 @@ end)
 
 step(1, T.done)
 
+T.noDirector = true   -- у скана своя камера (PR_SELFTEST_WATCH)
 hook.Add("InitPostEntity", "PR_SelfTest", function() T.run(8) end)

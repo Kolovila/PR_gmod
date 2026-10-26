@@ -3,7 +3,9 @@
 #   run_parallel.ps1 -Suites air,air,air      (the same flaky check three times at once)
 # Suites go to free copies D:\GModTest\inst1..N; a busy copy is skipped. Prints each suite's
 # result, failed checks and log path.
-param([string[]]$Suites = @('vehicles', 'full'), [int]$StaggerSeconds = 8)
+#   run_parallel.ps1 -Suites all              (everything on 4 copies: full + vehicles split in 3)
+param([string[]]$Suites = @('vehicles', 'full'), [int]$StaggerSeconds = 20)   # 20 s: four copies loading the map at once ran out of memory
+if ($Suites.Count -eq 1 -and $Suites[0] -eq 'all') { $Suites = @('vehair', 'vehplane', 'vehground', 'full') }
 
 $ErrorActionPreference = 'Stop'
 $Here = Split-Path -Parent $MyInvocation.MyCommand.Path

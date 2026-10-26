@@ -85,6 +85,85 @@ function T.run(startDelay)
 	end
 
 	timer.Simple(startDelay or 8, nextStep)
+	if not T.noDirector then T.startDirector() end
+end
+
+----------------------------------------------------------------------------------------------------
+-- Камера-режиссёр: чтобы на окно теста можно было смотреть. Раз в 7 с — новый участник (техника
+-- патрулей чаще, NPC реже) и новый план: «за объектом» (облёт сзади), «пролёт» (камера стоит
+-- впереди по курсу — техника проносится мимо), «с места» (неподвижная камера сбоку). Скан и показ
+-- водят свою камеру (T.noDirector). Клиент на время скриншотов теста камеру отдаёт игроку
+----------------------------------------------------------------------------------------------------
+util.AddNetworkString("PR_SELFTEST_DIRECTOR")
+
+local PLANS = {"follow", "flyby", "fixed"}
+
+local function directorPick(state)
+	local vehicles, npcs = {}, {}
+	for _, p in ipairs(PR_Patrol and PR_Patrol.Active or {}) do
+		for _, v in ipairs(p.vehicles or {}) do
+			if IsValid(v.ent) then
+				local name = (v.def and v.def.name and v.def.name ~= "") and v.def.name or tostring(v.class)
+				vehicles[#vehicles + 1] = {ent = v.ent, label = "«" .. tostring(v.patrolName or "патруль") .. "» · " .. name .. " · " .. tostring(v.airMode or v.driveState or "-")}
+			end
+		end
+		for _, npc in ipairs(p.members or {}) do
+			if IsValid(npc) and npc:Health() > 0 then npcs[#npcs + 1] = {ent = npc, label = "NPC · " .. npc:GetClass()} end
+		end
+	end
+	local list = (#vehicles > 0 and (#npcs == 0 or math.random() < 0.75)) and vehicles or npcs
+	if #list == 0 then
+		for _, b in ipairs(player.GetBots()) do if b:Alive() then list[#list + 1] = {ent = b, label = "цель (бот)"} end end
+	end
+	if #list == 0 then return nil end
+	state.n = (state.n or 0) + 1
+	return list[(state.n - 1) % #list + 1]
+end
+
+local function directorCam(ent, plan)
+	local center = ent:WorldSpaceCenter()
+	local size = math.Clamp(ent:BoundingRadius() * 4, 500, 2500)
+	local want
+	local vel = ent:GetVelocity()
+	if plan == "flyby" and vel:Length() > 150 then
+		local ahead = vel:GetNormalized() * math.min(vel:Length() * 2.5, 3500)
+		local side = vel:Angle():Right() * (math.random(0, 1) * 2 - 1) * size * 0.4
+		want = center + ahead + side + Vector(0, 0, 150)
+	else
+		plan = plan == "follow" and "follow" or "fixed"
+		want = center + Angle(0, math.Rand(0, 360), 0):Forward() * size + Vector(0, 0, size * 0.35)
+	end
+	local tr = util.TraceLine({start = center, endpos = want, mask = MASK_SOLID_BRUSHONLY})
+	return plan, tr.Hit and (tr.HitPos + tr.HitNormal * 40) or want
+end
+
+function T.startDirector()
+	local state = {}
+	timer.Create("PR_SelftestDirector", 7, 0, function()
+		local host = player.GetHumans()[1]
+		if not IsValid(host) then return end
+		local pick = directorPick(state)
+		net.Start("PR_SELFTEST_DIRECTOR")
+		if not pick then
+			net.WriteUInt(0, 16)
+		else
+			local plan, cam = directorCam(pick.ent, PLANS[(state.n - 1) % #PLANS + 1])
+			local target
+			for _, b in ipairs(player.GetBots()) do if b:Alive() then target = b break end end
+			state.ent, state.cam = pick.ent, cam
+			net.WriteUInt(pick.ent:EntIndex(), 16)
+			net.WriteUInt(IsValid(target) and target:EntIndex() or 0, 16)
+			net.WriteString(pick.label)
+			net.WriteString(plan)
+			net.WriteVector(cam)
+		end
+		net.Send(host)
+	end)
+	-- Сервер шлёт клиенту только то, что рядом с игроком: камера вдали показывала бы пустоту
+	hook.Add("SetupPlayerVisibility", "PR_SelftestDirector", function()
+		if IsValid(state.ent) then AddOriginToPVS(state.ent:WorldSpaceCenter()) end
+		if state.cam then AddOriginToPVS(state.cam) end
+	end)
 end
 
 -- Конец прогона: раннер ждёт эту строку
