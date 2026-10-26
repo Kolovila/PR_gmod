@@ -3727,9 +3727,21 @@ end
 function DriveTo(patrol, v, veh, goal, label)
 	local pos = veh:GetPos()
 	local dist = FlatDist(pos, goal)
+	-- Рулим на следующую точку пути по navmesh (sv_nav.lua): в обход тесных проулков, куда прошла
+	-- пехота. Нет сетки или пути — прямо на цель
+	local steerTo, navState, navHold = goal, nil, false
+	if PR_Nav then steerTo, navState, navHold = PR_Nav.NextPoint(v, veh, goal) end
+	v.navState = navState
+	-- Ближе к цели корпус не пролезает — ждём у входа
+	if navHold then
+		v.driveState = label .. ": " .. navState
+		Halt(veh)
+		v.stuckSince = nil
+		return
+	end
 	-- Куда смотрит машина (у simfphys «вперёд» модели бывает повёрнуто — берём его собственный)
 	local forward = veh.Forward or veh:GetForward()
-	local yaw = math.AngleDifference((goal - pos):Angle().y, forward:Angle().y)
+	local yaw = math.AngleDifference((steerTo - pos):Angle().y, forward:Angle().y)
 	local speed = veh:GetVelocity():Length()
 	local now = CurTime()
 
@@ -3769,12 +3781,13 @@ function DriveTo(patrol, v, veh, goal, label)
 
 	-- Вперёд — с объездом стен и домов (задним ходом едем только к близкой точке, там без него)
 	if not reverse then
-		local steer = AvoidHeading(v, veh, (goal - pos):Angle().y, speed)
+		local steer = AvoidHeading(v, veh, (steerTo - pos):Angle().y, speed)
 		yaw = math.AngleDifference(steer, forward:Angle().y)
 	end
 	local turnLeft, turnRight = yaw > 8, yaw < -8
-	v.driveState = string.format("%s %s, goal %d, turn %d%s", reverse and "reverse" or "forward", label, dist, yaw,
-		(not reverse and (v.avoidOffset or 0) ~= 0) and (", avoid " .. v.avoidOffset) or "")
+	v.driveState = string.format("%s %s, goal %d, turn %d%s%s", reverse and "reverse" or "forward", label, dist, yaw,
+		(not reverse and (v.avoidOffset or 0) ~= 0) and (", avoid " .. v.avoidOffset) or "",
+		navState and navState ~= "direct" and (", " .. navState) or "")
 	if reverse then
 		-- Цель позади: разворачиваемся задним ходом
 		SetKeys(veh, false, true, turnRight, turnLeft, false)

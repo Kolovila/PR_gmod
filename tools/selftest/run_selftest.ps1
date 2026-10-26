@@ -43,6 +43,8 @@ $Suites = @{
     scanfixground = @('pr_selftest_scan_sv.lua', 'fix')   # ground recheck list (FIX) without hiding the target
     scanprefireground = @('pr_selftest_scan_sv.lua', 'fix prefire')   # ground recheck list; target hides in a box after 18 s
     mapshot  = @('pr_mapshot_sv.lua', '')   # map picture for the minimap: then stitch_mapshot.ps1
+    mapinfo  = @('pr_mapinfo_sv.lua', '')   # fog, draw distance, navmesh of the map (MAPINFO lines)
+    navgen   = @('pr_navgen_sv.lua', '')   # build the map's navmesh (maps/<map>.nav in the test copy), up to 90 min
 }
 if (-not $Suites.ContainsKey($Suite)) { "UNKNOWN_SUITE $Suite (known: $($Suites.Keys -join ', '))"; exit 3 }
 
@@ -154,7 +156,7 @@ while ((Get-Date) -lt $mountDeadline) {
 $done = $false
 if ($mapSent) {
     # The vehicle scan goes through dozens of vehicles: give it longer
-    $deadline = (Get-Date).AddMinutes($(if ($Suite -like 'scan*') { 40 } else { 8 }))
+    $deadline = (Get-Date).AddMinutes($(if ($Suite -eq 'navgen') { 95 } elseif ($Suite -like 'scan*') { 40 } else { 8 }))
     $sawStart = $false
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 3
