@@ -121,7 +121,8 @@ step(0, function()
 		if victim ~= S.b1 or not S.oh6 then return end
 		local attacker = dmg:GetAttacker()
 		if attacker == S.oh6.ent then S.oh6Hits = S.oh6Hits + 1
-		elseif attacker == game.GetWorld() then
+		-- Только пули: падение (цель подбросило ракетой с захода Ми-24) тоже пишется на «мир»
+		elseif attacker == game.GetWorld() and dmg:IsBulletDamage() then
 			S.oh6WorldHits = S.oh6WorldHits + 1
 			local inflictor = dmg:GetInflictor()
 			log(string.format("world hit on the target: %d dmg, type %d, inflictor %s, alive %s", dmg:GetDamage(), dmg:GetDamageType(),
@@ -461,7 +462,8 @@ step(0, function()
 		check("own guards don't damage the crew", gunnerAfter == gunnerHP, gunnerHP - gunnerAfter)
 		check("players still damage patrol vehicles", afterHost < afterGuard, afterGuard - afterHost)
 	else
-		check("heli, guard and gunner for the friendly fire check", false)
+		check("heli, guard and gunner for the friendly fire check", false, string.format("heli %s, guard %s (members %d), gunner %s",
+			tostring(IsValid(heli)), tostring(IsValid(guard)), S.armor and #S.armor.members or -1, tostring(IsValid(gunner))))
 	end
 
 	-- Ми-24 патруля берёт подвес с курсовым оружием и тратит его на заходах

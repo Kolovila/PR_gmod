@@ -39,9 +39,9 @@ local FIX = {
 	"sim_fphys_m_atv_mg", "gred_simfphys_sdkfz221_custom",
 }
 
--- Вертолёты для перепроверки после правок: Ми-8 с бортовыми пулемётами (круги), Ми-24П (пушка лётчика),
--- Ка-50 и BO-105 (лётчик), Ми-24Д (турель Гордона)
-local AIRFIX = {"gd_lfs_mi8mtv", "gd_lfs_mi8t2", "gd_lfs_mi8t1"}
+-- Авиация для перепроверки после правок: A-10 (заходы с 8000, префайр по скрывшейся цели), Ми-24В
+-- (стрелок GD), Ка-50 (лётчик: пушка и ракеты)
+local AIRFIX = {"gred_lfs_a10", "gd_lfs_mi24v", "lfs_grdn_ka50"}
 -- debugaim: один вертолёт со стрелком и подробный журнал наведения
 local AIMDEBUG = {"gd_lfs_mi8amtsh", "gd_lfs_mi24v"}
 local GROUNDDEBUG = {"simfphys_btr80", "gred_simfphys_marder1a1_ifv_custom"}
