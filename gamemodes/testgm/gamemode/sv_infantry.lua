@@ -587,22 +587,53 @@ local function NavPath(from, to)
 	local a, z = navmesh.GetNearestNavArea(from, false, 300), navmesh.GetNearestNavArea(to, false, 300)
 	if not (IsValid(a) and IsValid(z)) then return nil end
 	if a == z then return {to} end
-	local open, g, came, closed = {{a, 0}}, {[a] = 0}, {}, {}
+	-- A* на двоичной куче: сортировка всего списка на каждом шаге на 21 тыс. областей — секунды
+	local heap, hn = {}, 0
+	local function push(area, f)
+		hn = hn + 1
+		local i = hn
+		heap[i] = {area, f}
+		while i > 1 do
+			local p = math.floor(i / 2)
+			if heap[p][2] <= heap[i][2] then break end
+			heap[p], heap[i] = heap[i], heap[p]
+			i = p
+		end
+	end
+	local function pop()
+		local top = heap[1]
+		heap[1] = heap[hn]
+		heap[hn] = nil
+		hn = hn - 1
+		local i = 1
+		while true do
+			local l, r, m = i * 2, i * 2 + 1, i
+			if l <= hn and heap[l][2] < heap[m][2] then m = l end
+			if r <= hn and heap[r][2] < heap[m][2] then m = r end
+			if m == i then break end
+			heap[m], heap[i] = heap[i], heap[m]
+			i = m
+		end
+		return top[1]
+	end
+	local g, came, closed = {[a] = 0}, {}, {}
 	local goal = z:GetCenter()
+	push(a, 0)
 	local n = 0
-	while #open > 0 and n < 3000 do
-		table.sort(open, function(x, y) return x[2] < y[2] end)
-		local cur = table.remove(open, 1)[1]
+	while hn > 0 and n < 3000 do
+		local cur = pop()
 		if cur == z then break end
 		if not closed[cur] then
 			closed[cur] = true
 			n = n + 1
+			local cc = cur:GetCenter()
 			for _, nb in ipairs(cur:GetAdjacentAreas()) do
-				if not closed[nb] and (cur:ComputeAdjacentConnectionHeightChange(nb) < 60) then
-					local cost = g[cur] + cur:GetCenter():Distance(nb:GetCenter())
+				if not closed[nb] and cur:ComputeAdjacentConnectionHeightChange(nb) < 60 then
+					local nc = nb:GetCenter()
+					local cost = g[cur] + cc:Distance(nc)
 					if not g[nb] or cost < g[nb] then
 						g[nb], came[nb] = cost, cur
-						open[#open + 1] = {nb, cost + nb:GetCenter():Distance(goal)}
+						push(nb, cost + nc:Distance(goal))
 					end
 				end
 			end

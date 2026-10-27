@@ -4,3 +4,7 @@
 !/addons/ws_*/lua/
 
 __pycache__/
+
+# Навмеш карты (tools/selftest -Suite navzone, ~2,8 ч): 150 МБ — больше лимита GitHub; живёт локально,
+# deploy.ps1 и тестовые копии забирают его вместе с режимом
+/gamemodes/testgm/content/maps/*.nav

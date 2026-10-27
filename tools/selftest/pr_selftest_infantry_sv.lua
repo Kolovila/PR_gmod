@@ -89,6 +89,19 @@ end
 
 step(0, function()
 	log("start (infantry)")
+	log("navmesh areas loaded: " .. navmesh.GetNavAreaCount())
+	-- Поиск пути по навмешу: через город и из города на аэродром — не дольше 50 мс
+	if navmesh.IsLoaded() then
+		local worst = 0
+		for _, pr in ipairs({{Ground(-10000, -4000), Ground(-6500, 2300)}, {Ground(-8000, -1000), Ground(-11500, 1000)}, {Ground(-9000, 0), Ground(-8200, 600)}}) do
+			local t0 = SysTime()
+			local path = PR_Inf.NavPath(pr[1], pr[2])
+			local ms = (SysTime() - t0) * 1000
+			worst = math.max(worst, ms)
+			log(string.format("navpath %s -> %s: %.1f ms, %s points", tostring(pr[1]), tostring(pr[2]), ms, path and #path or "no path"))
+		end
+		check("navmesh path search stays under 50 ms", worst < 50, math.Round(worst, 1))
+	end
 	PR_Patrol.NextSpawn = math.huge
 	PR_Patrol.ClearAll()
 	RunConsoleCommand("ai_ignoreplayers", "0")
@@ -273,12 +286,13 @@ step(1, function()
 	n:PR_Move(S.base + Vector(600, -400, 0), "run")
 end)
 
-step(1, function()
+-- 1,5 с: бег в обратную сторону — сперва разворот на 180°
+step(1.5, function()
 	local n = S.n1
 	local act = n:GetMovementActivity()
 	log(string.format("run diag: gait %s moving %s schedule %s move act %d ideal act %d goal %s route %s state %s", tostring(n.PR_Gait), tostring(n:IsMoving()),
 		tostring(n.CurrentSchedule and n.CurrentSchedule.Name), act, n:GetIdealActivity(), tostring(n.PR_MoveGoal), tostring(n.PR_Brain.route ~= nil), tostring(n.PR_Brain.state)))
-	check("run moves the soldier", n:GetPos():Distance(S.p0) > 60, math.Round(n:GetPos():Distance(S.p0)))
+	check("run moves the soldier", n:GetPos():Distance(S.p0) > 90, math.Round(n:GetPos():Distance(S.p0)))
 	local runSeq = n:GetSequenceName(n:GetSequence()) or ""
 	check("run uses a run animation", string.find(runSeq, "run", 1, true) ~= nil, runSeq)
 	n:PR_Stop()
