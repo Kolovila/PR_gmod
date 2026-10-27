@@ -58,7 +58,7 @@ step(0, function()
 		-- Без стрелка: бьёт курсовым пулемётом заходами
 		table.insert(vehicles, {name = "Вертушка", class = {"gred_lfs_oh6"}, count = 1, crew = 0, reward = {money = 1500, exp = 5}})
 	end
-	if T.enabled("plane") or T.enabled("dogfight") or T.enabled("strike") then
+	if T.enabled("plane") or T.enabled("dogfight") or T.enabled("strike") or T.enabled("edge") then
 		table.insert(vehicles, {name = "Штурмовик", class = {"gred_lfs_a10"}, count = 1, crew = 2, reward = {money = 3000, exp = 10}})
 	end
 
@@ -178,6 +178,26 @@ step(0, function()
 		check("tank drives after the patrol", toLeader < 700 and (moved > 100 or leaderMoved < 200 or toLeader < 400),
 			string.format("%d / %d / %d", moved, toLeader, leaderMoved))
 	end
+end)
+
+-- Экипаж брони за бронёй: взрыв у танка (как осколки зенитного снаряда) ранит машину, но не ботов
+-- внутри. Раньше бот погибал сквозь броню и танк «без экипажа» взрывался от 50–100 урона
+step(0, function()
+	local tank = S.tank
+	if not (alive(tank) and IsValid(S.b1)) then return end
+	S.crewBlast = {crewOf(tank, 1), crewOf(tank, 2)}
+	local pos = tank.ent:WorldSpaceCenter()
+	for i = 1, 3 do util.BlastDamage(S.b1, S.b1, pos + VectorRand() * 40, 250, 120) end
+end)
+
+step(1, function()
+	local tank = S.tank
+	if not S.crewBlast then return end
+	local living = 0
+	for _, bot in ipairs(S.crewBlast) do
+		if IsValid(bot) and bot:Alive() then living = living + 1 end
+	end
+	check("blast next to the tank doesn't kill the crew inside", living == #S.crewBlast and alive(tank), living .. "/" .. #S.crewBlast)
 end)
 
 -- Насколько ствол смотрит мимо цели (градусы). Ось дула у танков разная (у Луны — Up, у Гредвича —
@@ -855,7 +875,8 @@ step(0, function()
 	local v = S.plane
 	if not (v and IsValid(v.ent)) then return end
 	local center = S.armor and PR_Patrol.Center(S.armor) or v.ent:GetPos()
-	local spot = T.openPointNear(center) or center
+	-- В 3000 от патруля: у самого центра сажали в его же очередь (летела к цели рядом) — свои снаряды добивали
+	local spot = T.openPointNear(center + Vector(3000, 0, 0)) or T.openPointNear(center) or center
 	v.forceTarget = nil
 	v.recoverAnyway = true
 	S.groundMark = T.patrolLogMark()
@@ -1242,7 +1263,9 @@ step(0, function()
 	hook.Add("EntityTakeDamage", "PR_SelftestDroneHits", function(victim, dmg)
 		local a = dmg:GetAttacker()
 		if victim ~= S.drone or not IsValid(a) or not (a == v.ent or (a:IsPlayer() and a.PR_PatrolCrew == v)) then return end
-		if dmg:IsDamageType(DMG_CRUSH) or dmg:IsDamageType(DMG_VEHICLE) or dmg:GetDamageType() == DMG_GENERIC then
+		-- Таран — только вплотную: часть попаданий пушки приходит как DMG_GENERIC и с 5000 считалась тараном
+		local close = IsValid(v.ent) and v.ent:GetPos():Distance(S.drone:GetPos()) < 800
+		if close and (dmg:IsDamageType(DMG_CRUSH) or dmg:IsDamageType(DMG_VEHICLE) or dmg:GetDamageType() == DMG_GENERIC) then
 			S.droneRams = S.droneRams + 1
 		else
 			S.droneHits = S.droneHits + 1
@@ -1311,6 +1334,144 @@ step(0, function()
 	hook.Remove("EntityTakeDamage", "PR_SelftestDroneHits")
 	if IsValid(S.drone) then S.drone:Remove() end
 	if v then v.forceTarget = nil end
+end)
+
+----------------------------------------------------------------------------------------------------
+-- Край карты: A-10 в 4000 от западного края носом в стену на 1800 и с целью — разворачивается к
+-- центру, не влетает в стену неба и не теряет скорость (раньше на развороте у края валился)
+----------------------------------------------------------------------------------------------------
+T.section("edge")
+
+waitFor(20, function() return alive(S.plane) end, "plane for the edge test")
+
+step(0, function()
+	local v = S.plane
+	local cfg = PR_MINIMAPS and PR_MINIMAPS[string.lower(game.GetMap())]
+	if not (alive(v) and cfg) then check("plane and map bounds for the edge test", false) return end
+	local ent = v.ent
+	local pos = Vector(cfg.minX + 4000, -860, 2800)
+	ent:SetPos(pos)
+	ent:SetAngles(Angle(0, 180, 0))
+	local phys = ent:GetPhysicsObject()
+	if IsValid(phys) then phys:SetVelocity(Vector(-1800, 0, 0)) phys:SetAngleVelocity(Vector(0, 0, 0)) end
+	v.forceTarget = S.b1
+	S.edge = {minX = math.huge, minSpeed = math.huge, cfgMinX = cfg.minX, t0 = CurTime()}
+	hook.Add("Think", "PR_SelftestEdge", function()
+		if not IsValid(ent) or CurTime() - S.edge.t0 < 1 then return end
+		S.edge.minX = math.min(S.edge.minX, ent:GetPos().x)
+		S.edge.minSpeed = math.min(S.edge.minSpeed, ent:GetVelocity():Length())
+	end)
+end)
+
+step(20, function()
+	hook.Remove("Think", "PR_SelftestEdge")
+	local v, e = S.plane, S.edge
+	if not e then return end
+	if v then v.forceTarget = nil end
+	local destroyed = not alive(v) or (isfunction(v.ent.IsDestroyed) and v.ent:IsDestroyed())
+	log(string.format("edge: closest to the west edge %d (edge %d), min speed %d, destroyed %s, mode %s",
+		e.minX - e.cfgMinX, e.cfgMinX, e.minSpeed, tostring(destroyed), v and tostring(v.airMode) or "-"))
+	check("plane turns back before the map edge", e.minX > e.cfgMinX + 300, math.Round(e.minX - e.cfgMinX))
+	check("plane keeps its speed at the map edge", e.minSpeed > 700, math.Round(e.minSpeed))
+	check("plane survives the map edge", not destroyed)
+end)
+
+----------------------------------------------------------------------------------------------------
+-- НУРы игрока: Ми-24 летит 1200 и пускает ракеты — они уходят быстрее него и не рвутся о него
+-- (раньше ракета сходила с нулевой скоростью, вертолёт её догонял и подрывался своими НУРами)
+----------------------------------------------------------------------------------------------------
+T.section("nur")
+
+step(0, function()
+	local base = Vector(-8245.6, -860.5, 2800)
+	local pos, yaw
+	for y = 0, 345, 15 do
+		local dir = Angle(0, y, 0):Forward()
+		if not util.TraceHull({start = base, endpos = base + dir * 9000, mins = Vector(-600, -600, -400), maxs = Vector(600, 600, 400), mask = MASK_SOLID_BRUSHONLY}).Hit then
+			pos, yaw = base, y
+			break
+		end
+	end
+	check("found clear air for the rocket test", pos ~= nil)
+	if not pos then return end
+	local ent = ents.Create("gred_lfs_mi24a")
+	if not IsValid(ent) then check("Mi-24 spawned for the rocket test", false) return end
+	ent:SetPos(pos)
+	ent:SetAngles(Angle(0, yaw, 0))
+	ent:Spawn()
+	ent:Activate()
+	S.nur = {ent = ent, yaw = yaw, rockets = {}, booms = 0}
+	hook.Add("Think", "PR_SelftestNurHold", function()
+		if not IsValid(ent) then return end
+		local phys = ent:GetPhysicsObject()
+		if not IsValid(phys) then return end
+		ent:SetAngles(Angle(0, yaw, 0))
+		phys:SetAngleVelocity(Vector(0, 0, 0))
+		phys:SetVelocity(Angle(0, yaw, 0):Forward() * 1200)
+	end)
+	hook.Add("OnEntityCreated", "PR_SelftestNurRockets", function(e)
+		timer.Simple(0, function()
+			if IsValid(e) and e.IsRocket and IsValid(ent) and e:GetPos():Distance(ent:GetPos()) < 800 then
+				table.insert(S.nur.rockets, e)
+			end
+		end)
+	end)
+	hook.Add("EntityTakeDamage", "PR_SelftestNurHits", function(victim, dmg)
+		if victim == ent or (IsValid(victim) and victim:GetParent() == ent) then S.nur.booms = S.nur.booms + dmg:GetDamage() end
+	end)
+end)
+
+step(1, function()
+	local n = S.nur
+	if not (n and IsValid(n.ent) and IsValid(S.b1)) then return end
+	S.b1:GodDisable()
+	local seat = n.ent:GetDriverSeat()
+	if IsValid(seat) then S.b1:EnterVehicle(seat) end
+	if isfunction(n.ent.SetLoadout) then n.ent:SetLoadout(1) end
+	n.hp0 = isfunction(n.ent.GetHP) and n.ent:GetHP() or 0
+end)
+
+step(1, function()
+	local n = S.nur
+	if not (n and IsValid(n.ent)) then return end
+	check("bot pilots the Mi-24 for the rocket test", n.ent:GetDriver() == S.b1, tostring(n.ent:GetDriver()))
+	for i = 0, 5 do
+		timer.Simple(i * 0.25, function()
+			if IsValid(n.ent) then
+				n.ent.NextPrimary = 0
+				n.ent:PrimaryAttack(1, 64)
+			end
+		end)
+	end
+	timer.Simple(0.2, function()
+		-- скорость первых ракет сразу после схода
+		n.speeds = {}
+		for _, r in ipairs(n.rockets) do
+			if IsValid(r) then table.insert(n.speeds, math.Round(r:GetVelocity():Dot(Angle(0, n.yaw, 0):Forward()))) end
+		end
+	end)
+end)
+
+step(4, function()
+	local n = S.nur
+	hook.Remove("Think", "PR_SelftestNurHold")
+	hook.Remove("OnEntityCreated", "PR_SelftestNurRockets")
+	hook.Remove("EntityTakeDamage", "PR_SelftestNurHits")
+	if not n then return end
+	local hp = IsValid(n.ent) and isfunction(n.ent.GetHP) and n.ent:GetHP() or -1
+	log(string.format("nur: rockets %d, forward speed right after launch %s, heli hp %d -> %d, damage to heli %d",
+		#n.rockets, table.concat(n.speeds or {}, " "), n.hp0 or 0, hp, n.booms))
+	check("player's rockets launched", #n.rockets >= 3, #n.rockets)
+	local slow = 0
+	for _, v in ipairs(n.speeds or {}) do if v < 1200 then slow = slow + 1 end end
+	check("rockets leave faster than the helicopter", #(n.speeds or {}) > 0 and slow == 0, table.concat(n.speeds or {}, " "))
+	check("own rockets don't hit the helicopter", n.booms == 0 and IsValid(n.ent) and hp >= (n.hp0 or 0), n.booms .. " / hp " .. hp)
+	if IsValid(S.b1) then
+		check("pilot survives own rockets", S.b1:Alive(), "")
+		if S.b1:InVehicle() then S.b1:ExitVehicle() end
+		S.b1:GodEnable()
+	end
+	if IsValid(n.ent) then n.ent:Remove() end
 end)
 
 T.section("common")

@@ -51,11 +51,50 @@ local function DefaultMuzzle(e)
 	end
 end
 
+-- НУР с вертолёта или самолёта игрока (Ми-24 и др.) появляется у пилона с нулевой скоростью и
+-- разгоняется с места: машина на скорости догоняла свою же ракету, та рвалась о её детали (винт,
+-- подвес — столкновение аддон отключает только с корпусом), и игрок погибал от своих НУРов. Как
+-- в жизни: ракета сходит со скоростью носителя и деталей носителя не задевает. Только у машин
+-- игроков: прицел ИИ подобран под ракеты, как они летят у аддона
+local function Carrier(e)
+	local owner = e:GetOwner()
+	if not (IsValid(owner) and owner:IsPlayer()) then owner = e.Owner end
+	if not (IsValid(owner) and owner:IsPlayer() and owner:InVehicle()) or owner.PR_PatrolCrew then return end
+	local base = owner:GetVehicle()
+	while IsValid(base) and IsValid(base:GetParent()) do base = base:GetParent() end
+	if not (IsValid(base) and (base.LFS or base.LVS)) then return end
+	if base:GetPos():Distance(e:GetPos()) > 1500 then return end
+	return base
+end
+
+local function CarrierLaunch(e)
+	if not (IsValid(e) and e.IsRocket and not e.IsShell and isfunction(e.Launch)) or e.PR_CarrierDone then return end
+	e.PR_CarrierDone = true
+	local base = Carrier(e)
+	if not base then return end
+
+	local parts = constraint.GetAllConstrainedEntities(base) or {}
+	parts[base] = base
+	for _, child in ipairs(base:GetChildren()) do parts[child] = child end
+	e.Filter = istable(e.Filter) and e.Filter or {}
+	for _, part in pairs(parts) do
+		if IsValid(part) and part ~= e then
+			e.Filter[part] = true
+			constraint.NoCollide(e, part, 0, 0)
+		end
+	end
+
+	local phys = e:GetPhysicsObject()
+	if IsValid(phys) then phys:AddVelocity(base:GetVelocity()) end
+end
+PR_RocketCarrierLaunch = CarrierLaunch
+
 -- PhysicsUpdate ракеты аддон часто задаёт сразу после создания — оборачиваем на следующем тике
 hook.Add("OnEntityCreated", "PR_GuardMissileGuidance", function(e)
 	timer.Simple(0, function()
 		Guard(e)
 		Quiet(e)
 		DefaultMuzzle(e)
+		CarrierLaunch(e)
 	end)
 end)

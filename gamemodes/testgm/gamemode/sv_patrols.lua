@@ -908,6 +908,9 @@ local AIR_OPT = {prefireTime = 10, prefireRockets = 8}
 -- Сколько авиация помнит скрывшегося врага. Было 4 с (по умолчанию) — меньше префайра (6 с): он
 -- обрывался, едва начавшись
 AIR_OPT.memory = 12
+-- Самолёт видит и помнит дольше: заход у него начинается с 9–10 км, а уходит он после атаки на
+-- 9500 и выше. С общими 9000 и 12 с он терял цель прямо в точке разворота и начинал заход заново
+AIR_OPT.planeSight, AIR_OPT.planeMemory = 20000, 45
 local AIR_ALTITUDE = 1400  -- высота над патрулём, пока врагов нет
 local AIR_ORBIT = 1200     -- радиус круга над патрулём
 
@@ -1046,6 +1049,14 @@ function PR_Patrol.VehicleTarget(entry, from, range, memory)
 	entry.targetAt = now + (seen and 1 or 0.3)
 	entry.target = best
 	return best
+end
+
+-- Цель для авиации: самолёту — дальше и дольше (AIR_OPT.planeSight / planeMemory)
+local function AirVehicleTarget(entry, from)
+	if entry.kind == "air" and not entry.heli then
+		return PR_Patrol.VehicleTarget(entry, from, AIR_OPT.planeSight, AIR_OPT.planeMemory)
+	end
+	return PR_Patrol.VehicleTarget(entry, from, VEHICLE_RANGE * 1.5, AIR_OPT.memory)
 end
 
 ----------------------------------------------------------------------------------------------------
@@ -2913,22 +2924,166 @@ local function PlaneHeading(ent)
 	return vel:LengthSqr() > 100 * 100 and vel:Angle().y or ent:GetAngles().y
 end
 
+-- Карта (границы — из config/minimap.lua) и запас до ближайшей стены неба от точки
+local Edge = {} -- край карты и виражи у него (одной таблицей: у файла предел 200 локальных)
+
+function Edge.Cfg()
+	return PR_MINIMAPS and PR_MINIMAPS[string.lower(game.GetMap())]
+end
+
+function Edge.Room(p)
+	local cfg = Edge.Cfg()
+	if not cfg then return math.huge end
+	return math.min(p.x - cfg.minX, cfg.maxX - p.x, p.y - cfg.minY, cfg.maxY - p.y)
+end
+
+-- Радиус виража по записям (A-10 ≈ 1,35·скорость: 2200–2600 на 1750–1850)
+function Edge.Radius(ent)
+	return math.max(ent:GetVelocity():Length(), 1200) * 1.35
+end
+
+-- В какую сторону разворачиваться, чтобы круг виража остался в карте: +1 — влево, −1 — вправо;
+-- nil — помещаются оба. Раньше сторона бралась из случайного знака разницы курса, и самолёт у края
+-- разворачивался через стену неба (скорость 1600 → 800)
+function Edge.Side(ent, heading)
+	local pos = ent:GetPos()
+	local r = Edge.Radius(ent)
+	local right = Angle(0, heading or PlaneHeading(ent), 0):Right()
+	local roomL = Edge.Room(pos - right * r) - r
+	local roomR = Edge.Room(pos + right * r) - r
+	if roomL >= 1000 and roomR >= 1000 then return nil end
+	return roomL >= roomR and 1 or -1
+end
+
+-- Видит ли цель кто-то из патруля прямо сейчас (боец, у которого она враг и на виду, или другая машина
+-- патруля): тогда он «по рации» наводит самолёт — с задержкой и ошибкой (см. PlaneAttack)
+function Edge.Contact(patrol, target, self)
+	if not (patrol and IsValid(target)) then return false end
+	for _, npc in ipairs(patrol.members or {}) do
+		if IsValid(npc) and npc:Health() > 0 and npc:GetEnemy() == target and npc:Visible(target) then return true end
+	end
+	for _, v in ipairs(patrol.vehicles or {}) do
+		if v ~= self and not v.dead and v.target == target and CurTime() - (v.targetSeen or 0) < 1 then return true end
+	end
+	return false
+end
+
+-- Враг, с которым патруль в бою и которого кто-то из бойцов видит: самолёт идёт на него, даже если
+-- сам его ещё не видел (после возрождения игрока он 40 с кружил над патрулём, пока по нему стреляли)
+function Edge.PatrolEnemy(patrol, from, range)
+	if not patrol then return nil end
+	for _, npc in ipairs(patrol.members or {}) do
+		local e = IsValid(npc) and npc:Health() > 0 and npc:GetEnemy()
+		if IsValid(e) and npc:Visible(e) and e:WorldSpaceCenter():DistToSqr(from) < range * range
+			and ((e:IsPlayer() and e:Alive() and RealPlayer(e) and not IgnorePlayers() and not e:IsFlagSet(FL_NOTARGET))
+				or (e.PR_GuardPoint and e:Health() > 0)) then
+			return e
+		end
+	end
+end
+
+-- Сектор захода, откуда цель была закрыта (пике с 6000+ без линии огня): ±30° на 60 с
+function Edge.Blocked(ent, tpos, yaw)
+	for _, b in ipairs(ent.prBlocked or {}) do
+		if CurTime() < b.till and b.pos:Distance(tpos) < 1500 and math.abs(math.AngleDifference(yaw, b.yaw)) < 30 then return true end
+	end
+	return false
+end
+
+function Edge.Block(ent, tpos, yaw)
+	local list = {}
+	for _, b in ipairs(ent.prBlocked or {}) do
+		if CurTime() < b.till then list[#list + 1] = b end
+	end
+	list[#list + 1] = {pos = tpos, yaw = yaw, till = CurTime() + 60}
+	ent.prBlocked = list
+end
+
+-- Годится ли ось захода с курса yaw (yaw — направление от цели к точке входа): точка входа и уход за
+-- цель с виражом вбок — в карте; сектор не закрыт; с линии пике (far, 0,65·far, 3500 под углом angle)
+-- цель видна — к середине или к верху — хотя бы с двух точек из трёх
+function Edge.AxisOk(ent, target, tpos, yaw, angle, far)
+	local dir = Angle(0, yaw, 0):Forward()
+	local exit = tpos - dir * 4000
+	local side = Vector(dir.y, -dir.x, 0) * 5000
+	if not (Edge.Room(tpos + dir * (far + 2500)) > 2000 and Edge.Room(exit) > 1500
+		and (Edge.Room(exit + side) > 1000 or Edge.Room(exit - side) > 1000)) then return false, false end
+	if Edge.Blocked(ent, tpos, yaw) then return false, true end
+	local filter = function(e) return e ~= target and not PartOf(e, ent) end
+	local slope = math.tan(math.rad(angle or 20))
+	local open = 0
+	for _, d in ipairs({far, far * 0.65, 3500}) do
+		local from = tpos + dir * d + Vector(0, 0, d * slope)
+		if not util.TraceLine({start = from, endpos = tpos, filter = filter, mask = SIGHT_MASK}).Hit
+			or not util.TraceLine({start = from, endpos = tpos + Vector(0, 0, 50), filter = filter, mask = SIGHT_MASK}).Hit then
+			open = open + 1
+		end
+	end
+	return open >= 2, true
+end
+
 -- Углы для ИИ LFS: курс wantYaw не дальше 45° от нынешнего, тангаж (плюс — нос вниз).
 -- На крутую команду курса LFS кренит самолёт почти на бок и перестаёт выравнивать крылья — без
--- подъёмной силы вираж шёл спиралью к земле. Поэтому в вираже нос задираем: на треть угла поворота
-local function PlaneSteer(ent, wantYaw, pitch)
+-- подъёмной силы вираж шёл спиралью к земле. Поэтому в вираже нос задираем: на треть угла поворота.
+-- how = "level" — без этого подъёма и не круче 12° вверх на скорости ниже 1800 (на заходах каждый
+-- вираж с подъёмом носа стоил 250–300 скорости); how = "dive" — защита от края смотрит лишь на 1,5 с
+local function PlaneSteer(ent, wantYaw, pitch, how)
 	local cur = PlaneHeading(ent)
-	local diff = math.AngleDifference(wantYaw, cur)
+	local pos, vel = ent:GetPos(), ent:GetVelocity()
+	-- Край карты: скоро будем у стены неба — курс к центру карты, разворот в ту сторону, где вираж
+	-- помещается. В пике — только совсем близко: иначе срывал заходы на цель у края
+	local cfg = Edge.Cfg()
+	if cfg then
+		local ahead = pos + Vector(vel.x, vel.y, 0) * (how == "dive" and 1.5 or 4)
+		-- Команда и так уводит от стены и вираж в её сторону помещается — не перебиваем: раньше на
+		-- развороте к цели вдоль стены охранник гнал «к центру» (от цели), и выходила петля на 360°
+		-- Вираж в сторону s помещается, если его круг (центр в R вбок) в карте с запасом R + 1000; не
+		-- помещается — пробуем другую сторону (если разворот больше 120°, сторона всё равно наша)
+		local keep = false
+		if not ent.prEdgeTurn and Edge.Room(ahead) < 1000
+			and Edge.Room(pos + Angle(0, wantYaw, 0):Forward() * math.max(vel:Length(), 1200) * 4) >= 1000 then
+			local raw0 = math.AngleDifference(wantYaw, cur)
+			local sign = ent.prTurnSign or (raw0 >= 0 and 1 or -1)
+			local r = Edge.Radius(ent)
+			local right = Angle(0, cur, 0):Right()
+			if Edge.Room(pos - right * r * sign) - r >= 1000 then
+				keep = true
+			elseif math.abs(raw0) > 120 and Edge.Room(pos + right * r * sign) - r >= 1000 then
+				ent.prTurnSign, keep = -sign, true
+			end
+		end
+		if Edge.Room(ahead) < 1000 and not keep then
+			local center = Vector((cfg.minX + cfg.maxX) / 2, (cfg.minY + cfg.maxY) / 2, 0)
+			wantYaw = (center - Vector(pos.x, pos.y, 0)):Angle().y
+			if not ent.prEdgeTurn then
+				ent.prTurnSign = Edge.Side(ent, cur) or (math.AngleDifference(wantYaw, cur) >= 0 and 1 or -1)
+			end
+			ent.prEdgeTurn = true
+		else
+			ent.prEdgeTurn = nil
+		end
+	end
+	local raw = math.AngleDifference(wantYaw, cur)
+	local diff = raw
 	-- Цель почти за спиной: знак разницы скачет (179° ↔ −179°), вираж то влево, то вправо — и самолёт
-	-- летел прямо, пока не врезался в край карты. Сторону разворота держим, пока не довернёт
-	if math.abs(diff) > 120 then
-		ent.prTurnSign = ent.prTurnSign or (diff >= 0 and 1 or -1)
-		diff = ent.prTurnSign * math.abs(diff)
+	-- летел прямо, пока не врезался в край карты. Сторону разворота держим, пока не довернёт; выбираем
+	-- её так, чтобы вираж поместился в карту
+	if math.abs(raw) > 120 or ent.prEdgeTurn then
+		ent.prTurnSign = ent.prTurnSign or Edge.Side(ent, cur) or (raw >= 0 and 1 or -1)
+		diff = ent.prTurnSign * raw >= 0 and raw or ent.prTurnSign * (360 - math.abs(raw))
 	else
 		ent.prTurnSign = nil
 	end
 	diff = math.Clamp(diff, -45, 45)
-	return Angle(pitch - math.abs(diff) / 3, cur + diff, 0)
+	local p = pitch
+	if how == "level" then
+		if vel:Length() < 1800 then p = math.max(p, -12) end
+		-- В крутом вираже не снижаться: нос вниз на боку у LFS — широкий разворот (у края влетал в стену)
+		if math.abs(diff) >= 30 then p = math.min(p, 2) end
+	else
+		p = p - math.abs(diff) / 3
+	end
+	return Angle(p, cur + diff, 0)
 end
 
 -- Тангаж, чтобы выйти на высоту z: 1500 выше — пикировать на 25°, ниже — набирать
@@ -2944,7 +3099,7 @@ local function PlaneDanger(ent, sec, low, ignoreNear)
 	local filter = AirTraceFilter(ent)
 	sec = sec or 3
 	local ahead = util.TraceLine({start = pos, endpos = pos + vel * sec, filter = filter, mask = MASK_SOLID_BRUSHONLY})
-	if ahead.Hit and not ahead.HitSky and not (ignoreNear and Vector(ahead.HitPos.x - ignoreNear.x, ahead.HitPos.y - ignoreNear.y, 0):Length() < 900) then
+	if ahead.Hit and not ahead.HitSky and not (ignoreNear and Vector(ahead.HitPos.x - ignoreNear.x, ahead.HitPos.y - ignoreNear.y, 0):Length() < 2500) then
 		return true, string.format("впереди через %.1f с, на %d %s", ahead.Fraction * sec, math.abs(ahead.HitPos.z - pos.z), ahead.HitPos.z > pos.z and "выше" or "ниже")
 	end
 	local below = util.TraceLine({start = pos, endpos = pos - Vector(0, 0, low or 800), filter = filter, mask = MASK_SOLID_BRUSHONLY})
@@ -3002,22 +3157,20 @@ end
 local PLANE_SIDES_FIRST = {0, 30, -30, 60, -60, 100, -100, 140, -140, 180}
 local PLANE_SIDES_NEXT = {60, -60, 100, -100, 30, -30, 140, -140, 0, 180}
 
+-- Точка разворота перед заходом (точка входа + 2500) должна быть внутри карты с запасом: цель у
+-- края, точка входа за ним — самолёт летел к ней прямо в стену неба, терял скорость и валился
+
 local function PlaneRunYaw(ent, target, tpos, baseYaw, offsets, angle, far)
-	local filter = function(e) return e ~= target and not PartOf(e, ent) end
 	local sign = math.random(0, 1) * 2 - 1
-	local slope = math.tan(math.rad(angle or 25))
 	far = far or 5000
+	local fallback
 	for _, off in ipairs(offsets) do
 		local yaw = baseYaw + off * sign
-		local dir = Angle(0, yaw, 0):Forward()
-		local clear = true
-		for _, d in ipairs({far, far * 0.65, 2500}) do
-			local from = tpos + dir * d + Vector(0, 0, d * slope)
-			if util.TraceLine({start = from, endpos = tpos, filter = filter, mask = SIGHT_MASK}).Hit then clear = false break end
-		end
-		if clear then return yaw, true end
+		local ok, inside = Edge.AxisOk(ent, target, tpos, yaw, angle, far)
+		if inside and not fallback then fallback = yaw end
+		if ok then return yaw, true end
 	end
-	return baseYaw + offsets[1] * sign, false
+	return fallback or (baseYaw + offsets[1] * sign), false
 end
 
 -- Заход по наземной цели. Пехота — пушкой, полого (20°); техника — круче (25°), залп ракет и
@@ -3035,12 +3188,17 @@ local PLANE_RUNS = {
 }
 -- from — с какой дальности пушка; off — на сколько градусов нос может смотреть мимо точки очереди;
 -- prefire — цель скрылась: столько секунд заход и огонь туда, где её видели
-local PLANE_FIRE = {from = 9500, off = 4, prefire = 10, ipMax = 9500, pullDist = 2500, extend = 9500, extendHeight = 3500, floor = 800, rocketPitch = 2}
+local PLANE_FIRE = {from = 9500, off = 4, prefire = 10, ipMax = 9500, pullDist = 2500, extend = 10000, extendHeight = 3500, floor = 800, rocketPitch = 2}
 local ROCKET_SPEED = 5000 -- примерно, для упреждения (у Hydra разгон ~700 за тик, сопротивление воздуха)
 
 local function PlaneAttack(entry, ent, target, kind)
 	local run = PLANE_RUNS[kind] or PLANE_RUNS.infantry
 	local now = CurTime()
+	-- Прошлое пике упёрлось в укрытие (бруствер в 450–750 перед целью на 150–250 выше прицела) — минуту
+	-- заходим круче, 30°: с пологих 21° линию огня закрывало
+	if (ent.prSteepUntil or 0) > now and run.angle < 30 then
+		run = {angle = 30, height = run.height, rockets = run.rockets, sweep = run.sweep}
+	end
 	local pos = ent:GetPos()
 	local body = AimBody(target)
 	local tpos = PR_Patrol.AimPoint(target)
@@ -3055,9 +3213,26 @@ local function PlaneAttack(entry, ent, target, kind)
 			entry.planeHidden = true
 		end
 	end
-	local prefire = entry.planeHidden and entry.planeSeenTarget == target and entry.planeSeenAt
-		and now - entry.planeSeenAt < PLANE_FIRE.prefire or false
-	if prefire then tpos = entry.planeSeenPos end
+	-- Цель скрылась (дом, навес, гребень): заходы «по площади» — очередь и залп ракет. Куда: если её
+	-- видит кто-то из патруля, он наводит «по рации» — её место раз в 2,5 с с ошибкой до 400; не видит
+	-- никто — туда, где самолёт видел её сам. Ждать в зоне ожидания — только если скрыта дольше 20 с и
+	-- никто не видит (раньше ждал уже через 5 с и 17 с кружил ровным кругом — и не страшно, и мишень)
+	local hiddenFor = entry.planeHidden and (entry.planeSeenTarget == target and entry.planeSeenAt and now - entry.planeSeenAt or 0) or nil
+	-- Цель, назначенная извне (forceTarget — автотест), считается наведённой: «наводчик» есть
+	local contact = hiddenFor and (IsValid(entry.forceTarget) or Edge.Contact(ent.PR_Patrol, target, entry)) or false
+	if contact and now >= (entry.planeFacAt or 0) then
+		if not entry.planeFacOff then
+			local a = math.Rand(0, 2 * math.pi)
+			entry.planeFacOff = Vector(math.cos(a), math.sin(a), 0) * math.Rand(0, 400)
+		end
+		entry.planeFacAt, entry.planeFacPos = now + 2.5, PR_Patrol.AimPoint(target) + entry.planeFacOff
+	end
+	local reported = entry.planeFacPos and now - (entry.planeFacAt or 0) < 6 and entry.planeFacPos or nil
+	local seenPos = entry.planeSeenTarget == target and entry.planeSeenPos or nil
+	local prefire = hiddenFor ~= nil and (hiddenFor < 20 or contact) and (reported or seenPos) and true or false
+	if prefire then tpos = reported or seenPos end
+	local holding = hiddenFor ~= nil and not prefire and seenPos and true or false
+	if holding then tpos = seenPos end
 	local ceil = CeilingAt(pos)
 	local flat = Vector(tpos.x - pos.x, tpos.y - pos.y, 0)
 	local dist = flat:Length()
@@ -3081,15 +3256,24 @@ local function PlaneAttack(entry, ent, target, kind)
 	ip.z = tpos.z + h
 	-- Разворот на цель — за 2500 до точки входа: к ней самолёт обычно летит от цели, и если
 	-- разворачиваться у самой точки, за разворот он подходит слишком близко (цель уже круче 30°)
-	local outer = ip + runDir * 2500
+	-- Крутой заход: точка разворота ещё на радиус виража дальше — иначе вираж туда не помещался
+	local outer = ip + runDir * (2500 + (run.angle >= 30 and Edge.Radius(ent) or 0))
 	local toOuter = Vector(outer.x - pos.x, outer.y - pos.y, 0)
 
 	local was = entry.planeMode or "approach"
 	local mode = was
+	if holding and mode ~= "dive" and mode ~= "pull up" then mode = "hold" end
+	if mode == "hold" and not holding then
+		-- Снова видна — заход с оси зоны ожидания (точка разворота рядом с ней)
+		mode, entry.planeRunYaw = "approach", entry.planeHoldYaw or entry.planeRunYaw
+	end
+	if mode ~= "hold" then entry.planeHoldC, entry.planeHoldYaw = nil, nil end
 	local danger, why
 	if mode == "dive" then danger, why = PlaneDanger(ent, 2, 700, tpos) else danger, why = PlaneDanger(ent) end
 	if danger and mode ~= "pull up" then
-		entry.planeAfter = mode == "dive" and "approach" or mode
+		-- Из пике — не на новый заход (он уводил к стене и мимо цели), а уходом по оси атаки
+		entry.planeAfter = mode == "dive" and "extend" or mode
+		if mode == "dive" then entry.planeEgressYaw = PlaneHeading(ent) end
 		mode, entry.planeUntil = "pull up", now + 2.5
 	elseif danger and mode == "pull up" then
 		entry.planeUntil = math.max(entry.planeUntil or 0, now + 1)
@@ -3100,17 +3284,39 @@ local function PlaneAttack(entry, ent, target, kind)
 	if mode == "approach" then
 		-- Дальше точки разворота — разворот на цель; уже летит на цель издалека — тоже: дальше
 		-- по прямой, пока цель не окажется под нужным углом
-		if toOuter:Length() < 1500 or (headingOff < 20 and dist > ipDist * 0.9 and below <= angle + 2) then
+		-- Точку разворота засчитываем ближе радиуса виража (+500) или когда она уже сбоку/сзади рядом:
+		-- с порогом 1500 при вираже ~2150 самолёт, проскочив её, кружил вокруг неё минутами
+		local r = Edge.Radius(ent)
+		local outerOff = math.abs(math.AngleDifference(toOuter:Angle().y, PlaneHeading(ent)))
+		if toOuter:Length() < r + 500 or (toOuter:Length() < 1.6 * r and outerOff > 100)
+			or (headingOff < 20 and dist > ipDist * 0.9 and below <= angle + 2) then
 			mode, entry.planeTurnSince = "turn in", now
 		end
 	end
 	if mode == "turn in" then
 		if headingOff < 20 and below >= angle - 4 and below <= 40 and dist > 2500 then
 			mode = "dive"
-		elseif below > 40 or dist < ipDist * 0.45 or now - (entry.planeTurnSince or now) > 15 then
-			-- Проскочил или слишком круто — новый заход с другой стороны
-			mode = "approach"
-			entry.planeRunYaw = PlaneRunYaw(ent, target, tpos, (pos - tpos):Angle().y, PLANE_SIDES_NEXT, angle, ipDist)
+		-- «Проскочил» — только когда уже почти довернул (или 3 с разворота): сразу после прохода цель
+		-- позади, это обычный разворот, а не проскок
+		-- Бросаем, только если уже не довернуть до выхода из пике (~30°/с): раньше бросал по «ближе
+		-- 0,45 точки входа» — в 2800–4400 от цели с носом в 27° от неё, вместо того чтобы дать очередь
+		else
+			-- Успеем ли довернуть: круг виража в сторону цели (центр в R вбок), касательная от него до цели
+			-- L — с неё и пике; L ≥ PLANE_FIRE.pullDist и угол на цель с неё не круче 30° (крутой заход —
+			-- угол захода + 8°: с лимитом 30° крутые 30-градусные заходы сами себя отменяли, минута без пике)
+			local r = Edge.Radius(ent)
+			local turnSide = math.AngleDifference(toTarget, PlaneHeading(ent)) >= 0 and 1 or -1
+			local c = pos - Angle(0, PlaneHeading(ent), 0):Right() * r * turnSide
+			local d = Vector(tpos.x - c.x, tpos.y - c.y, 0):Length()
+			local L = math.sqrt(math.max(d * d - r * r, 0))
+			local late = (headingOff < 60 or now - (entry.planeTurnSince or now) > 3)
+				and (L < PLANE_FIRE.pullDist or math.deg(math.atan2(pos.z - tpos.z, math.max(L, 1))) > math.max(30, angle + 4))
+			if below > 40 or late or now - (entry.planeTurnSince or now) > 15 then
+				-- Не успевает — проходит насквозь и обычный уход с разворотом (а не далёкий новый заход:
+				-- это 14 с без огня)
+				mode = "extend"
+				entry.planeEgressYaw, entry.planeEgressSide = PlaneHeading(ent), nil
+			end
 		end
 	end
 	-- Пике до PLANE_FIRE.floor над целью (в крутом — раньше: на 50 за каждый градус круче 25°) или PLANE_FIRE.pullDist
@@ -3120,60 +3326,161 @@ local function PlaneAttack(entry, ent, target, kind)
 	local roof = -math.huge
 	if mode == "dive" then
 		local v = ent:GetVelocity()
-		for t = 0, 2, 0.5 do roof = math.max(roof, TopAt(pos.x + v.x * t, pos.y + v.y * t, ceil, pos.z - 8000)) end
+		for t = 0, 3, 0.5 do roof = math.max(roof, TopAt(pos.x + v.x * t, pos.y + v.y * t, ceil, pos.z - 8000)) end
 	end
+	-- Запас на скорость — небольшой (+150 на 2000): без него на 2030 выходил в 890 над целью и задевал рельеф,
+	-- с прежним (+300) очередь кончалась в 3300–3500; рельеф по ходу смотрим на 3 с
 	local diveFloor = math.max(PLANE_FIRE.floor, roof + 600 - tpos.z) + math.max(0, math.NormalizeAngle(ent:GetVelocity():Angle().p) - 25) * 50
+		+ math.max(0, ent:GetVelocity():Length() - 1500) * 0.3
+
 	if mode == "dive" and (pos.z - tpos.z < diveFloor or pos:Distance(tpos) < PLANE_FIRE.pullDist) then
 		mode, entry.planeUntil, entry.planeAfter = "pull up", now + 3, "approach"
 		-- Выход как у игрока: 1,5 с нос вверх по прямой (проход над целью, скорость не теряем — отворот на
 		-- 80° держал самолёт 3 с у цели), дальше уход прямо от цели (extend) и разворот уже вдали
 		entry.planeUntil, entry.planeAfter = now + 1.5, "extend"
-		entry.planeBreakYaw = PlaneHeading(ent)
+		-- Отворот на 25° в сторону, где больше места: проход в стороне от цели, а не над головой (там
+		-- его и сбивали из РПГ), уход дальше — тем же курсом (+15° в extend)
+		local right = Angle(0, PlaneHeading(ent), 0):Right()
+		entry.planeEgressSide = Edge.Room(pos - right * 4000) >= Edge.Room(pos + right * 4000) and 1 or -1
+		entry.planeBreakYaw = PlaneHeading(ent) + 25 * entry.planeEgressSide
+		entry.planeEgressYaw = entry.planeBreakYaw
 	end
-	-- Уход от цели: по прямой с рывками курса, набор высоты; ушёл на extend — сразу разворот на цель
-	-- (или край карты ближе 6000 по ходу: цель в 7 тыс. от края — уход «на 11 км» врезался в стену неба)
-	local mapCfg = PR_MINIMAPS and PR_MINIMAPS[string.lower(game.GetMap())]
-	local ahead = pos + ent:GetVelocity():GetNormalized() * 6000   -- разворот уносит ещё на ~2000
-	local nearEdge = mapCfg and (ahead.x < mapCfg.minX or ahead.x > mapCfg.maxX or ahead.y < mapCfg.minY or ahead.y > mapCfg.maxY)
-	-- Край близко, а до цели ещё мало для захода — уходим вдоль края (раньше бросал атаку)
-	if mode == "extend" and nearEdge and dist <= 7000 then entry.planeExtendOff = entry.planeExtendOff or 70 end
-	if mode ~= "extend" then entry.planeExtendOff = nil end
-	if mode == "extend" and (dist >= PLANE_FIRE.extend or (nearEdge and dist > 7000)) then
+	-- Уход как у игрока: прямо по оси атаки (отворот 15° внутрь карты) 3–5 с, потом один разворот на
+	-- новый заход — на PLANE_FIRE.extend от цели или раньше, если до стены по курсу меньше двух радиусов
+	-- виража. Раньше уходил «прочь от цели» (курс на цель + 180°): в 2000 до цели это разворот над ней с
+	-- креном 70–95° (скорость 2000 → 800, мишень для РПГ), а у цели возле края — прямо в стену
+	if mode == "extend" then
+		entry.planeExtendAt = entry.planeExtendAt or now
+		entry.planeEgressYaw = entry.planeEgressYaw or PlaneHeading(ent)
+		if not entry.planeEgressSide then
+			local right = Angle(0, entry.planeEgressYaw, 0):Right()
+			entry.planeEgressSide = Edge.Room(pos - right * 4000) >= Edge.Room(pos + right * 4000) and 1 or -1
+		end
+	end
+	-- Стена по курсу ухода (а не по нынешней скорости: отворот внутрь карты ещё не начался) и не в
+	-- первые 2 с — иначе сразу после прохода бросал уход и шёл на новый далёкий заход (цикл 20+ с)
+	local wallAhead = mode == "extend" and now - entry.planeExtendAt > 2
+		and Edge.Room(pos + Angle(0, entry.planeEgressYaw + 15 * (entry.planeEgressSide or 1), 0):Forward() * (2 * Edge.Radius(ent) + 1000)) < 1000
+	if mode == "extend" and (dist >= PLANE_FIRE.extend or wallAhead) then
 		mode, entry.planeTurnSince = "turn in", now
-		entry.planeRunYaw = (pos - tpos):Angle().y
-		-- Разворот (цель за спиной) — в сторону центра карты: в другую сторону он упирался в край
-		if mapCfg then
-			local c = Vector((mapCfg.minX + mapCfg.maxX) / 2, (mapCfg.minY + mapCfg.maxY) / 2, 0)
+		local hereYaw = (pos - tpos):Angle().y
+		if Edge.AxisOk(ent, target, tpos, hereYaw, angle, ipDist) then
+			entry.planeRunYaw = hereYaw
+		else
+			-- Отсюда цель закрыта (дом, гребень) — к точке входа на открытой оси
+			local yaw, found = PlaneRunYaw(ent, target, tpos, hereYaw, PLANE_SIDES_NEXT, angle, ipDist)
+			entry.planeRunYaw = yaw
+			if found then mode = "approach" end
+		end
+		-- Разворот на цель — туда, где вираж помещается в карту, а помещается всюду — к центру карты
+		ent.prTurnSign = Edge.Side(ent)
+		local cfg = Edge.Cfg()
+		if not ent.prTurnSign and cfg then
+			local c = Vector((cfg.minX + cfg.maxX) / 2, (cfg.minY + cfg.maxY) / 2, 0)
 			ent.prTurnSign = math.AngleDifference((c - pos):Angle().y, PlaneHeading(ent)) >= 0 and 1 or -1
 		end
 	end
+	if mode ~= "extend" and mode ~= "pull up" then entry.planeEgressYaw, entry.planeEgressSide = nil, nil end
+	if mode ~= "extend" then entry.planeExtendAt = nil end
 	if mode ~= "pull up" then entry.planeBreakYaw = nil end
 	-- Вышел из пике — следующий заход с другой стороны
 	if mode == "pull up" and was == "dive" then
 		entry.planeRunYaw = PlaneRunYaw(ent, target, tpos, (pos - tpos):Angle().y, PLANE_SIDES_NEXT, angle, ipDist)
 	end
-	if mode == "dive" and was ~= "dive" then entry.salvo, entry.salvoCap = 0, run.rockets end
+	if mode == "dive" and was ~= "dive" then
+		-- По укрытию — залп 4 ракет (по зданию A-10 бьёт ракетами), ошибка наводки — новая на каждый заход
+		entry.salvo, entry.salvoCap = 0, (prefire and kind ~= "vehicle") and 4 or run.rockets
+		entry.planeFacOff = nil
+		entry.planeDiveYaw, entry.planeMaskedFar = (pos - tpos):Angle().y, nil
+	end
+	-- Пике, где с 6000+ цель была закрыта, — эту ось захода на 60 с не берём
+	if was == "dive" and mode ~= "dive" and entry.planeMaskedFar and entry.planeDiveYaw then
+		Edge.Block(ent, tpos, entry.planeDiveYaw)
+		ent.prSteepUntil = now + 60
+	end
+
+	-- Пуск РПГ/ракеты впереди (±60° от носа): через 0,5 с резкий отворот на 60° от пуска, нос чуть вниз,
+	-- потом — дальше своим режимом. Пуск за спиной не видит
+	local evading = entry.planeEvadeAt and now >= entry.planeEvadeAt and now < (entry.planeEvadeUntil or 0)
+	-- В пике и на выводе пуск не срывает атаку: это честное окно для РПГ, лоб в лоб (иначе каждый пуск
+	-- отменял заход, и самолёт за весь бой ни разу не стрелял)
+	if evading and not entry.planeEvadeYaw and (mode == "dive" or mode == "pull up") then
+		evading, entry.planeEvadeAt, entry.planeEvadeUntil = false, nil, nil
+	end
+	if evading then
+		if not entry.planeEvadeYaw then
+			entry.planeEvadeYaw = PlaneHeading(ent) + 60 * (entry.planeEvadeSide or 1)
+			PR_Patrol.Log(string.format("%s: пуск по нему у %s — отворот (до цели %d, выше %d, скорость %d)", VehicleLabel(entry),
+				PosText(entry.planeEvadeFrom or pos), dist, pos.z - tpos.z, ent:GetVelocity():Length()))
+		end
+	elseif entry.planeEvadeYaw then
+		entry.planeEvadeAt, entry.planeEvadeUntil, entry.planeEvadeYaw = nil, nil, nil
+	end
 
 	entry.planeMode = mode
 	entry.airMode = "plane " .. mode
 	if mode ~= was then
 		local aimed = was == "dive" and entry.planeBestAim and string.format(", нос до цели не ближе %.1f°%s%s", entry.planeBestAim,
-			entry.planeFired and ", стрелял" or entry.planeNoFire and ", " .. entry.planeNoFire or "",
+			entry.planeFired and (entry.planeCoverFire and ", стрелял (и по укрытию)" or ", стрелял") or entry.planeNoFire and ", " .. entry.planeNoFire or "",
 			(entry.salvo or 0) > 0 and ", ракет " .. entry.salvo .. (entry.planeDropUsed and string.format(" (поправка на падение %d)", entry.planeDropUsed) or "") or "") or ""
 		PR_Patrol.Log(string.format("%s: заход по %s %s → %s (до цели %d, выше цели %d, скорость %d%s%s)", VehicleLabel(entry),
 			kind == "vehicle" and "технике" or "пехоте", was, mode, pos:Distance(tpos), pos.z - tpos.z, ent:GetVelocity():Length(),
 			danger and ", " .. why or "", aimed))
-		entry.planeBestAim, entry.planeFired, entry.planeNoFire = nil, nil, nil
+		entry.planeBestAim, entry.planeFired, entry.planeNoFire, entry.planeCoverFire = nil, nil, nil, nil
 	end
 
+	-- Вне атаки — низко и быстро (~900 над рельефом по ходу), высота — только дальше 7000 от цели:
+	-- средняя высота, медленно и рядом — мишень для РПГ (сбивали на 2600–3100 в 4000 от игрока)
+	local low = math.min(TerrainAhead(ent, ceil) + 900, ceil - 500)
+	if evading then
+		PlaneThrottle(ent, 1)
+		local agl = pos.z - TerrainAhead(ent, ceil)
+		return PlaneSteer(ent, entry.planeEvadeYaw, agl < 700 and -5 or 5, "level")
+	end
+	if mode == "hold" then
+		if not entry.planeHoldC then
+			local base = (pos - tpos):Angle().y
+			for _, off in ipairs(PLANE_SIDES_FIRST) do
+				for _, far in ipairs({11000, 9500, 8000}) do
+					local c = tpos + Angle(0, base + off, 0):Forward() * far
+					if Edge.Room(c) >= 4300 and Edge.AxisOk(ent, target, tpos, base + off, angle, ipDist) then
+						entry.planeHoldC, entry.planeHoldYaw = c, base + off
+						break
+					end
+				end
+				if entry.planeHoldC then break end
+			end
+			if not entry.planeHoldC then
+				local cfg = Edge.Cfg()
+				local mid = cfg and Vector((cfg.minX + cfg.maxX) / 2, (cfg.minY + cfg.maxY) / 2, 0) or pos
+				entry.planeHoldYaw = (Vector(mid.x, mid.y, tpos.z) - tpos):Angle().y
+				entry.planeHoldC = tpos + Angle(0, entry.planeHoldYaw, 0):Forward() * 8000
+			end
+		end
+		PlaneThrottle(ent, 1)
+		local c = entry.planeHoldC
+		local a = math.atan2(pos.y - c.y, pos.x - c.x) + math.rad(30)
+		local point = Vector(c.x + math.cos(a) * 3000, c.y + math.sin(a) * 3000, 0)
+		local z = low
+		return PlaneSteer(ent, (point - Vector(pos.x, pos.y, 0)):Angle().y, math.Clamp(AltitudePitch(pos, z), -12, 8), "level")
+	end
 	if mode == "extend" then
 		PlaneThrottle(ent, 1)
-		local jink = 6 * math.sin(now * 2 * math.pi / 3)
-		return PlaneSteer(ent, toTarget + 180 + (entry.planeExtendOff or 0) + jink, math.max(AltitudePitch(pos, tpos.z + PLANE_FIRE.extendHeight), -12))
+		local jink = 10 * math.sin(now * 2 * math.pi / 3)
+		local z = dist < 7000 and low or math.max(low, tpos.z + h)
+		return PlaneSteer(ent, entry.planeEgressYaw + 15 * (entry.planeEgressSide or 1) + jink,
+			math.Clamp(AltitudePitch(pos, z), -12, 8), "level")
 	end
 	if mode == "pull up" then
 		PlaneThrottle(ent, 1)
-		if entry.planeBreakYaw then return PlaneSteer(ent, entry.planeBreakYaw, -20) end
+		-- Выход из пике — тем круче, чем круче летим вниз (из 40° на −12° самолёт не успевал выйти); выровнялся —
+		-- почти горизонтально (−4°), а не дальше вверх: набор до 1500–2000 над целью на 1700 — мишень для РПГ
+		local down = math.NormalizeAngle(ent:GetVelocity():Angle().p)
+		-- Отворот вбок — только когда уже не снижаемся: вираж на выводе отнимал подъёмную силу, и у холмов
+		-- самолёт просаживало в склон
+		if entry.planeBreakYaw then
+			return PlaneSteer(ent, down > 3 and PlaneHeading(ent) or entry.planeBreakYaw, -math.Clamp(4 + down * 1.0, 4, 30), "level")
+		end
 		return PlaneSteer(ent, PlaneHeading(ent), -35)
 	elseif mode == "dive" then
 		-- Полный газ (игрок пикирует на 1900–2100; на 50% «полз» на 1400), притормаживаем выше 2050
@@ -3200,7 +3507,7 @@ local function PlaneAttack(entry, ent, target, kind)
 		-- Очередь ведём вдоль захода: издали — с недолётом, ближе к выходу — с перелётом
 		local sweepK = math.Clamp((range - 3000) / (PLANE_FIRE.from - 3000), 0, 1) * 2 - 1
 		local runFlat = Vector(pos.x - tpos.x, pos.y - tpos.y, 0):GetNormalized()
-		local gunPos = aimPos + runFlat * (run.sweep or 0) * sweepK
+		local gunPos = aimPos + runFlat * (prefire and 300 or (run.sweep or 0)) * sweepK
 		local aim = (gunPos - muzzle):Angle()
 		local off = math.deg(math.acos(math.Clamp(ent:GetForward():Dot(aim:Forward()), -1, 1)))
 		local offTarget = math.deg(math.acos(math.Clamp(ent:GetForward():Dot((aimPos - muzzle):GetNormalized()), -1, 1)))
@@ -3208,11 +3515,16 @@ local function PlaneAttack(entry, ent, target, kind)
 		if off <= PLANE_FIRE.off and range < PLANE_FIRE.from then
 			-- Видно ли точку очереди: в префайр — стена дома у самого места тоже годится (снаряд там и рванёт)
 			local los = util.TraceLine({start = muzzle, endpos = gunPos, filter = function(e) return e ~= target and not PartOf(e, ent) and not PartOf(e, body) end, mask = SIGHT_MASK})
-			if los.Hit and los.HitPos:Distance(gunPos) > (prefire and 400 or 150) then
+			local masked = los.Hit and los.HitPos:Distance(gunPos) > 150
+			if masked and range >= 6000 then entry.planeMaskedFar = true end
+			-- Укрытие у самой цели (до max(400, 0,1·дальности)) — огонь по нему: подавление
+			if masked then entry.planeCoverFire = true end
+			if los.Hit and los.HitPos:Distance(gunPos) > math.max(400, 0.1 * range) then
 				entry.planeNoFire = string.format("цель закрыта (%s в %d от цели)", los.HitSky and "небо" or "стена/земля", los.HitPos:Distance(tpos))
 			else
 				-- Ракеты — только точно (≤ 2.5° на саму цель) и с 2000–6000; пушка — с PLANE_FIRE.off
-				local useRockets = kind == "vehicle" and offTarget <= 2.5 and range > 2500 and range < 5000
+				local useRockets = (kind == "vehicle" and offTarget <= 2.5 and range > 2500 and range < 5000)
+					or (prefire and offTarget <= 4 and range > 2500 and range < 6000)
 				local before = ent.NextPrimary
 				FirePilot(ent, entry, prefire and PointTarget(gunPos) or target, useRockets and "vehicle" or "infantry", true)
 				if ent.NextPrimary ~= before or (entry.salvo or 0) > 0 then entry.planeFired = true end
@@ -3223,18 +3535,36 @@ local function PlaneAttack(entry, ent, target, kind)
 			end
 		end
 		-- Не круче 40°: из более крутого самолёт не успевал выйти
-		return PlaneSteer(ent, aim.y, math.Clamp(math.NormalizeAngle(aim.p), 0, 40))
+		return PlaneSteer(ent, aim.y, math.Clamp(math.NormalizeAngle(aim.p), 0, 40), "dive")
 	elseif mode == "turn in" then
 		-- Полный газ и без набора (не круче 5° вверх): разворот на 1450 разносил до 13 тыс.
 		PlaneThrottle(ent, 1)
 		-- PlaneSteer в крутом развороте сам поднимает нос на |Δкурса|/3 (до 15°) — тут гасим это: иначе
 		-- разворот на цель задирал нос, скорость падала до ~800 и он лез на 5700 над целью
 		local turnUp = math.min(math.abs(math.AngleDifference(toTarget, PlaneHeading(ent))), 45) / 3
-		return PlaneSteer(ent, toTarget, math.Clamp(AltitudePitch(pos, ip.z), -5, 15) + turnUp)
+		-- Высота — от дальности (линия пике под углом захода, не ниже 900): разворот в 6000–7000 от цели на
+		-- 3500 давал угол 31–40°, и заход отменялся — минута без пике. Почти довернул — подскок до линии
+		local zRun = math.max(tpos.z + math.Clamp(dist * math.tan(math.rad(angle)), 900, h), low - 300)
+		return PlaneSteer(ent, toTarget, math.Clamp(AltitudePitch(pos, zRun), headingOff < 60 and -18 or -5, 15) + turnUp)
 	end
-	-- К точке разворота снижаемся не круче 15°: круче — земля по ходу, и уход вверх
+	-- К точке разворота снижаемся не круче 15°: круче — земля по ходу, и уход вверх. Ближе 7000 к цели —
+	-- низко, змейкой и в обход: путь к точке разворота шёл прямо над целью (сбили на таком пролёте)
 	PlaneThrottle(ent, 1)
-	return PlaneSteer(ent, toOuter:Angle().y, math.min(AltitudePitch(pos, ip.z), 15))
+	local wantYaw = toOuter:Angle().y
+	local z = ip.z
+	if dist < 7000 then
+		z = low
+		wantYaw = wantYaw + 8 * math.sin(now * 2 * math.pi / 3)
+		local offT = math.AngleDifference(toTarget, wantYaw)
+		local miss = dist * math.sin(math.rad(math.min(math.abs(offT), 90)))
+		if math.abs(offT) < 90 and miss < 3500 then
+			-- Цель по пути: курс по касательной к кругу 3500 вокруг неё, с той стороны, куда и так уводит
+			local side = offT >= 0 and -1 or 1
+			wantYaw = toTarget + side * (math.deg(math.asin(math.min(3500 / math.max(dist, 1), 1))) + 10)
+		end
+	end
+	-- Вниз к малой высоте — не круче 8°: круче проверка «земля по ходу через 3 с» поднимала его зря
+	return PlaneSteer(ent, wantYaw, math.Clamp(AltitudePitch(pos, z), -12, z == low and 8 or 15), "level")
 end
 
 ----------------------------------------------------------------------------------------------------
@@ -3318,6 +3648,37 @@ local function PlaneDogfight(entry, ent, target)
 	return PlaneSteer(ent, toLead.y, pitch)
 end
 
+-- Пуск по самолёту патруля: РПГ, ракета, граната из подствольника — от игрока (не экипажа). Самолёт
+-- видит вспышку, если пуск впереди (±60° от носа) и ближе 9000, и через 0,5 с отворачивает (PlaneAttack)
+hook.Add("OnEntityCreated", "PR_PlaneSeesLaunch", function(e)
+	timer.Simple(0, function()
+		if not IsValid(e) then return end
+		local class = e:GetClass()
+		if not (string.find(class, "rpg", 1, true) or string.find(class, "projectile", 1, true)
+			or string.find(class, "rocket", 1, true) or string.find(class, "missile", 1, true)) then return end
+		local owner = e:GetOwner()
+		if not (IsValid(owner) and owner:IsPlayer()) then owner = e.Owner end
+		if not (IsValid(owner) and owner:IsPlayer()) or owner.PR_PatrolCrew then return end
+		local from = e:GetPos()
+		for _, patrol in ipairs(PR_Patrol.Active or {}) do
+			for _, v in ipairs(patrol.vehicles or {}) do
+				local plane = v.ent
+				if v.kind == "air" and not v.heli and not v.dead and IsValid(plane) and CurTime() > (v.planeEvadeUntil or 0)
+					and plane:GetPos():DistToSqr(from) < 9000 * 9000 then
+					local fwd = Vector(plane:GetVelocity().x, plane:GetVelocity().y, 0)
+					local to = Vector(from.x - plane:GetPos().x, from.y - plane:GetPos().y, 0)
+					local ahead = fwd:LengthSqr() > 1 and math.deg(math.acos(math.Clamp(fwd:GetNormalized():Dot(to:GetNormalized()), -1, 1))) or 180
+					if ahead <= 60 then
+						local left = math.AngleDifference(to:Angle().y, fwd:Angle().y) >= 0
+						v.planeEvadeAt, v.planeEvadeUntil = CurTime() + 0.5, CurTime() + 2.2
+						v.planeEvadeSide, v.planeEvadeFrom, v.planeEvadeYaw = left and -1 or 1, from, nil
+					end
+				end
+			end
+		end
+	end)
+end)
+
 -- LFS/LVS: свой ИИ летает, мы подменяем ему цели и точку, пока врагов нет
 local function SetupAI(patrol, entry)
 	local ent = entry.ent
@@ -3329,7 +3690,7 @@ local function SetupAI(patrol, entry)
 	-- смотреть (UpdateFacing)
 	ent.AIGetTarget = function(self)
 		if entry.heli then return entry.facer end
-		return PR_Patrol.VehicleTarget(entry, self:WorldSpaceCenter(), VEHICLE_RANGE * 1.5, AIR_OPT.memory)
+		return AirVehicleTarget(entry, self:WorldSpaceCenter())
 	end
 
 	local baseRunAI = ent.RunAI
@@ -3338,7 +3699,10 @@ local function SetupAI(patrol, entry)
 			-- Сбитый самолёт падает сам: не рулим и не пишем в журнал заходы обломков
 			if not entry.heli and isfunction(self.IsDestroyed) and self:IsDestroyed() then return self:GetAngles() end
 
-			local target = PR_Patrol.VehicleTarget(entry, self:WorldSpaceCenter(), VEHICLE_RANGE * 1.5, AIR_OPT.memory)
+			local target = AirVehicleTarget(entry, self:WorldSpaceCenter())
+			if not IsValid(target) and not entry.heli and not entry.ignoreTargets then
+				target = Edge.PatrolEnemy(patrol, self:WorldSpaceCenter(), AIR_OPT.planeSight)
+			end
 
 			-- Самолёт по врагу — своими заходами (у ИИ LFS на этой карте не хватает высоты)
 			if IsValid(target) and not entry.heli and entry.class and string.StartWith(entry.class, "lvs_") then return baseRunAI(self, ...) end
@@ -3357,6 +3721,7 @@ local function SetupAI(patrol, entry)
 			-- Самолёт без врагов кружит над патрулём
 			if not entry.heli then
 				entry.breakUntil, entry.planeMode, entry.planeRunYaw, entry.targetKind = nil, nil, nil, nil
+				entry.planeFired, entry.planeEvadeAt, entry.planeEvadeYaw = nil, nil, nil
 				entry.airMode = "escort"
 				return PlaneEscort(patrol, entry, self)
 			end
@@ -3788,6 +4153,11 @@ hook.Add("EntityTakeDamage", "PR_PatrolNoFriendlyCrush", function(victim, dmg)
 	-- Подбить машину можно только по её прочности, а пуля игрока по экипажу проходит
 	local crew = victim:IsPlayer() and victim.PR_PatrolCrew
 	if crew and (not IsValid(attacker) or attacker:IsWorld() or PatrolVehicleOf(attacker) == crew) then
+		blocked = true
+	elseif crew and crew.kind == "ground" then
+		-- Экипаж брони сидит за бронёй: урон идёт только по машине, где Гредвич считает пробитие.
+		-- Раньше осколки зенитного снаряда задевали невидимого бота сквозь лобовую броню — бот
+		-- погибал, и танк «без экипажа» взрывался от 50–100 урона
 		blocked = true
 	else
 		local own = PatrolVehicleOf(victim)
@@ -4602,7 +4972,10 @@ local function RecoverGroundedPlane(patrol, v)
 	ent:SetPos(pos + Vector(0, 0, 20))
 	ent:SetAngles(Angle(0, yaw, 0))
 	v.holdPos, v.holdUntil, v.spawnedAt, v.groundedSince = ent:GetPos(), CurTime() + 15, CurTime(), nil
-	v.planeMode, v.planeRunYaw = nil, nil
+	-- Всё состояние захода — заново: залипшая сторона разворота переживала перенос и снова вела к стене
+	v.planeMode, v.planeRunYaw, v.planeAfter, v.planeUntil, v.planeTurnSince = nil, nil, nil, nil, nil
+	v.planeBreakYaw, v.planeEgressYaw, v.planeEgressSide, v.planeHoldC, v.planeHoldYaw = nil, nil, nil, nil, nil
+	ent.prTurnSign, ent.prEdgeTurn = nil, nil
 	PR_Patrol.Log(string.format("%s: сел у %s и не взлетает — снова в небе у %s", VehicleLabel(v), PosText(from), PosText(pos)))
 end
 
@@ -4672,7 +5045,7 @@ local function CrewForAI(patrol, v)
 	SeatCrew(v)
 	WrapGredwitch()
 	WrapLFSGunner(v)
-	local target = PR_Patrol.VehicleTarget(v, v.ent:WorldSpaceCenter(), VEHICLE_RANGE * 1.5, AIR_OPT.memory)
+	local target = AirVehicleTarget(v, v.ent:WorldSpaceCenter())
 	CrewAim(v, target)
 	GunnerMissiles(v, target)
 end

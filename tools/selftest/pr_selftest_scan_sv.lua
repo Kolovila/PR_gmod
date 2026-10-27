@@ -79,6 +79,43 @@ if only["show"] then
 		n = n + 1
 		T.shot(string.format("show_%02d_%s_%s", n, S.cur.class, tostring(S.cur.entry.airMode or "-"):gsub("[^%w]", "_")))
 	end)
+	-- rpg: цель-бот стреляет по самолёту из РПГ (раз в 6 с, когда тот идёт на него в 2500–6000, с упреждением):
+	-- видит ли самолёт пуск, отворачивает ли, сбивают ли его
+	if only["rpg"] then
+		S.rpgShots, S.rpgNext = 0, 0
+		hook.Add("Think", "PR_ScanShowRpg", function()
+			local c = S.cur
+			if not (c and IsValid(c.ent) and IsValid(S.b1) and S.b1:Alive()) or CurTime() < S.rpgNext then return end
+			local plane = c.ent
+			if isfunction(plane.IsDestroyed) and plane:IsDestroyed() then return end
+			local from = S.b1:EyePos()
+			local to = plane:WorldSpaceCenter()
+			local flat = Vector(to.x - from.x, to.y - from.y, 0):Length()
+			local vel = plane:GetVelocity()
+			local toBot = (from - to):GetNormalized()
+			local nose = math.deg(math.acos(math.Clamp(vel:GetNormalized():Dot(toBot), -1, 1)))
+			if flat < 2500 or flat > 6000 or nose > 60 then return end
+			S.rpgNext = CurTime() + 6
+			local aim = to + vel * (from:Distance(to) / 5800)
+			local dir = (aim - from):GetNormalized()
+			local rocket = ents.Create("cw_kk_ins2_projectile_rpg")
+			if not IsValid(rocket) then return end
+			rocket:SetPos(from + dir * 60)
+			rocket:SetAngles(dir:Angle())
+			rocket:SetOwner(S.b1)
+			rocket.Owner = S.b1
+			rocket:Spawn()
+			rocket:Activate()
+			local phys = rocket:GetPhysicsObject()
+			if IsValid(phys) then phys:SetVelocity(dir * 4527) end
+			S.rpgShots = S.rpgShots + 1
+			log(string.format("RPG #%d at the plane: %d away, %d above, speed %d, mode %s", S.rpgShots, flat, to.z - from.z, vel:Length(), tostring(c.entry.airMode)))
+			timer.Simple(2.5, function()
+				local dead = not IsValid(plane) or (isfunction(plane.IsDestroyed) and plane:IsDestroyed())
+				log(string.format("RPG #%d result: %s", S.rpgShots, dead and "plane shot down" or "missed"))
+			end)
+		end)
+	end
 end
 
 T.section("common")
@@ -530,7 +567,11 @@ for _, class in ipairs(CLASSES) do
 		-- Цель: пеший бот на открытом месте (для земли — в 1200 от машины)
 		if IsValid(S.b1:GetVehicle()) then S.b1:ExitVehicle() end
 		-- far: цель далеко (дальше, чем бьёт пулемёт) — проверяем, подъедет ли машина на дальность огня
-		local p = air and (T.openPointNear(PR_Patrol.Center(patrol) or e:GetPos()) or e:GetPos())
+		-- west: цель там, где в игре стоят патрули Решалы (в 3000 от западного края карты)
+		-- cover: цель там, где игрок прятался от A-10 (бой 2026-10-27 14:44): с севера пике упирались в укрытие
+		local coverAt = air and only["cover"] and util.TraceLine({start = Vector(-9789, -3072, -150), endpos = Vector(-9789, -3072, -700), mask = MASK_SOLID}).HitPos
+		local p = coverAt or (air and only["west"] and T.openPointNear(Vector(-12400, 2200, -510)))
+			or air and (T.openPointNear(PR_Patrol.Center(patrol) or e:GetPos()) or e:GetPos())
 			or (only["far"] and (T.openFirePoint(e:GetPos(), 4500) or T.openFirePoint(e:GetPos(), 3800)))
 			-- long без открытой дальней точки — цель вплотную к машине (а не за домом в 900, как было у Tiger)
 			or (only["long"] and (T.openFirePoint(e:GetPos(), 7000) or T.openFirePoint(e:GetPos(), 6000) or T.openFirePoint(e:GetPos(), 5000)
@@ -585,7 +626,7 @@ for _, class in ipairs(CLASSES) do
 		end)
 	end
 
-	step(PREFIRE and (air and 22 or 14) or (only["show"] and (only["plane"] and 90 or 60)) or (air and 35 or (only["long"] and 40 or 25)), function()
+	step(PREFIRE and (air and 22 or 14) or (only["show"] and (only["plane"] and ((only["west"] or only["cover"]) and 180 or 90) or 60)) or (air and 35 or (only["long"] and 40 or 25)), function()
 		local c = S.cur
 		if not c then return end
 		for _, plate in ipairs(S.box or {}) do if IsValid(plate) then plate:Remove() end end

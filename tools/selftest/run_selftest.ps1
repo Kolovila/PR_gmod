@@ -1,4 +1,4 @@
-# In-game autotest of the PR gamemode.
+﻿# In-game autotest of the PR gamemode.
 #   -Suite: full (whole big test) | core | patrol | armor (its sections)
 #           vehicles (short vehicle test) | tank | air | plane (its sections)
 #   -Instance N: run in the separate test copy D:\GModTest\instN (setup_instances.ps1).
@@ -23,8 +23,9 @@ $Suites = @{
     strike   = @('pr_selftest_vehicles_sv.lua', 'strike')
     helistrike = @('pr_selftest_vehicles_sv.lua', 'helistrike')
     vehground = @('pr_selftest_vehicles_sv.lua', 'tank gepard')   # vehicles split in 3 for run_parallel -Suites all
-    vehair   = @('pr_selftest_vehicles_sv.lua', 'air helistrike')
-    vehplane = @('pr_selftest_vehicles_sv.lua', 'plane strike dogfight')
+    vehair   = @('pr_selftest_vehicles_sv.lua', 'air helistrike nur')
+    nur      = @('pr_selftest_vehicles_sv.lua', 'nur')   # player's Mi-24 rockets vs own helicopter
+    vehplane = @('pr_selftest_vehicles_sv.lua', 'plane strike dogfight edge')
     scan1    = @('pr_selftest_scan_sv.lua', '1')   # diagnostics: every new vehicle in a patrol, half 1
     scan2    = @('pr_selftest_scan_sv.lua', '2')   # half 2
     scanground1 = @('pr_selftest_scan_sv.lua', 'ground 1')
@@ -34,6 +35,9 @@ $Suites = @{
     scanair1 = @('pr_selftest_scan_sv.lua', 'air 1')
     scanair2 = @('pr_selftest_scan_sv.lua', 'air 2')
     scanair2fix = @('pr_selftest_scan_sv.lua', 'air 2 fix')   # half 2 of the helicopters + the FIX list
+    scanshowplanerpg = @('pr_selftest_scan_sv.lua', 'show plane west rpg')   # A-10 180 s near the west edge, the target bot fires RPGs at it
+    scanshowplanecover = @('pr_selftest_scan_sv.lua', 'show plane cover')   # A-10 180 s, target where the player hid behind cover (masked dives)
+    scanshowplanewest = @('pr_selftest_scan_sv.lua', 'show plane west')   # A-10 180 s, target where the user's patrols stand (3000 from the west edge)
     scanshowplane = @('pr_selftest_scan_sv.lua', 'show plane')   # A-10 vs a ground target 90 s, camera follows
     scanshow = @('pr_selftest_scan_sv.lua', 'show')   # rocket helicopters 60 s each, camera follows, screenshot every 6 s
     scanairfix = @('pr_selftest_scan_sv.lua', 'airfix')   # a few helicopters with extra aim diagnostics
