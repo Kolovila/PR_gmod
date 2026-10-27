@@ -73,6 +73,12 @@ PR_INF = {
 
 	-- Движение
 	moveStep = 450,
+
+	-- Урон NPC-копий стволов CW: урон CW × это (как у прежних EFT-стволов NPC: АК-74 33 -> ~7)
+	npcDamageScale = 0.2,
+	-- Ручные гранаты: класс (первый, что есть в игре), дальность броска
+	grenadeClasses = {"cw_kk_ins2_projectile_frag", "npc_grenade_frag"},
+	grenadeRange = {400, 1600},
 }
 
 -- Модели боссов EFT (addons/ws_npcs, только модели — tools/workshop/README.md): в список
@@ -98,7 +104,7 @@ PR_INF_BOSS_MODELS = {
 	{"Дикий", "models/eft/scavs/scav_extended_pm.mdl"},
 }
 
--- Роли (поведение — этап 3; пока все — «обычный» боец). Ключ -> подпись в редакторе
+-- Роли (sv_infantry_roles.lua). Ключ -> подпись в редакторе
 PR_INF_ROLES = {
 	{key = "", name = "Обычный"},
 	{key = "sniper", name = "Снайпер"},
@@ -107,4 +113,41 @@ PR_INF_ROLES = {
 	{key = "grenadier", name = "Гранатомётчик"},
 	{key = "ebitel", name = "Ебитель"},
 	{key = "sneak", name = "Тихоня"},
+}
+
+-- Роли (sv_infantry_roles.lua; сверено с тактиком и знатоком ИИ EFT 2026-10-28, docs/infantry.md).
+-- dist — {ближе не лезет, желает, дальше не стреляет}; acc — множитель разброса; burst — очередь;
+-- pause — пауза между очередями; search — через сколько идёт искать потерянного; sprint — шанс бегом
+PR_INF_ROLE_CFG = {
+	[""] = {dist = {300, 1500, 4500}, acc = 1, burst = {4, 6}, pause = {0.4, 0.8}, search = 10},
+	sniper = {dist = {4500, 6500, 8000}, acc = 0.35, burst = {1, 1}, pause = {1.5, 3}, search = 9999,
+		holdAngle = {20, 40}, exposedShots = 1, moveTown = 1000, moveDesert = 2000, angleChange = 15, tooClose = 2000},
+	marksman = {dist = {2500, 4500, 7000}, acc = 0.6, burst = {1, 2}, pause = {0.6, 1.2}, search = 60,
+		relocateShots = {3, 5}, moveTown = 800, moveDesert = 1500, angleChange = 15, tooClose = 1200},
+	assault = {dist = {600, 1500, 3000}, acc = 1, burst = {8, 10}, pause = {0.4, 0.8}, pauseFar = {1, 1.5}, search = 10,
+		bound = {3, 4}, boundMax = 800, press = {600, 900}, backoff = 400},
+	grenadier = {dist = {1500, 3000, 5000}, acc = 1, burst = {3, 5}, pause = {0.6, 1}, search = 20,
+		rpgMin = 800, rpgMax = 5000, rpgRadius = 250, rpgAge = 6, rockets = 3, backup = {"smg", "rifle"}, kneel = 0.8, relocate = 800,
+		stillTime = 1.5, nadeRange = {400, 1600}, nadeCooldown = {8, 15}, nades = 2, squadNadeCooldown = 6, nadeSafe = 600},
+	ebitel = {dist = {200, 600, 1500}, acc = 1.1, burst = {5, 8}, pause = {0.4, 0.8}, search = 0.1, searchFor = 150,
+		stopShot = {0.4, 0.8}, cornerPause = {0.5, 1.5}, enterAfterBlast = {0.3, 0.8}, backoffHit = 0.3, backoffTime = {5, 8},
+		healBelow = 0.35, healTime = {15, 25}, swear = {5, 10}},
+	sneak = {dist = {0, 400, 1500}, acc = 0.9, burst = {6, 10}, pause = {0.3, 0.6}, search = {90, 240},
+		rear = 110, freezeLook = 30, freezeMax = {2, 3}, lookedTrigger = 0.7, behind = 800, arcTown = 1500, arcDesert = 2500,
+		reengage = {20, 40}, shift = 45, reloadTrigger = 1500},
+}
+
+-- Отряд (этап 4)
+PR_INF_SQUAD = {
+	spacingTown = 150, spacingDesert = 520,
+	guardDist = {150, 300}, guardDistDesert = {300, 500},
+	bossBehind = {1500, 3000}, bossRetreatAt = 1500, bossRetreatAgain = 30,
+	retreatLoss = 0.5, retreatBossHp = 0.4, rallyTown = {2000, 4000}, rallyDesert = {4000, 6000},
+	regroup = {15, 30}, reattackShare = 0.6, cycles = 2,
+	holdToSearch = {30, 45}, flankChance = 0.7, flankTimeout = {45, 60}, pincerAt = 8,
+	fireShiftDist = 600, fireShiftAngle = 10, ambushHits = 2, ambushWindow = 2, ambushFree = {3, 5},
+	badSpot = 90, badSpotR = 300,
+	-- Смерть босса: окно без приказов, ярость видевших, охрана тела, новый командир
+	bossDeadQuiet = {8, 12}, rage = {30, 45}, rageRadius = 1500, guardBody = {120, 180}, guardBodyDist = {800, 2000},
+	newLeaderAfter = 10, leaveBelow = 0.4,
 }

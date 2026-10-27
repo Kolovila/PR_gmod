@@ -47,6 +47,8 @@ function PR_Inf.Hostile(npc, t)
 	if not Alive(t) or t == npc then return false end
 	if t:IsPlayer() then
 		if t:GetNWBool("PR_PatrolCrew") or t:IsFlagSet(FL_NOTARGET) then return false end
+		-- Ноклип в режиме только у админов (sv_sandbox.lua) — наблюдатель, не цель
+		if t:GetMoveType() == MOVETYPE_NOCLIP and not t:InVehicle() then return false end
 		local ig = GetConVar("ai_ignoreplayers")
 		if ig and ig:GetBool() then return false end
 	elseif not (t:IsNPC() and (t.PR_GuardPoint or t.PR_Brain or t.IsVJBaseSNPC)) then
@@ -329,6 +331,10 @@ function PR_Inf.Hear(pos, range, kind, source, opts)
 						if not Alive(npc) then return end
 						local c = PR_Inf.Learn(npc, est, r, "heard", src)
 						if c and kind ~= "quiet" then PR_Inf.Report(npc, c) end
+						if c and opts.reload then
+							local bb = Brain(npc)
+							if bb then bb.heardReloadAt, bb.heardReloadDist = CurTime(), dist end
+						end
 					end)
 				end
 			end
@@ -419,7 +425,7 @@ hook.Add("KeyPress", "PR_InfHearReload", function(ply, key)
 	if key ~= IN_RELOAD or #PR_Inf.Soldiers == 0 then return end
 	local wep = ply:GetActiveWeapon()
 	if IsValid(wep) and wep:Clip1() >= 0 and wep:Clip1() < wep:GetMaxClip1() then
-		PR_Inf.Hear(ply:GetPos(), C.reload, "quiet", ply)
+		PR_Inf.Hear(ply:GetPos(), C.reload, "quiet", ply, {reload = true})
 	end
 end)
 
@@ -460,6 +466,10 @@ function PR_Inf.OnDamaged(npc, dmg)
 	if not b then return end
 	local now = CurTime()
 	b.knockUntil = now + Rand(C.hitKnock)
+	b.hits = b.hits or {}
+	table.insert(b.hits, {t = now, dmg = dmg:GetDamage()})
+	b.hitAt = now
+	if PR_Inf.MarkBadSpot then PR_Inf.MarkBadSpot(npc, npc:GetPos()) end
 	local att = dmg:GetAttacker()
 	if IsValid(att) and (att:IsPlayer() or att:IsNPC()) and PR_Inf.Hostile(npc, att) then
 		b.firedBy[att] = now
@@ -490,14 +500,17 @@ function PR_Inf.SpreadMul(npc)
 	if now - b.lastShot > ResetTime(wep) then b.shot = 0 end
 	b.lastShot = now
 	b.shot = b.shot + 1
+	b.shotsHere = (b.shotsHere or 0) + 1
+	b.lastFireAt = now
 	local m = b.shot == 1 and C.spreadFirst or math.min(C.spreadMax, 1 + C.spreadPerShot * (b.shot - 1))
 	-- Конец очереди: пауза (VJ перезаписывает время следующего выстрела сразу после этого — ставим на кадр позже)
 	if b.shot >= b.burstN then
 		b.shot = 0
 		local burst = b.burst or C.burst
 		b.burstN = math.random(burst[1], burst[2])
+		local pause = b.burstPause or C.burstPause
 		timer.Simple(0, function()
-			if IsValid(wep) then wep.NPC_NextPrimaryFireT = CurTime() + Rand(C.burstPause) end
+			if IsValid(wep) then wep.NPC_NextPrimaryFireT = CurTime() + Rand(pause) end
 		end)
 	end
 	if npc:IsMoving() then
@@ -507,13 +520,61 @@ function PR_Inf.SpreadMul(npc)
 	end
 	m = m * (1 + b.supp)
 	if now < b.knockUntil then m = m * 2 end
+	if b.accMul then m = m * b.accMul end
+	if b.rageUntil and now < b.rageUntil then m = m * 1.25 end
 	return m
+end
+
+----------------------------------------------------------------------------------------------------
+-- Гранаты и гранатомёт
+----------------------------------------------------------------------------------------------------
+local function GrenadeClass()
+	for _, c in ipairs(C.grenadeClasses) do
+		if scripted_ents.GetStored(c) or c == "npc_grenade_frag" then return c end
+	end
+end
+
+-- Бросить ручную гранату в точку: дуга под гравитацию, запал = полёт + 0,3–0,8 с
+function PR_Inf.ThrowGrenade(npc, pos)
+	if not Alive(npc) then return end
+	local from = Eye(npc) + npc:GetForward() * 12
+	local d = pos - from
+	local flat = Vector(d.x, d.y, 0):Length()
+	if flat > C.grenadeRange[2] * 1.1 then return end
+	local cls = GrenadeClass()
+	local g = ents.Create(cls)
+	if not IsValid(g) then return end
+	local t = math.Clamp(flat / 750, 0.7, 2.2)
+	local grav = physenv.GetGravity()
+	local vel = (d - grav * 0.5 * t * t) / t
+	g:SetPos(from)
+	g:SetAngles(vel:Angle())
+	g:Spawn()
+	g:Activate()
+	g:SetOwner(npc)
+	local phys = g:GetPhysicsObject()
+	if IsValid(phys) then phys:SetVelocity(vel) phys:AddAngleVelocity(VectorRand() * 300) end
+	local fuse = t + math.Rand(0.3, 0.8)
+	if g.Fuse then g:Fuse(fuse)
+	elseif cls == "npc_grenade_frag" then g:Fire("SetTimer", tostring(fuse)) end
+	npc:PlayAnim("vjges_gesture_item_throw", false, 0, false)
+	if npc.PlaySoundSystem then npc:PlaySoundSystem("GrenadeAttack") end
+	local b = Brain(npc)
+	if b then b.grenadeAt = CurTime() end
+	return g, fuse
+end
+
+-- Выстрел из гранатомёта (sh_npc_cw_weapons.lua): громко, выдаёт стрелка
+function PR_Inf.OnLauncherFired(npc, from, to)
+	PR_Inf.Hear(from, C.shotLauncher, "shot", npc)
+	local b = Brain(npc)
+	if b then b.launcherAt = CurTime() end
 end
 
 -- Тяжёлое подавление: 2–4 с не стреляет
 function PR_Inf.HoldFire(npc)
 	local b = Brain(npc)
-	return b and CurTime() < (b.holdFireUntil or 0) or false
+	return b and (CurTime() < (b.holdFireUntil or 0) or b.holdFireShift == true) or false
 end
 
 function PR_Inf.Think(npc) end
@@ -652,6 +713,10 @@ local function Decide(npc, b, now)
 	if b.state ~= "patrol" then
 		b.state = "patrol"
 		b.route, b.waitUntil = nil, nil
+		-- Память роли о прошлом бое (позиция, ракеты, гранаты, поиск) — заново
+		b.rs, b.rockets, b.nades, b.holdSince, b.searchAfter, b.cornerFor, b.healed = nil, nil, nil, nil, nil, nil, nil
+		b.bounding, b.maneuver, b.kneelUntil, b.waitBlast, b.pauseUntil = false, false, nil, nil, nil
+		npc.PR_Fire = true
 		npc.PR_Crouch, npc.PR_Face, npc.PR_AimAt = false, nil, nil
 		if IsValid(npc:GetEnemy()) then npc:ResetEnemy() end
 	end
@@ -725,13 +790,21 @@ timer.Create("PR_InfThink", 0.1, 0, function()
 			AgeContacts(npc, b, now, dt)
 			if now >= (b.decideAt or 0) then
 				b.decideAt = now + 0.2
-				Decide(npc, b, now)
+				local role = PR_Inf.Roles and PR_Inf.Roles[npc.PR_Role or ""]
+				if not (role and role(npc, b, now)) then Decide(npc, b, now) end
 			end
 			StepGoto(npc, b)
 		end)
 		if not ok then ErrorNoHalt("[PR] пехота: " .. tostring(err) .. "\n") end
 	end
 end)
+
+-- Помощники общего слоя для ролей и отряда (sv_infantry_roles.lua)
+PR_Inf.U = {
+	Alive = Alive, Eye = Eye, Rand = Rand, Gauss = Gauss, LOS = LOS_MASK, Brain = Brain,
+	BestContact = BestContact, BestVisible = BestVisible, Forget = Forget, Decide = Decide, Squad = Squad,
+	StepGoto = StepGoto
+}
 
 -- Боец патруля занят боем / поиском — патруль его не водит (sv_patrols.lua: InCombat)
 function PR_Inf.Busy(npc)

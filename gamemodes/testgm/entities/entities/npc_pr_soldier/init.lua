@@ -40,6 +40,7 @@ ENT.HasGrenadeAttack = false
 ENT.HasOnPlayerSight = false
 ENT.Weapon_Strafe = false
 ENT.Weapon_RetreatDistance = 0
+ENT.Weapon_MaxDistance = 9000 -- до тумана; роль задаёт свою (sv_infantry_roles.lua)
 ENT.Weapon_OcclusionDelay = false
 ENT.Weapon_FindCoverOnReload = false
 ENT.Weapon_CanCrouchAttack = false
@@ -75,9 +76,15 @@ function ENT:PR_Move(pos, gait, face)
 	s:EngTask(gait == "run" and "TASK_RUN_PATH" or "TASK_WALK_PATH", 0)
 	s:EngTask("TASK_WAIT_FOR_MOVEMENT", 0)
 	s.CanShootWhenMoving = true
-	s.TurnData = face and {Type = VJ.FACE_POSITION, Target = face} or {Type = VJ.FACE_ENEMY_VISIBLE}
+	if not face then s.TurnData = {Type = VJ.FACE_ENEMY_VISIBLE} end
 	self.PR_Gait = gait
 	self:StartSchedule(s)
+	if face and self.CanTurnWhileMoving then
+		-- Точку ставим сами: VJ 3.2 переводит точку из TurnData расписания в угол, а потом
+		-- вычитает из этого угла позицию (ошибка schedules.lua:236 каждый кадр, поворот ломается)
+		local td = self.TurnData
+		td.Type, td.Target, td.StopOnFace, td.IsSchedule, td.LastYaw = VJ.FACE_POSITION, face, false, true, 1
+	end
 	self.PR_Gait = gait
 	self.PR_MoveGoal = pos
 	self.PR_MoveAt = CurTime()
@@ -167,7 +174,10 @@ function ENT:OnDamaged(dmginfo, hitgroup, status)
 	if status == "PreDamage" and PR_Inf then PR_Inf.OnDamaged(self, dmginfo) end
 end
 
+-- Огонь запрещён ролью (тихоня без повода, гранатомётчик ждёт) или переносом огня / подавлением.
+-- Здесь — для всех путей VJ, в том числе стрельбы на ходу
 function ENT:OnWeaponCanFire()
+	if self.PR_Fire == false then return false end
 	if PR_Inf and PR_Inf.HoldFire(self) then return false end
 end
 

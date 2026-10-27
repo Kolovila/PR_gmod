@@ -649,6 +649,10 @@ local function SpawnMember(patrol, def, pos, role)
 	if not IsValid(npc) then return end
 
 	local weapon = Pick(def.weapons)
+	-- Боец патруля без заданного оружия — NPC-копия ствола CW под его роль (sh_npc_cw_weapons.lua)
+	if not weapon and class == "npc_pr_soldier" and PR_NPCW and PR_NPCW.ROLE_KINDS then
+		weapon = Pick(PR_NPCW.ForKind(PR_NPCW.ROLE_KINDS[def.role or ""] or PR_NPCW.ROLE_KINDS[""]))
+	end
 	if weapon then npc:SetKeyValue("additionalequipment", weapon) end
 
 	local flags = bit.bor(SF_NPC_FADE_CORPSE, SF_NPC_ALWAYSTHINK)

@@ -276,6 +276,8 @@ end)
 step(1, function()
 	local n = S.n1
 	local act = n:GetMovementActivity()
+	log(string.format("run diag: gait %s moving %s schedule %s move act %d ideal act %d goal %s route %s state %s", tostring(n.PR_Gait), tostring(n:IsMoving()),
+		tostring(n.CurrentSchedule and n.CurrentSchedule.Name), act, n:GetIdealActivity(), tostring(n.PR_MoveGoal), tostring(n.PR_Brain.route ~= nil), tostring(n.PR_Brain.state)))
 	check("run moves the soldier", n:GetPos():Distance(S.p0) > 60, math.Round(n:GetPos():Distance(S.p0)))
 	local runSeq = n:GetSequenceName(n:GetSequence()) or ""
 	check("run uses a run animation", string.find(runSeq, "run", 1, true) ~= nil, runSeq)

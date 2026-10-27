@@ -57,6 +57,12 @@ def check(path):
     errs = []
     paren = {'(': 0, '{': 0, '[': 0}
     for ln, line in enumerate(code.split('\n'), 1):
+        # Вызов метода без скобок: «obj:Method and …» — ошибка разбора Lua (так «проверяют», есть ли метод)
+        if re.search(r'[A-Za-z_]\w*:[A-Za-z_]\w*\s*(?:\b(?:and|or|then|do|end)\b|==|~=|,|\)|$)', line):
+            errs.append(f'{ln}: вызов метода через «:» без скобок (для проверки метода — obj.Method)')
+        # «goto» — ключевое слово LuaJIT, не имя поля
+        if re.search(r'\.goto\b', line):
+            errs.append(f'{ln}: .goto — ключевое слово LuaJIT')
         for tok in re.findall(r'[A-Za-z_][A-Za-z0-9_]*|[(){}\[\]]', line):
             if tok in ('function', 'if', 'repeat'):
                 stack.append([tok, ln, False])
