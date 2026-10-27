@@ -61,8 +61,10 @@ $Suites = @{
     vanish   = @('pr_vanish_sv.lua', '')   # patrol «Техника» on spot 5: who removes its vehicles (VANISH lines)
     mapinfo  = @('pr_mapinfo_sv.lua', '')   # fog, draw distance, navmesh of the map (MAPINFO lines)
     weapons  = @('pr_selftest_weapons_sv.lua', '')   # every CW weapon of addons\ws_weapons: models, fire sound, can be held (WEAPON_BAD lines)
+    infantry = @('pr_selftest_infantry_sv.lua', '')  # infantry layer: honest sight, hearing, radio, suppression, spread, gaits, patrol of soldiers
     npcs     = @('pr_selftest_npcs_sv.lua', '')      # every VJ human NPC of the spawn menu: alive, model, weapon in hands (NPC_BAD lines)
     navgen   = @('pr_navgen_sv.lua', '')   # build the map's navmesh (maps/<map>.nav in the test copy), up to 90 min
+    navzone  = @('pr_navzone_sv.lua', '')  # navmesh only around the fighting zones (incremental, limited range), NAVZONE lines
 }
 if (-not $Suites.ContainsKey($Suite)) { "UNKNOWN_SUITE $Suite (known: $($Suites.Keys -join ', '))"; exit 3 }
 
@@ -189,7 +191,7 @@ while ((Get-Date) -lt $mountDeadline) {
 $done = $false
 if ($mapSent) {
     # The vehicle scan goes through dozens of vehicles: give it longer
-    $deadline = (Get-Date).AddMinutes($(if ($Suite -eq 'navgen') { 95 } elseif ($Suite -like 'record*') { 65 } elseif ($Suite -like 'scan*') { 40 } elseif ($Suite -in 'weapons', 'npcs') { 20 } else { 8 }))
+    $deadline = (Get-Date).AddMinutes($(if ($Suite -eq 'navgen') { 95 } elseif ($Suite -eq 'navzone') { 155 } elseif ($Suite -like 'record*') { 65 } elseif ($Suite -like 'scan*') { 40 } elseif ($Suite -in 'weapons', 'npcs') { 20 } else { 8 }))
     $sawStart = $false
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 3

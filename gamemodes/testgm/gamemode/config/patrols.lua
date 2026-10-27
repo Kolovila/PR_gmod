@@ -110,5 +110,48 @@ PR_PATROL_DEFAULTS = {
         },
 
         formation = "around"
+    },
+
+    -- Новая пехота (sv_infantry.lua, docs/infantry.md): бойцы на моделях боссов EFT с честным
+    -- зрением и слухом. Вес 0 — сам не выходит, только «Выпустить сейчас» в редакторе (проверка)
+    reshala_inf = {
+        name = "Решала (новая пехота)",
+        weight = 0,
+        chance = 1,
+        maxAlive = 1,
+        npcClass = "CLASS_PR_BANDITS",
+
+        announce = "Ходят слухи, что Решала вышел на район",
+        leaderKilled = "Решала убит! Отличился %s",
+
+        leader = {
+            name = "Решала",
+            class = {"npc_pr_soldier"},
+            models = {"models/player/eft/bosses/reshala.mdl"},
+            weapons = {"weapon_vj_meft_reshala_ak101"},
+            health = 600,
+            reward = {money = 3000, exp = 15},
+            drop = {"cw_kk_ins2_nam_tt33"},
+            dropGold = true
+        },
+
+        followers = {
+            {
+                name = "Охрана",
+                class = {"npc_pr_soldier"},
+                models = {
+                    "models/player/eft/followers/glukhar/glukhar_assault_ar.mdl",
+                    "models/player/eft/followers/glukhar/glukhar_assault_cr.mdl",
+                    "models/player/eft/followers/glukhar/glukhar_scout.mdl",
+                    "models/player/eft/followers/glukhar/glukhar_security.mdl"
+                },
+                count = 4,
+                weapons = {"weapon_vj_meft_ak74m", "weapon_vj_meft_aks74u", "weapon_vj_meft_mp153", "weapon_vj_meft_sks"},
+                health = 300,
+                reward = {money = 500, exp = 4}
+            }
+        },
+
+        formation = "around"
     }
 }

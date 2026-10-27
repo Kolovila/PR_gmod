@@ -115,6 +115,29 @@ local function NPCWeaponOptions()
 	return SortOptions(out)
 end
 
+-- Модели для «Бойца патруля» (npc_pr_soldier): боссы EFT и все плеермодели
+local function ModelOptions()
+	local out, seen = {}, {}
+	for _, m in ipairs(PR_INF_BOSS_MODELS or {}) do
+		seen[m[2]] = true
+		table.insert(out, {value = m[2], label = "[Босс EFT] " .. m[1], sub = m[2]})
+	end
+	for name, path in pairs(player_manager.AllValidModels()) do
+		path = string.lower(path)
+		if not seen[path] then
+			seen[path] = true
+			table.insert(out, {value = path, label = name, sub = path})
+		end
+	end
+	return SortOptions(out)
+end
+
+local function RoleChoices()
+	local out = {}
+	for _, r in ipairs(PR_INF_ROLES or {}) do out[#out + 1] = {r.key, r.name} end
+	return out
+end
+
 -- Техника: simfphys (наземная, водит бот) и LFS/LVS (своим ИИ)
 local KIND_NAMES = {ground = "Наземная", air = "Авиация", aiground = "Наземная (LVS)"}
 
@@ -395,6 +418,8 @@ local function ForEditing(data)
 	local function FixNPC(def)
 		def.class = AsList(def.class)
 		def.weapons = AsList(def.weapons)
+		def.models = AsList(def.models)
+		def.role = def.role or ""
 		def.reward = def.reward or {money = 0, exp = 0}
 	end
 
@@ -456,6 +481,8 @@ function PR_PatrolEditor.OpenTypes()
 	local npcWeaponOptions = Cached("npcWeapons", NPCWeaponOptions)
 	local dropOptions = Cached("drop", DropOptions)
 	local vehicleOptions = Cached("vehicles", VehicleOptions)
+	local modelOptions = Cached("models", ModelOptions)
+	modelOptions()
 	npcOptions()
 	npcWeaponOptions()
 	dropOptions()
@@ -612,6 +639,8 @@ function PR_PatrolEditor.OpenTypes()
 			local L = edit.leader
 			TextField(scroll, "Имя", function() return L.name end, function(v) L.name = v end)
 			PickField(scroll, "NPC", function() return L.class end, function(v) L.class = v end, npcOptions, false, labels)
+			Choice(scroll, "Роль", RoleChoices(), function() return L.role or "" end, function(v) L.role = v end)
+			PickField(scroll, "Модели (Боец патруля)", function() return L.models end, function(v) L.models = v end, modelOptions, true, labels)
 			PickField(scroll, "Оружие", function() return L.weapons end, function(v) L.weapons = v end, npcWeaponOptions, true, labels)
 			TextField(scroll, "Здоровье", function() return L.health end, function(v) L.health = v end, {numeric = true})
 			TextField(scroll, "Награда, $", function() return L.reward.money end, function(v) L.reward.money = v end, {numeric = true})
@@ -628,6 +657,8 @@ function PR_PatrolEditor.OpenTypes()
 			end)
 			TextField(scroll, "Название группы", function() return group.name end, function(v) group.name = v end)
 			PickField(scroll, "NPC", function() return group.class end, function(v) group.class = v end, npcOptions, true, labels)
+			Choice(scroll, "Роль", RoleChoices(), function() return group.role or "" end, function(v) group.role = v end)
+			PickField(scroll, "Модели (Боец патруля)", function() return group.models end, function(v) group.models = v end, modelOptions, true, labels)
 			TextField(scroll, "Сколько", function() return group.count end, function(v) group.count = v end, {numeric = true, hint = "от 1 до 10"})
 			PickField(scroll, "Оружие", function() return group.weapons end, function(v) group.weapons = v end, npcWeaponOptions, true, labels)
 			TextField(scroll, "Здоровье", function() return group.health end, function(v) group.health = v end, {numeric = true})

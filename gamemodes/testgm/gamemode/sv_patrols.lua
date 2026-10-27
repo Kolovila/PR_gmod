@@ -116,8 +116,8 @@ end
 -- Варианты патрулей: база + стартовые из конфига
 ----------------------------------------------------------------------------------------------------
 
--- v2: добавился вариант с техникой. Недостающие стартовые варианты дописываются, правки админа не трогаются
-local TYPES_META = "patrol_types_v2"
+-- v2: вариант с техникой; v3: «Решала (новая пехота)». Недостающие стартовые варианты дописываются, правки админа не трогаются
+local TYPES_META = "patrol_types_v3"
 
 -- Стартовые варианты попадают в базу один раз; дальше база — единственный источник
 local function LoadTypes()
@@ -186,6 +186,14 @@ local function CleanNPC(def, isLeader)
 			exp = math.floor(Num(reward.exp, 0, 1000, 0))
 		}
 	}
+
+	-- Роль (sv_infantry.lua, этап 3) и модели «Бойца патруля» (npc_pr_soldier)
+	local role = isstring(def.role) and def.role or ""
+	for _, r in ipairs(PR_INF_ROLES or {}) do
+		if r.key == role and role ~= "" then out.role = role end
+	end
+	local models = CleanList(def.models, function(m) return string.EndsWith(m, ".mdl") and file.Exists(m, "GAME") end, 16)
+	if #models > 0 then out.models = models end
 
 	if isLeader then
 		out.drop = CleanList(def.drop, PR_WeaponExists, 4)
@@ -650,6 +658,11 @@ local function SpawnMember(patrol, def, pos, role)
 		npc:SetKeyValue(k, v)
 	end
 
+	-- Боец патруля: модель до Spawn (VJ по ней выбирает набор анимаций), роль — слою пехоты
+	local model = Pick(def.models)
+	if model then npc:SetModel(model) end
+	npc.PR_Role = def.role
+
 	npc:SetPos(pos)
 	npc:SetAngles(Angle(0, math.random(0, 359), 0))
 	Quietly(function()
@@ -824,6 +837,8 @@ end
 local function InCombat(patrol)
 	for _, npc in ipairs(patrol.members) do
 		if IsValid(npc:GetEnemy()) then return true end
+		-- Боец патруля держит направление или ищет врага (sv_infantry.lua) — патруль его не водит
+		if npc.PR_Brain and PR_Inf and PR_Inf.Busy(npc) then return true end
 	end
 	return false
 end
