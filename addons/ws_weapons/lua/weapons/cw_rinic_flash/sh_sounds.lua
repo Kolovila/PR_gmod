@@ -1,0 +1,2 @@
+CustomizableWeaponry:addFireSound("CW_RINIC_PINPULL", "weapons/cw_rinic_flash/m84_rinic_pinpull.wav", 1, 50, CHAN_STATIC)
+CustomizableWeaponry:addFireSound("CW_RINIC_THROW", "weapons/cw_rinic_flash/m84_rinic_throw.wav", 1, 65, CHAN_STATIC)

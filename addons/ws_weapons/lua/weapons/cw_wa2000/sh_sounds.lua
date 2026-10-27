@@ -1,0 +1,11 @@
+CustomizableWeaponry:addFireSound("CW_WA2000_FIRE", "weapons/Requests/EdgeStylez's WA2000/WA2000 Fire.wav", 1, 105, CHAN_STATIC)
+CustomizableWeaponry:addFireSound("CW_WA2000_SUB", "weapons/Requests/EdgeStylez's WA2000/suppressed-2.wav", 1, 75, CHAN_STATIC)
+
+CustomizableWeaponry:addReloadSound("CW_WA2000_CLOTH", "weapons/Requests/EdgeStylez's WA2000/WA2000 Cloth.wav")
+CustomizableWeaponry:addReloadSound("CW_WA2000_FOLEY", "weapons/Requests/EdgeStylez's WA2000/WA2000 Foley.wav")
+CustomizableWeaponry:addReloadSound("CW_WA2000_MAGIN", "weapons/Requests/EdgeStylez's WA2000/WA2000 Mag In.wav")
+CustomizableWeaponry:addReloadSound("CW_WA2000_MAGOUT", "weapons/Requests/EdgeStylez's WA2000/WA2000 Mag Out.wav")
+CustomizableWeaponry:addReloadSound("CW_WA2000_MAGFIX", "weapons/Requests/EdgeStylez's WA2000/WA2000 Mag Fix.wav")
+CustomizableWeaponry:addReloadSound("CW_WA2000_BOLTRELEASE", "weapons/Requests/EdgeStylez's WA2000/WA2000 Release.wav")
+CustomizableWeaponry:addReloadSound("CW_WA2000_MAGRETRACT", "weapons/Requests/EdgeStylez's WA2000/WA2000 Retract.wav")
+CustomizableWeaponry:addReloadSound("CW_WA2000_PULL", "weapons/Requests/EdgeStylez's WA2000/WA2000 Pull.wav")

@@ -1,0 +1,10 @@
+CustomizableWeaponry:addFireSound("CW_G4P_B92FS_FIRE", "g4p_uecw2/m92_fs/92fs-1.wav", 1, 100, CHAN_STATIC)
+CustomizableWeaponry:addFireSound("CW_G4P_B92FS_FIRE_SUPPRESSED", "g4p_uecw2/fnp/usp1.wav", 1, 75, CHAN_STATIC)
+
+CustomizableWeaponry:addReloadSound("CW_G4P_B92FS_MAGOUT", "g4p_uecw2/m92_fs/clip_out.wav")
+CustomizableWeaponry:addReloadSound("CW_G4P_B92FS_MAGLOCK", "g4p_uecw2/m92_fs/clip_locked.wav")
+CustomizableWeaponry:addReloadSound("CW_G4P_B92FS_MAGIN", "g4p_uecw2/m92_fs/clip_in.wav")
+CustomizableWeaponry:addReloadSound("CW_G4P_B92FS_SLIDEBACK", "g4p_uecw2/m92_fs/slide_back.wav")
+CustomizableWeaponry:addReloadSound("CW_G4P_B92FS_SLIDERELEASE", "g4p_uecw2/m92_fs/slide_forward.wav")
+CustomizableWeaponry:addReloadSound("CW_G4P_B92FS_DRAW", "g4p_uecw2/m92_fs/deploy.wav")
+CustomizableWeaponry:addReloadSound("CW_G4P_B92FS_FOLEY", "g4p_uecw2/m92_fs/foley.wav")

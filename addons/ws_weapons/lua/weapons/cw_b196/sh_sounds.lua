@@ -1,0 +1,13 @@
+CustomizableWeaponry:addFireSound("bl96_shoot", "weapons/bl96/shoot.wav", 1, 100, CHAN_STATIC)
+CustomizableWeaponry:addFireSound("bl96_shoot_sil", "weapons/bl96/shoot_sil.wav", 1, 70, CHAN_STATIC)
+
+CustomizableWeaponry:addReloadSound("bl96_magout1", "weapons/bl96/magout.wav")
+CustomizableWeaponry:addReloadSound("bl96_magin1", "weapons/bl96/magin1.wav")
+CustomizableWeaponry:addReloadSound("bl96_magin2", "weapons/bl96/magin2.wav")
+CustomizableWeaponry:addReloadSound("bl96_magtap", "weapons/bl96/magtap.wav")
+CustomizableWeaponry:addReloadSound("bl96_boltup", "weapons/bl96/boltup.wav")
+CustomizableWeaponry:addReloadSound("bl96_boltdown", "weapons/bl96/boltdown.wav")
+CustomizableWeaponry:addReloadSound("bl96_boltpull", "weapons/bl96/boltpull.wav")
+CustomizableWeaponry:addReloadSound("bl96_boltpush", "weapons/bl96/boltpush.wav")
+CustomizableWeaponry:addReloadSound("bl96_cloth1", "weapons/bl96/cloth1.wav")
+CustomizableWeaponry:addReloadSound("bl96_cloth2", "weapons/bl96/cloth2.wav")

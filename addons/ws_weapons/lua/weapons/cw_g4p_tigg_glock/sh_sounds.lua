@@ -1,0 +1,11 @@
+CustomizableWeaponry:addFireSound("CW_G4P_TIGG_FIRE", "g4p_uecw2/usp_tigg/usp_unsil-1.wav", 1, 100, CHAN_STATIC)
+CustomizableWeaponry:addFireSound("CW_G4P_TIGG_FIRE_SUPPRESSED", "g4p_uecw2/usp_tigg/usp1.wav", 1, 75, CHAN_STATIC)
+
+CustomizableWeaponry:addReloadSound("CW_G4P_TIGG_MAGOUT", "g4p_uecw2/usp_tigg/usp_clipout.wav")
+CustomizableWeaponry:addReloadSound("CW_G4P_TIGG_MAGIN", "g4p_uecw2/usp_tigg/usp_clipin.wav")
+CustomizableWeaponry:addReloadSound("CW_G4P_TIGG_SLIDEBACK", "g4p_uecw2/usp_tigg/usp_slideback.wav")
+CustomizableWeaponry:addReloadSound("CW_G4P_TIGG_SLIDEBACK2", "g4p_uecw2/usp_tigg/usp_slideback2.wav")
+CustomizableWeaponry:addReloadSound("CW_G4P_TIGG_SLIDERELEASE", "g4p_uecw2/usp_tigg/usp_sliderelease.wav")
+CustomizableWeaponry:addReloadSound("CW_G4P_TIGG_DRAW", "g4p_uecw2/usp_tigg/usp_sliderelease.wav")
+CustomizableWeaponry:addReloadSound("CW_G4P_TIGG_SIL_ATTACH", "g4p_uecw2/usp_tigg/usp_silencer_on.wav")
+CustomizableWeaponry:addReloadSound("CW_G4P_TIGG_SIL_DETACH", "g4p_uecw2/usp_tigg/usp_silencer_off.wav")

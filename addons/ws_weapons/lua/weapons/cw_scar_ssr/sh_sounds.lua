@@ -1,0 +1,12 @@
+CustomizableWeaponry:addFireSound("CW_MK20_FIRE", "weapons/mk20/fire.wav", 1, 118, CHAN_STATIC)
+CustomizableWeaponry:addFireSound("CW_MK20_FIRE_SUPPRESSED", "weapons/mk20/fire_suppressed.wav", 1, 90, CHAN_STATIC)
+
+CustomizableWeaponry:addReloadSound("CW_MK20_MAGOUT", "weapons/mk20/magout.wav")
+CustomizableWeaponry:addReloadSound("CW_MK20_MAGIN", "weapons/mk20/magin.wav")
+CustomizableWeaponry:addReloadSound("CW_MK20_RATTLE", "weapons/mk20/magout_rattle.wav")
+CustomizableWeaponry:addReloadSound("CW_MK20_BOLTBACK", "weapons/mk20/boltback.wav")
+CustomizableWeaponry:addReloadSound("CW_MK20_BOLTFORWARD", "weapons/mk20/boltrelease.wav")
+CustomizableWeaponry:addReloadSound("CW_MK20_MAGRELEASE", "weapons/mk20/magrelease.wav")
+CustomizableWeaponry:addReloadSound("CW_MK20_DRAW", "weapons/mk20/draw.wav")
+CustomizableWeaponry:addReloadSound("CW_MK20_LEANIN", "weapons/mk20/leanin.wav")
+CustomizableWeaponry:addReloadSound("CW_MK20_RATTLE", "weapons/mk20/rattle.wav")

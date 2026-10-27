@@ -1,0 +1,2166 @@
+[
+ {
+  "id": "1085054315",
+  "title": "[CW 2.0] RPG-7",
+  "slug": "rpg_7",
+  "bytes": 27536299,
+  "weapons": []
+ },
+ {
+  "id": "1105719538",
+  "title": "(CW2) Call of Duty: Black Ops Weapons Base content",
+  "slug": "call_of_duty_black_ops_weapons_base_cont",
+  "bytes": 178513371,
+  "weapons": []
+ },
+ {
+  "id": "1117592889",
+  "title": "[CW 2.0] Ks-23",
+  "slug": "ks_23",
+  "bytes": 5730894,
+  "weapons": [
+   "cw_ks23"
+  ]
+ },
+ {
+  "id": "1153517670",
+  "title": "[INS2 KK CW 2.0] Gewehr 1898 (Unsupported)",
+  "slug": "gewehr_1898",
+  "bytes": 36871330,
+  "weapons": [
+   "cw_kk_ins2_gew98"
+  ]
+ },
+ {
+  "id": "1154392833",
+  "title": "CW 2.0 HK MP7",
+  "slug": "cw_2_0_hk_mp7",
+  "bytes": 1269790,
+  "weapons": []
+ },
+ {
+  "id": "1155653200",
+  "title": "CW 2.0 AK-5C",
+  "slug": "cw_2_0_ak_5c",
+  "bytes": 76287538,
+  "weapons": [
+   "cw_ak5c"
+  ]
+ },
+ {
+  "id": "1166282010",
+  "title": "[CW 2.0] SG552",
+  "slug": "sg552",
+  "bytes": 16246897,
+  "weapons": []
+ },
+ {
+  "id": "1190558942",
+  "title": "[CW 2.0] Rei's Modified Scar-L",
+  "slug": "rei_s_modified_scar_l",
+  "bytes": 10941308,
+  "weapons": [
+   "cw_s_skullscar"
+  ]
+ },
+ {
+  "id": "1202977820",
+  "title": "[CW 2.0] AA-12",
+  "slug": "aa_12",
+  "bytes": 49708090,
+  "weapons": []
+ },
+ {
+  "id": "1203852850",
+  "title": "[CW 2.0] AK-12",
+  "slug": "ak_12",
+  "bytes": 63844725,
+  "weapons": []
+ },
+ {
+  "id": "1203852899",
+  "title": "[CW 2.0] Glock-18",
+  "slug": "glock_18",
+  "bytes": 3526236,
+  "weapons": [
+   "cw_g18"
+  ]
+ },
+ {
+  "id": "1229686615",
+  "title": "[CW 2.0 KK INS2] P226R",
+  "slug": "p226r",
+  "bytes": 27058617,
+  "weapons": [
+   "cw_jk_p226"
+  ]
+ },
+ {
+  "id": "1237519519",
+  "title": "[CW 2.0 KK INS2] SCAR-L",
+  "slug": "scar_l",
+  "bytes": 2824293,
+  "weapons": [
+   "cw_jk_ins2_scar"
+  ]
+ },
+ {
+  "id": "1241852214",
+  "title": "INS2 SWEPs Contents 1 of 5",
+  "slug": "ins2_sweps_contents_1_of_5",
+  "bytes": 101295015,
+  "weapons": []
+ },
+ {
+  "id": "1241876309",
+  "title": "INS2 SWEPs Contents 4 of 5",
+  "slug": "ins2_sweps_contents_4_of_5",
+  "bytes": 11254225,
+  "weapons": []
+ },
+ {
+  "id": "1281396207",
+  "title": "Khris's EXT INS2 WS Sweps Reupload Pt.1",
+  "slug": "khris_s_ext_ins2_ws_sweps_reupload_pt_1",
+  "bytes": 213837615,
+  "weapons": [
+   "cw_khr_ins2_ak12",
+   "cw_khr_ins2_aku12",
+   "cw_khr_ins2_cz75",
+   "cw_khr_ins2_glock17",
+   "cw_khr_ins2_mac10",
+   "cw_khr_ins2_nova",
+   "cw_khr_ins2_svd",
+   "cw_khr_ins2_usp45"
+  ]
+ },
+ {
+  "id": "1281597695",
+  "title": "Khris's EXT INS2 WS Sweps Reupload Pt.3",
+  "slug": "khris_s_ext_ins2_ws_sweps_reupload_pt_3",
+  "bytes": 81094687,
+  "weapons": []
+ },
+ {
+  "id": "1282088142",
+  "title": "Khris's EXT INS2 WS Sweps Reupload Pt.2",
+  "slug": "khris_s_ext_ins2_ws_sweps_reupload_pt_2",
+  "bytes": 126344368,
+  "weapons": []
+ },
+ {
+  "id": "1327410947",
+  "title": "[CW 2.0] KKs DOI MG42",
+  "slug": "kks_doi_mg42",
+  "bytes": 29198805,
+  "weapons": []
+ },
+ {
+  "id": "1343144416",
+  "title": "[CW2.0] KK INS2 DOI Content 1 of 2 - Repack",
+  "slug": "kk_ins2_doi_content_1_of_2_repack",
+  "bytes": 1122974047,
+  "weapons": []
+ },
+ {
+  "id": "1343145796",
+  "title": "[CW2.0] KK INS2 DOI Content 2 of 2 - Repack",
+  "slug": "kk_ins2_doi_content_2_of_2_repack",
+  "bytes": 1042548282,
+  "weapons": []
+ },
+ {
+  "id": "1390803117",
+  "title": "[CW2.0] DP-28",
+  "slug": "dp_28",
+  "bytes": 27405224,
+  "weapons": [
+   "zz_mg24"
+  ]
+ },
+ {
+  "id": "1390914833",
+  "title": "[CW2.0] M1897 Trench Gun",
+  "slug": "m1897_trench_gun",
+  "bytes": 44025560,
+  "weapons": [
+   "model_10_shotgun",
+   "zz_shg31"
+  ]
+ },
+ {
+  "id": "1412947408",
+  "title": "[CW 2.0] Lil Gunna",
+  "slug": "lil_gunna",
+  "bytes": 19542861,
+  "weapons": [
+   "cw_com_lilgunna"
+  ]
+ },
+ {
+  "id": "1423928284",
+  "title": "CW 2.0 Caden's DD MK18",
+  "slug": "cw_2_0_caden_s_dd_mk18",
+  "bytes": 78652911,
+  "weapons": [
+   "cw_wanker"
+  ]
+ },
+ {
+  "id": "1468683355",
+  "title": "CW 2.0 - FA:S TOZ-34",
+  "slug": "cw_2_0_fa_s_toz_34",
+  "bytes": 33216183,
+  "weapons": []
+ },
+ {
+  "id": "1481025122",
+  "title": "[CW2.0] M60",
+  "slug": "m60",
+  "bytes": 14233241,
+  "weapons": [
+   "bo_aron_m60"
+  ]
+ },
+ {
+  "id": "1482160441",
+  "title": "[CW2.0] M72 LAW",
+  "slug": "m72_law",
+  "bytes": 9133201,
+  "weapons": [
+   "bo_aron_m72_law"
+  ]
+ },
+ {
+  "id": "1487278927",
+  "title": "[CW2.0] RPD",
+  "slug": "rpd",
+  "bytes": 86208599,
+  "weapons": [
+   "merc_fn_fal"
+  ]
+ },
+ {
+  "id": "1487282636",
+  "title": "[CW2.0] RPK",
+  "slug": "rpk",
+  "bytes": 17489311,
+  "weapons": [
+   "bo_aron_rpk_drum"
+  ]
+ },
+ {
+  "id": "1489530288",
+  "title": "[CW2.0] China Lake",
+  "slug": "china_lake",
+  "bytes": 9585436,
+  "weapons": [
+   "bo_aron_chinalake"
+  ]
+ },
+ {
+  "id": "1490512492",
+  "title": "[CW2.0] HK-21",
+  "slug": "hk_21",
+  "bytes": 29726962,
+  "weapons": [
+   "cw_hk_21",
+   "cw_l2a1"
+  ]
+ },
+ {
+  "id": "1490518774",
+  "title": "[CW2.0] M21",
+  "slug": "m21",
+  "bytes": 17175516,
+  "weapons": [
+   "cw_rinic_mk14"
+  ]
+ },
+ {
+  "id": "1526172292",
+  "title": "[CW2.0] AK Stuff",
+  "slug": "ak_stuff",
+  "bytes": 101002507,
+  "weapons": [
+   "cw_akm_gru",
+   "cw_akm_vc",
+   "cw_kpv_hmg",
+   "cw_type_56"
+  ]
+ },
+ {
+  "id": "1534286140",
+  "title": "[CW 2.0 KK INS2] HK USP",
+  "slug": "hk_usp",
+  "bytes": 23376218,
+  "weapons": [
+   "cw_kk_ins2_hkuspbestgun"
+  ]
+ },
+ {
+  "id": "1540171756",
+  "title": "[CW2.0] Ithaca-37 Sawed Off",
+  "slug": "ithaca_37_sawed_off",
+  "bytes": 42475751,
+  "weapons": [
+   "cw_icraus370"
+  ]
+ },
+ {
+  "id": "1540175006",
+  "title": "[CW2.0] Japan Pack",
+  "slug": "japan_pack",
+  "bytes": 192097041,
+  "weapons": [
+   "cw_katana",
+   "cw_sterling",
+   "cw_type_99",
+   "det_38",
+   "stoner_63",
+   "type_100_smg",
+   "type_38",
+   "type_99_lmg"
+  ]
+ },
+ {
+  "id": "1541563522",
+  "title": "[CW2.0] M40A1",
+  "slug": "m40a1",
+  "bytes": 33631910,
+  "weapons": []
+ },
+ {
+  "id": "1543005114",
+  "title": "[CW2.0] Cold War Weapons",
+  "slug": "cold_war_weapons",
+  "bytes": 219643243,
+  "weapons": []
+ },
+ {
+  "id": "1554926717",
+  "title": "[CW2.0] M202",
+  "slug": "m202",
+  "bytes": 5833082,
+  "weapons": [
+   "bo_aron_m202"
+  ]
+ },
+ {
+  "id": "1555851082",
+  "title": "[CW2.0] Pistol Pack [REMASTERED]",
+  "slug": "pistol_pack",
+  "bytes": 118954448,
+  "weapons": [
+   "cw_b23r",
+   "cw_berreta_samurai_edge",
+   "cw_colt_phyton_357",
+   "cw_cz75_auto",
+   "cw_cz75_sp01",
+   "cw_l4d2_calico",
+   "cw_m29_satan",
+   "cw_qsz92",
+   "cw_s&w_627"
+  ]
+ },
+ {
+  "id": "1555864682",
+  "title": "[CW2.0] Shotgun Pack",
+  "slug": "shotgun_pack",
+  "bytes": 180392475,
+  "weapons": [
+   "cw_590",
+   "cw_870_mcs",
+   "cw_browning5",
+   "cw_remington_870_tactical",
+   "cw_saiga_fa_auto",
+   "cw_winchester"
+  ]
+ },
+ {
+  "id": "1555975674",
+  "title": "[CW2.0] Sniper Pack 1 [REMASTERED]",
+  "slug": "sniper_pack_1",
+  "bytes": 158973523,
+  "weapons": [
+   "cw_dragunov_svu",
+   "cw_m2010",
+   "cw_m24"
+  ]
+ },
+ {
+  "id": "1555980538",
+  "title": "[CW2.0] Sniper Pack 2 [REMASTERED]",
+  "slug": "sniper_pack_2",
+  "bytes": 238369153,
+  "weapons": [
+   "cw_bo2_dsr50",
+   "cw_msr",
+   "cw_tac338",
+   "cw_wf_m200"
+  ]
+ },
+ {
+  "id": "1556112148",
+  "title": "[CW2.0] Rifle Pack",
+  "slug": "rifle_pack",
+  "bytes": 282369233,
+  "weapons": [
+   "cw_ak12u",
+   "cw_cm901",
+   "cw_fad",
+   "cw_galil_ace",
+   "cw_noobveske_diplomat"
+  ]
+ },
+ {
+  "id": "1556117922",
+  "title": "[CW2.0] Rifle Pack 2",
+  "slug": "rifle_pack_2",
+  "bytes": 272674655,
+  "weapons": [
+   "cw_ots14",
+   "cw_pd2_ak17",
+   "cw_qbz95",
+   "cw_rk62m",
+   "cw_vhs-k21"
+  ]
+ },
+ {
+  "id": "1556991840",
+  "title": "[CW2.0] SMG-9",
+  "slug": "smg_9",
+  "bytes": 72818001,
+  "weapons": [
+   "mg9"
+  ]
+ },
+ {
+  "id": "1558534064",
+  "title": "[CW 2.0] Prokolot",
+  "slug": "prokolot",
+  "bytes": 98312888,
+  "weapons": [
+   "cw_prokolot"
+  ]
+ },
+ {
+  "id": "1558605382",
+  "title": "[CW 2.0] Leo Pistol",
+  "slug": "leo_pistol",
+  "bytes": 14589685,
+  "weapons": [
+   "cw_leo"
+  ]
+ },
+ {
+  "id": "1559002239",
+  "title": "[CW 2.0] PL-14 White Streak",
+  "slug": "pl_14_white_streak",
+  "bytes": 30445587,
+  "weapons": [
+   "cw_pl14"
+  ]
+ },
+ {
+  "id": "1559291691",
+  "title": "[CW2.0] SMG Pack",
+  "slug": "smg_pack",
+  "bytes": 318496165,
+  "weapons": [
+   "cw_bf3_pp2000",
+   "cw_kerd",
+   "cw_mini_uzi",
+   "cw_ots_kiparis",
+   "cw_pp19_vityaz"
+  ]
+ },
+ {
+  "id": "1559412989",
+  "title": "[CW2.0] Robotnik Pistol Pack",
+  "slug": "robotnik_pistol_pack",
+  "bytes": 32982487,
+  "weapons": [
+   "cw_farcry_ajm9",
+   "cw_mp970",
+   "cw_weapon_bfh_tec9"
+  ]
+ },
+ {
+  "id": "1563774485",
+  "title": "[CW 2.0] Lyxn's Dual Barrel",
+  "slug": "lyxn_s_dual_barrel",
+  "bytes": 18629998,
+  "weapons": [
+   "cw_lynx_double_barrel"
+  ]
+ },
+ {
+  "id": "1567626809",
+  "title": "[CW2.0] Shotgun Pack 2",
+  "slug": "shotgun_pack_2",
+  "bytes": 32723893,
+  "weapons": [
+   "cw_1887",
+   "cw_aa12",
+   "cw_revshot"
+  ]
+ },
+ {
+  "id": "1572537835",
+  "title": "[CW2.0] Robotnik Eastern Front Pack",
+  "slug": "robotnik_eastern_front_pack",
+  "bytes": 33643708,
+  "weapons": [
+   "mod49",
+   "ro_dp28",
+   "ro_mosin"
+  ]
+ },
+ {
+  "id": "1585965525",
+  "title": "[CW 2.0] Robotnik's Rifle Pack {Updated - Fixed}",
+  "slug": "robotnik_s_rifle_pack",
+  "bytes": 62998625,
+  "weapons": [
+   "cw_ghosts_msbs",
+   "cw_weapon_bf4_groza4",
+   "cw_weapon_bf4_maresleg",
+   "cw_weapon_bf4_qbs09",
+   "cw_weapon_bfh_mdr"
+  ]
+ },
+ {
+  "id": "1589205037",
+  "title": "[CW 2.0] ACR",
+  "slug": "acr",
+  "bytes": 15424414,
+  "weapons": [
+   "cw_acr"
+  ]
+ },
+ {
+  "id": "1589863943",
+  "title": "[CW 2.0] Double Barrel Shotgun",
+  "slug": "double_barrel_shotgun",
+  "bytes": 6516671,
+  "weapons": [
+   "cw_dbarrel"
+  ]
+ },
+ {
+  "id": "1590245461",
+  "title": "[CW 2.0] Robotnik's SMG Pack {Fixed - Updated}",
+  "slug": "robotnik_s_smg_pack",
+  "bytes": 69559923,
+  "weapons": [
+   "cw_bo3_weevil",
+   "cw_js2_new",
+   "cw_weapon_mk16pdw",
+   "weapon_wf_mab38"
+  ]
+ },
+ {
+  "id": "1597122290",
+  "title": "[CW 2.0] Covertible AK-12",
+  "slug": "covertible_ak_12",
+  "bytes": 319119,
+  "weapons": []
+ },
+ {
+  "id": "1613370746",
+  "title": "[CW 2.0] MK23",
+  "slug": "mk23",
+  "bytes": 15706848,
+  "weapons": [
+   "cw_mk23"
+  ]
+ },
+ {
+  "id": "1618120732",
+  "title": "Customizable Weaponry 2.0 icons",
+  "slug": "customizable_weaponry_2_0_icons",
+  "bytes": 3164105,
+  "weapons": []
+ },
+ {
+  "id": "1625818723",
+  "title": "[CW 2.0] Missed World Models",
+  "slug": "missed_world_models",
+  "bytes": 169705038,
+  "weapons": []
+ },
+ {
+  "id": "1646262010",
+  "title": "[CW 2.0] Kel Tec RFB",
+  "slug": "kel_tec_rfb",
+  "bytes": 21890069,
+  "weapons": [
+   "cw_weapon_rfb"
+  ]
+ },
+ {
+  "id": "1787242019",
+  "title": "[CW2.0 KK INS2] Soap's SWEPs Sounds",
+  "slug": "soap_s_sweps_sounds",
+  "bytes": 56253,
+  "weapons": [
+   "cw_kk_ins2_aks74uchan",
+   "cw_kk_ins2_m4chan",
+   "cw_kk_ins2_m9chan",
+   "cw_kk_ins2_makarovchan"
+  ]
+ },
+ {
+  "id": "1787296584",
+  "title": "[CW2.0 KK INS2] BR-99",
+  "slug": "br_99",
+  "bytes": 2309879,
+  "weapons": [
+   "cw_kk_ins2_br99"
+  ]
+ },
+ {
+  "id": "1787428765",
+  "title": "[CW2.0 KK INS2] IZH-43",
+  "slug": "izh_43",
+  "bytes": 2042280,
+  "weapons": [
+   "cw_kk_ins2_toz66"
+  ]
+ },
+ {
+  "id": "1787435476",
+  "title": "[CW2.0 KK INS2] M4 Spectre",
+  "slug": "m4_spectre",
+  "bytes": 45504597,
+  "weapons": [
+   "cw_kk_ins2_m4spec"
+  ]
+ },
+ {
+  "id": "1787442805",
+  "title": "[CW2.0 KK INS2] Wooden M14",
+  "slug": "wooden_m14",
+  "bytes": 1734433,
+  "weapons": [
+   "cw_kk_ins2_m14wood"
+  ]
+ },
+ {
+  "id": "1787444601",
+  "title": "[CW2.0 KK INS2] M240",
+  "slug": "m240",
+  "bytes": 22652170,
+  "weapons": [
+   "cw_kk_ins2_m240"
+  ]
+ },
+ {
+  "id": "1787460048",
+  "title": "[CW2.0 KK INS2] PKP Pecheneg",
+  "slug": "pkp_pecheneg",
+  "bytes": 23318254,
+  "weapons": [
+   "cw_kk_ins2_pkp"
+  ]
+ },
+ {
+  "id": "1787461563",
+  "title": "[CW2.0 KK INS2] Minebea PM-9",
+  "slug": "minebea_pm_9",
+  "bytes": 10189777,
+  "weapons": [
+   "cw_kk_ins2_pm9"
+  ]
+ },
+ {
+  "id": "1787464046",
+  "title": "[CW2.0 KK INS2] RPK-12",
+  "slug": "rpk_12",
+  "bytes": 33968816,
+  "weapons": [
+   "cw_kk_ins2_rpk12"
+  ]
+ },
+ {
+  "id": "1788169806",
+  "title": "[CW2.0 KK INS2] CZ Scorpion",
+  "slug": "cz_scorpion",
+  "bytes": 79995249,
+  "weapons": [
+   "cw_kk_ins2_scorpion"
+  ]
+ },
+ {
+  "id": "1788193369",
+  "title": "[CW2.0 KK INS2] Dragunov SVD",
+  "slug": "dragunov_svd",
+  "bytes": 47305833,
+  "weapons": [
+   "cw_kk_ins2_svd"
+  ]
+ },
+ {
+  "id": "1788202715",
+  "title": "[CW2.0 KK INS2] Tokarev",
+  "slug": "tokarev",
+  "bytes": 1617930,
+  "weapons": [
+   "cw_kk_ins2_tokarev"
+  ]
+ },
+ {
+  "id": "1788233827",
+  "title": "[CW2.0 KK INS2] Kriss Vector",
+  "slug": "kriss_vector",
+  "bytes": 2728496,
+  "weapons": [
+   "cw_kk_ins2_vector"
+  ]
+ },
+ {
+  "id": "1788243720",
+  "title": "[CW2.0 KK INS2] PP-19-01 Vityaz",
+  "slug": "pp_19_01_vityaz",
+  "bytes": 89713272,
+  "weapons": [
+   "cw_kk_ins2_vityaz"
+  ]
+ },
+ {
+  "id": "1839042120",
+  "title": "[CW 2.0] Bulldog",
+  "slug": "bulldog",
+  "bytes": 58048342,
+  "weapons": [
+   "cw_bulldog"
+  ]
+ },
+ {
+  "id": "1867008770",
+  "title": "[CW2.0] STG-44",
+  "slug": "stg_44",
+  "bytes": 15250960,
+  "weapons": []
+ },
+ {
+  "id": "1878102325",
+  "title": "[CW 2.0] The Explosive Pack",
+  "slug": "the_explosive_pack",
+  "bytes": 18883373,
+  "weapons": [
+   "cw_bo1_202"
+  ]
+ },
+ {
+  "id": "1906498043",
+  "title": "[CW 2.0] AR-15.50",
+  "slug": "ar_15_50",
+  "bytes": 233988509,
+  "weapons": [
+   "cw_ws_ar15_50"
+  ]
+ },
+ {
+  "id": "2006737211",
+  "title": "[CW2.0] BTK Explosive Pack",
+  "slug": "btk_explosive_pack",
+  "bytes": 159305165,
+  "weapons": [
+   "cw_nam_m79",
+   "cw_nam_m79_thumper",
+   "nam_bze39_frag",
+   "nam_m24x7_frag",
+   "nam_m26_frag",
+   "nam_m26a2_frag",
+   "nam_m34_smoke",
+   "nam_rgd1_smoke",
+   "nam_rgd_frag"
+  ]
+ },
+ {
+  "id": "2025841273",
+  "title": "[CW 2.0] Warface Remington MSR",
+  "slug": "warface_remington_msr",
+  "bytes": 107157749,
+  "weapons": [
+   "cw_wf_remington_msr"
+  ]
+ },
+ {
+  "id": "2073782572",
+  "title": "[CW2.0 KK INS2] M1A SOCOM-16",
+  "slug": "m1a_socom_16",
+  "bytes": 58907,
+  "weapons": [
+   "m1asocom"
+  ]
+ },
+ {
+  "id": "2075652164",
+  "title": "[CW2.0] BTK Hands",
+  "slug": "btk_hands",
+  "bytes": 1834,
+  "weapons": []
+ },
+ {
+  "id": "2086439333",
+  "title": "[CW2.0] BTK VC Pack",
+  "slug": "btk_vc_pack",
+  "bytes": 294678637,
+  "weapons": [
+   "cw_nam_akm_bayonet",
+   "cw_nam_svd"
+  ]
+ },
+ {
+  "id": "2092462102",
+  "title": "[CW2.0 KK INS2] Shifty's Insurgency Weapon Ports - Part 1",
+  "slug": "shifty_s_insurgency_weapon_ports_part_1",
+  "bytes": 588911139,
+  "weapons": [
+   "cw2_kk_ins2_cetme",
+   "cw2_kk_ins2_hpower",
+   "cw2_kk_ins2_l118",
+   "cw2_kk_ins2_m14fs",
+   "cw2_kk_ins2_mateba",
+   "cw2_kk_ins2_mg36",
+   "cw2_kk_ins2_minimi",
+   "cw2_kk_ins2_p30",
+   "cw2_kk_ins2_t811"
+  ]
+ },
+ {
+  "id": "2097346351",
+  "title": "[CW2.0 KK INS2] M590 Collapsing Stock",
+  "slug": "m590_collapsing_stock",
+  "bytes": 12827234,
+  "weapons": [
+   "cw2_kk_ins2_m590fs"
+  ]
+ },
+ {
+  "id": "2100566379",
+  "title": "[CW2.0 KK INS2] Soap's SWEPs - Assault Rifles",
+  "slug": "soap_s_sweps_assault_rifles",
+  "bytes": 1112973657,
+  "weapons": [
+   "cw_kk_ins2_abakan",
+   "cw_kk_ins2_acr556",
+   "cw_kk_ins2_aek971",
+   "cw_kk_ins2_ak5d",
+   "cw_kk_ins2_ak742",
+   "cw_kk_ins2_ak74z",
+   "cw_kk_ins2_akalfa",
+   "cw_kk_ins2_akmconc",
+   "cw_kk_ins2_aks74uz",
+   "cw_kk_ins2_asval",
+   "cw_kk_ins2_aug",
+   "cw_kk_ins2_cz805",
+   "cw_kk_ins2_edge",
+   "cw_kk_ins2_famasf1",
+   "cw_kk_ins2_fnf2000",
+   "cw_kk_ins2_g36",
+   "cw_kk_ins2_k2",
+   "cw_kk_ins2_lr300",
+   "cw_kk_ins2_mk18mod1",
+   "cw_kk_ins2_qbz03",
+   "cw_kk_ins2_sa58",
+   "cw_kk_ins2_scarl",
+   "cw_kk_ins2_sg551",
+   "cw_kk_ins2_sg552",
+   "cw_kk_ins2_vz58",
+   "cw_kk_ins2_xm8"
+  ]
+ },
+ {
+  "id": "2100883146",
+  "title": "[CW2.0 KK INS2] Soap's SWEPs - Base Content",
+  "slug": "soap_s_sweps_base_content",
+  "bytes": 1728157205,
+  "weapons": []
+ },
+ {
+  "id": "2101211621",
+  "title": "[CW2.0 KK INS2] Soap's SWEPs - Sounds",
+  "slug": "soap_s_sweps_sounds",
+  "bytes": 102301701,
+  "weapons": []
+ },
+ {
+  "id": "2149120645",
+  "title": "[CW2] Modern Warfare 3 Redux",
+  "slug": "modern_warfare_3_redux",
+  "bytes": 257609643,
+  "weapons": [
+   "cw2_mw3_44_magnum",
+   "cw2_mw3_aa12",
+   "cw2_mw3_acr",
+   "cw2_mw3_ak47",
+   "cw2_mw3_ak74u",
+   "cw2_mw3_as50",
+   "cw2_mw3_cm901",
+   "cw2_mw3_desert_eagle",
+   "cw2_mw3_dragunov",
+   "cw2_mw3_fad",
+   "cw2_mw3_fiveseven",
+   "cw2_mw3_fmg9",
+   "cw2_mw3_g18",
+   "cw2_mw3_g36",
+   "cw2_mw3_ksg",
+   "cw2_mw3_l96a1",
+   "cw2_mw3_m16",
+   "cw2_mw3_m320",
+   "cw2_mw3_m4a1",
+   "cw2_mw3_m60e4",
+   "cw2_mw3_m82",
+   "cw2_mw3_mg36",
+   "cw2_mw3_mk14",
+   "cw2_mw3_mk46",
+   "cw2_mw3_model1887",
+   "cw2_mw3_mp412",
+   "cw2_mw3_mp5",
+   "cw2_mw3_mp7",
+   "cw2_mw3_mp9",
+   "cw2_mw3_msr",
+   "cw2_mw3_p90",
+   "cw2_mw3_p99",
+   "cw2_mw3_pecheneg",
+   "cw2_mw3_pm9",
+   "cw2_mw3_pp90m1",
+   "cw2_mw3_rpg7",
+   "cw2_mw3_rsass",
+   "cw2_mw3_sa80",
+   "cw2_mw3_scar",
+   "cw2_mw3_skorpion",
+   "cw2_mw3_smaw",
+   "cw2_mw3_spas12",
+   "cw2_mw3_striker",
+   "cw2_mw3_type95",
+   "cw2_mw3_ump45",
+   "cw2_mw3_usas12",
+   "cw2_mw3_usp45",
+   "cw2_mw3_xm25"
+  ]
+ },
+ {
+  "id": "2154672222",
+  "title": "[CW2] KK INS2 SWEPs EXTEND PACK",
+  "slug": "kk_ins2_sweps_extend_pack",
+  "bytes": 1065251361,
+  "weapons": []
+ },
+ {
+  "id": "2154674799",
+  "title": "[CW2] KK AOF CONTENT",
+  "slug": "kk_aof_content",
+  "bytes": 209585950,
+  "weapons": []
+ },
+ {
+  "id": "2155918776",
+  "title": "[CW 2.0] MP7A1 Redux",
+  "slug": "mp7a1_redux",
+  "bytes": 48945235,
+  "weapons": [
+   "cw_mp7"
+  ]
+ },
+ {
+  "id": "2156006836",
+  "title": "[CW2] KK INS2 BTK SWEPs REPACKED",
+  "slug": "kk_ins2_btk_sweps_repacked",
+  "bytes": 1392170198,
+  "weapons": []
+ },
+ {
+  "id": "2180990686",
+  "title": "[CW2.0]MP9-EFT",
+  "slug": "mp9_eft",
+  "bytes": 9271568,
+  "weapons": [
+   "cw_tr09_mp9"
+  ]
+ },
+ {
+  "id": "2192683688",
+  "title": "[CW 2.0] Escape from Tarkov Attachments pack",
+  "slug": "escape_from_tarkov_attachments_pack",
+  "bytes": 610975149,
+  "weapons": []
+ },
+ {
+  "id": "2192698986",
+  "title": "[CW 2.0] Escape from Tarkov MP5 (Ported from TFA)",
+  "slug": "escape_from_tarkov_mp5",
+  "bytes": 82629808,
+  "weapons": [
+   "cw_eft_mp5"
+  ]
+ },
+ {
+  "id": "2216538985",
+  "title": "[DISCONTINUED] [CW KK] Shelby's Playground - Weapons (REQUIRED CONTENT)",
+  "slug": "shelby_s_playground_weapons",
+  "bytes": 1257875,
+  "weapons": []
+ },
+ {
+  "id": "2227300550",
+  "title": "[CW 2.0] Escape from Tarkov MP7A2",
+  "slug": "escape_from_tarkov_mp7a2",
+  "bytes": 56946287,
+  "weapons": [
+   "cw_eft_mp7a2"
+  ]
+ },
+ {
+  "id": "2227526238",
+  "title": "CW2.0-Better AR15-SAI GRY",
+  "slug": "cw2_0_better_ar15_sai_gry",
+  "bytes": 92730064,
+  "weapons": [
+   "cw_sai_gry"
+  ]
+ },
+ {
+  "id": "2249700038",
+  "title": "[CW 2.0] Bamsy's Modern DSA FAL",
+  "slug": "bamsy_s_modern_dsa_fal",
+  "bytes": 11180671,
+  "weapons": []
+ },
+ {
+  "id": "2261720246",
+  "title": "[CW 2.0] Bamsy's AK12",
+  "slug": "bamsy_s_ak12",
+  "bytes": 45755818,
+  "weapons": []
+ },
+ {
+  "id": "2299972654",
+  "title": "CW2.0-better HK416A5",
+  "slug": "cw2_0_better_hk416a5",
+  "bytes": 135299072,
+  "weapons": [
+   "cw_hk416a5"
+  ]
+ },
+ {
+  "id": "2299976380",
+  "title": "CW2.0-EVO3-Personal revision",
+  "slug": "cw2_0_evo3_personal_revision",
+  "bytes": 22638257,
+  "weapons": [
+   "cw_scorpin_evo3"
+  ]
+ },
+ {
+  "id": "2324675725",
+  "title": "CW2.0 - AR9mm",
+  "slug": "cw2_0_ar9mm",
+  "bytes": 101903669,
+  "weapons": [
+   "cw_ar9mm"
+  ]
+ },
+ {
+  "id": "2396470135",
+  "title": "CW2.0-better CODO G18",
+  "slug": "cw2_0_better_codo_g18",
+  "bytes": 51850642,
+  "weapons": [
+   "cw_codol_glock"
+  ]
+ },
+ {
+  "id": "2396470745",
+  "title": "CW2.0-better M45A1",
+  "slug": "cw2_0_better_m45a1",
+  "bytes": 84445064,
+  "weapons": [
+   "cw_mugen_m45"
+  ]
+ },
+ {
+  "id": "2396473889",
+  "title": "More-ATT2",
+  "slug": "more_att2",
+  "bytes": 25171087,
+  "weapons": []
+ },
+ {
+  "id": "2396504196",
+  "title": "CW2.0 More Sight",
+  "slug": "cw2_0_more_sight",
+  "bytes": 96827499,
+  "weapons": []
+ },
+ {
+  "id": "2412196612",
+  "title": "[CW KK] EFT CHands",
+  "slug": "eft_chands",
+  "bytes": 126469999,
+  "weapons": []
+ },
+ {
+  "id": "2488206245",
+  "title": "[CW2.0 KK INS2] FN Minimi",
+  "slug": "fn_minimi",
+  "bytes": 8437599,
+  "weapons": [
+   "cw_kk_ins2_minimistd"
+  ]
+ },
+ {
+  "id": "2497468116",
+  "title": "CW2.0-Tactics-diy-AK",
+  "slug": "cw2_0_tactics_diy_ak",
+  "bytes": 493463140,
+  "weapons": [
+   "cw_akms",
+   "cw_aks74",
+   "cw_kalashnikov1974",
+   "cw_rpk74"
+  ]
+ },
+ {
+  "id": "2506989057",
+  "title": "CW2.0-better EFT M4A1 (WIP)",
+  "slug": "cw2_0_better_eft_m4a1",
+  "bytes": 415304163,
+  "weapons": []
+ },
+ {
+  "id": "2514673478",
+  "title": "CW2.0-better M500",
+  "slug": "cw2_0_better_m500",
+  "bytes": 53210369,
+  "weapons": [
+   "cw_sw_m500_kry"
+  ]
+ },
+ {
+  "id": "2544803365",
+  "title": "CW2.0-better MK17 MOD 0 (WIP)",
+  "slug": "cw2_0_better_mk17_mod_0",
+  "bytes": 185775843,
+  "weapons": [
+   "cw_scar_h"
+  ]
+ },
+ {
+  "id": "2557019123",
+  "title": "KK INS2 Weapons overhaul",
+  "slug": "kk_ins2_weapons_overhaul",
+  "bytes": 118833022,
+  "weapons": []
+ },
+ {
+  "id": "2576371428",
+  "title": "CW2.0-L85A2-(WIP)",
+  "slug": "cw2_0_l85a2",
+  "bytes": 51575591,
+  "weapons": [
+   "cw_l85a1"
+  ]
+ },
+ {
+  "id": "2863359902",
+  "title": "[CW2.0] Beretta ARX160",
+  "slug": "beretta_arx160",
+  "bytes": 63202577,
+  "weapons": [
+   "cw_arx_acer"
+  ]
+ },
+ {
+  "id": "2876792418",
+  "title": "[CW 2.0] TOZ-34",
+  "slug": "toz_34",
+  "bytes": 29292998,
+  "weapons": [
+   "cw_toz34"
+  ]
+ },
+ {
+  "id": "349050451",
+  "title": "Chuck's Weaponry 2.0",
+  "slug": "chuck_s_weaponry_2_0",
+  "bytes": 360320664,
+  "weapons": [
+   "cw_ar15",
+   "cw_deagle",
+   "cw_famasg2_official",
+   "cw_flash_grenade",
+   "cw_frag_grenade",
+   "cw_g3a3",
+   "cw_l115",
+   "cw_mr96",
+   "cw_smoke_grenade"
+  ]
+ },
+ {
+  "id": "354842171",
+  "title": "[CW2] KK HK416 (2016)",
+  "slug": "kk_hk416",
+  "bytes": 82466284,
+  "weapons": [
+   "cw_kk_hk416"
+  ]
+ },
+ {
+  "id": "357365610",
+  "title": "[CW 2.0] PP-19 Bizon",
+  "slug": "pp_19_bizon",
+  "bytes": 62161265,
+  "weapons": []
+ },
+ {
+  "id": "358608166",
+  "title": "Extra Chuck's Weaponry 2.0",
+  "slug": "extra_chuck_s_weaponry_2_0",
+  "bytes": 291317831,
+  "weapons": [
+   "cw_fiveseven",
+   "cw_m3super90",
+   "cw_mac11",
+   "cw_makarov",
+   "cw_mp9_official",
+   "cw_p99",
+   "cw_saiga12k_official",
+   "cw_scarh",
+   "cw_shorty",
+   "cw_vss",
+   "cw_xm1014_official"
+  ]
+ },
+ {
+  "id": "359830105",
+  "title": "Unofficial Extra Customizable Weaponry 2.0",
+  "slug": "unofficial_extra_customizable_weaponry_2",
+  "bytes": 157684391,
+  "weapons": [
+   "cw_g4p_an94",
+   "cw_g4p_awm",
+   "cw_g4p_g2contender",
+   "cw_g4p_m16a2",
+   "cw_g4p_m98b",
+   "cw_g4p_magpul_masada",
+   "cw_g4p_masada_acr",
+   "cw_g4p_mp412_rex",
+   "cw_g4p_usp40"
+  ]
+ },
+ {
+  "id": "362285932",
+  "title": "[CW2] KK XM8 (2015)",
+  "slug": "kk_xm8",
+  "bytes": 44670844,
+  "weapons": [
+   "cw_kk_xm8"
+  ]
+ },
+ {
+  "id": "371024374",
+  "title": "FN SCAR-L [CW 2.0]",
+  "slug": "fn_scar_l",
+  "bytes": 33035102,
+  "weapons": [
+   "cw_scarl"
+  ]
+ },
+ {
+  "id": "374453458",
+  "title": "[CW 2.0] AAC Honey Badger",
+  "slug": "aac_honey_badger",
+  "bytes": 4962534,
+  "weapons": [
+   "cw_aacgsm"
+  ]
+ },
+ {
+  "id": "374906482",
+  "title": "PKM [CW 2.0]",
+  "slug": "pkm",
+  "bytes": 7325898,
+  "weapons": [
+   "cw_pkm"
+  ]
+ },
+ {
+  "id": "405614511",
+  "title": "[CW 2.0] C7A1",
+  "slug": "c7a1",
+  "bytes": 29813817,
+  "weapons": [
+   "cw_c7a1"
+  ]
+ },
+ {
+  "id": "409225672",
+  "title": "[CW 2.0] MK. 11 Sniper Rifle",
+  "slug": "mk_11_sniper_rifle",
+  "bytes": 80244556,
+  "weapons": [
+   "cw_mk11"
+  ]
+ },
+ {
+  "id": "414514472",
+  "title": "[CW 2.0] Sako TRG-42",
+  "slug": "sako_trg_42",
+  "bytes": 63140023,
+  "weapons": [
+   "cw_trg42"
+  ]
+ },
+ {
+  "id": "415156189",
+  "title": "Rinic's CW 2.0 Pack: The Second~",
+  "slug": "rinic_s_cw_2_0_pack_the_second",
+  "bytes": 198525827,
+  "weapons": [
+   "cw_93r",
+   "cw_auga1",
+   "cw_blops_famas",
+   "cw_blops_mp5",
+   "cw_blops_psg1",
+   "cw_kac_pdw",
+   "cw_kap40",
+   "cw_magpul_pdr",
+   "cw_rinic_glock",
+   "cw_rpd",
+   "cw_sc92fs",
+   "cw_sinon_pgm",
+   "cw_soar"
+  ]
+ },
+ {
+  "id": "423575968",
+  "title": "[CW 2.0] Extra Colors",
+  "slug": "extra_colors",
+  "bytes": 4398,
+  "weapons": []
+ },
+ {
+  "id": "430352929",
+  "title": "[CW 2.0] XM1014",
+  "slug": "xm1014",
+  "bytes": 18295447,
+  "weapons": [
+   "cw_xm1014"
+  ]
+ },
+ {
+  "id": "432651013",
+  "title": "X - UECW EP 2 [CW 2.0]",
+  "slug": "x_uecw_ep_2",
+  "bytes": 54284119,
+  "weapons": [
+   "cw_g4p_beretta_92fs",
+   "cw_g4p_cz_75",
+   "cw_g4p_fn_fnp",
+   "cw_g4p_kimono_usp",
+   "cw_g4p_tigg_glock",
+   "cw_g4p_usp_tactical"
+  ]
+ },
+ {
+  "id": "436201721",
+  "title": "[CW 2.0] Walther WA 2000",
+  "slug": "walther_wa_2000",
+  "bytes": 47635419,
+  "weapons": [
+   "cw_wa2000"
+  ]
+ },
+ {
+  "id": "450217646",
+  "title": "[CW 2.0] Stevens Model 620",
+  "slug": "stevens_model_620",
+  "bytes": 1266554,
+  "weapons": [
+   "cw_smodel620"
+  ]
+ },
+ {
+  "id": "452211954",
+  "title": "[CW 2.0] MKEK JNG-90",
+  "slug": "mkek_jng_90",
+  "bytes": 31797529,
+  "weapons": [
+   "cw_jng90"
+  ]
+ },
+ {
+  "id": "457282051",
+  "title": "{CW2.0} SWAT-556",
+  "slug": "swat_556",
+  "bytes": 5392553,
+  "weapons": [
+   "cw_swat556"
+  ]
+ },
+ {
+  "id": "457394092",
+  "title": "[CW 2.0] Shotgun Pack: Remake Pt 1",
+  "slug": "shotgun_pack_remake_pt_1",
+  "bytes": 88811037,
+  "weapons": [
+   "cw_mossberg500",
+   "cw_spas12"
+  ]
+ },
+ {
+  "id": "458974774",
+  "title": "[CW 2.0] Shotgun Pack: Remake Pt 2",
+  "slug": "shotgun_pack_remake_pt_2",
+  "bytes": 114206743,
+  "weapons": [
+   "cw_dao12",
+   "cw_jackhammer",
+   "cw_serbu_super_shorty"
+  ]
+ },
+ {
+  "id": "462668882",
+  "title": "[CW 2.0] Extra Rails",
+  "slug": "extra_rails",
+  "bytes": 38804995,
+  "weapons": []
+ },
+ {
+  "id": "463070974",
+  "title": "AK-12 [CW 2.0]",
+  "slug": "ak_12",
+  "bytes": 40872363,
+  "weapons": []
+ },
+ {
+  "id": "465496745",
+  "title": "Rinic's CW 2.0 Pack: Season 3~",
+  "slug": "rinic_s_cw_2_0_pack_season_3",
+  "bytes": 228133016,
+  "weapons": [
+   "cw_aksd",
+   "cw_ghosts_l115a3",
+   "cw_ghosts_m27iar",
+   "cw_ghosts_p226",
+   "cw_hell_glock",
+   "cw_hk_sl8",
+   "cw_james_p99",
+   "cw_m98b_rinic",
+   "cw_mpl",
+   "cw_rinic_ar57",
+   "cw_rinic_fnfal",
+   "cw_rsass",
+   "cw_tactical_thompson",
+   "cw_vector_k10"
+  ]
+ },
+ {
+  "id": "472835068",
+  "title": "[CW 2.0] HK45 Compact",
+  "slug": "hk45_compact",
+  "bytes": 56152984,
+  "weapons": [
+   "cw_ws_hk45"
+  ]
+ },
+ {
+  "id": "477987815",
+  "title": "{CW2.0} FG-42",
+  "slug": "fg_42",
+  "bytes": 6225176,
+  "weapons": [
+   "fg-42"
+  ]
+ },
+ {
+  "id": "484040616",
+  "title": "{CW 2.0} CLAW A36",
+  "slug": "claw_a36",
+  "bytes": 179957237,
+  "weapons": [
+   "claw a36"
+  ]
+ },
+ {
+  "id": "484792411",
+  "title": "{CW 2.0} ARX-160",
+  "slug": "arx_160",
+  "bytes": 44085301,
+  "weapons": [
+   "arx-160"
+  ]
+ },
+ {
+  "id": "507707748",
+  "title": "White Snow's Attachment Pack",
+  "slug": "white_snow_s_attachment_pack",
+  "bytes": 154619383,
+  "weapons": []
+ },
+ {
+  "id": "508047403",
+  "title": "White Snow's Bodygroup Attachments",
+  "slug": "white_snow_s_bodygroup_attachments",
+  "bytes": 38853475,
+  "weapons": []
+ },
+ {
+  "id": "518061090",
+  "title": "[CW 2.0] Boberg XR9",
+  "slug": "boberg_xr9",
+  "bytes": 5729175,
+  "weapons": [
+   "cw_boberg"
+  ]
+ },
+ {
+  "id": "528161064",
+  "title": "Rinic's CW 2.0: Row IV",
+  "slug": "rinic_s_cw_2_0_row_iv",
+  "bytes": 184335672,
+  "weapons": [
+   "cw_azurzas_m29",
+   "cw_blacks_deagle",
+   "cw_mw3_g36c",
+   "cw_nailgun",
+   "cw_px4_storm",
+   "cw_rinic_executioner",
+   "cw_rinic_m249",
+   "cw_rinic_m45",
+   "cw_rinic_scout",
+   "cw_rinic_type25",
+   "cw_ru556_rinic",
+   "cw_steyr_ssg08"
+  ]
+ },
+ {
+  "id": "532330337",
+  "title": "Rinic's CW 2.0! Reuploaded!",
+  "slug": "rinic_s_cw_2_0_reuploaded",
+  "bytes": 328193821,
+  "weapons": [
+   "cw_44magnum",
+   "cw_blops_python",
+   "cw_deathmachine",
+   "cw_funco_chan",
+   "cw_ghots_m9a1",
+   "cw_mp7mw3",
+   "cw_mw3_50cal",
+   "cw_pm9",
+   "cw_rem_m24",
+   "cw_rinic_1887",
+   "cw_rinic_galil",
+   "cw_sako95",
+   "cw_sig_chan",
+   "cw_vp70"
+  ]
+ },
+ {
+  "id": "538379817",
+  "title": "Matts CW2 1911",
+  "slug": "matts_cw2_1911",
+  "bytes": 49705595,
+  "weapons": [
+   "cw_matts_1911"
+  ]
+ },
+ {
+  "id": "546409210",
+  "title": "[CW 2.0] M203 Sights",
+  "slug": "m203_sights",
+  "bytes": 14478371,
+  "weapons": []
+ },
+ {
+  "id": "568019995",
+  "title": "Rinic's Common Attachment thingy",
+  "slug": "rinic_s_common_attachment_thingy",
+  "bytes": 157200605,
+  "weapons": []
+ },
+ {
+  "id": "573353347",
+  "title": "[CW 2.0] BT MP9",
+  "slug": "bt_mp9",
+  "bytes": 282936,
+  "weapons": []
+ },
+ {
+  "id": "595631935",
+  "title": "Kings Of Austria",
+  "slug": "kings_of_austria",
+  "bytes": 222239952,
+  "weapons": [
+   "cw_ber_auga1-2",
+   "cw_ber_scoot"
+  ]
+ },
+ {
+  "id": "605564693",
+  "title": "CW 2.0 ACR-E",
+  "slug": "cw_2_0_acr_e",
+  "bytes": 178402353,
+  "weapons": [
+   "cw_killdrix_acre"
+  ]
+ },
+ {
+  "id": "612955177",
+  "title": "CW 2.0 - M79 GL",
+  "slug": "cw_2_0_m79_gl",
+  "bytes": 4969023,
+  "weapons": [
+   "cw_m79"
+  ]
+ },
+ {
+  "id": "617925664",
+  "title": "[CW 2.0] Kel-Tec KSG-12",
+  "slug": "kel_tec_ksg_12",
+  "bytes": 34137790,
+  "weapons": [
+   "cw_tr09_ksg12"
+  ]
+ },
+ {
+  "id": "657241323",
+  "title": "[CW2] KK INS2/DOI SWEPs (2018)",
+  "slug": "kk_ins2_doi_sweps",
+  "bytes": 51365556,
+  "weapons": [
+   "cw_kk_ins2_ak74",
+   "cw_kk_ins2_akm",
+   "cw_kk_ins2_aks74u",
+   "cw_kk_ins2_ao5_br99",
+   "cw_kk_ins2_ao5_m39",
+   "cw_kk_ins2_ao5_mel_mach",
+   "cw_kk_ins2_ao5_p2a1",
+   "cw_kk_ins2_ao5_revolver",
+   "cw_kk_ins2_at4",
+   "cw_kk_ins2_cstm_aug",
+   "cw_kk_ins2_cstm_cobra",
+   "cw_kk_ins2_cstm_colt",
+   "cw_kk_ins2_cstm_famas",
+   "cw_kk_ins2_cstm_g19",
+   "cw_kk_ins2_cstm_g36c",
+   "cw_kk_ins2_cstm_galil_ace",
+   "cw_kk_ins2_cstm_ksg",
+   "cw_kk_ins2_cstm_l85",
+   "cw_kk_ins2_cstm_m500",
+   "cw_kk_ins2_cstm_mel_ninjato",
+   "cw_kk_ins2_cstm_mp5a4",
+   "cw_kk_ins2_cstm_mp7",
+   "cw_kk_ins2_cstm_nade_m39",
+   "cw_kk_ins2_cstm_nade_rdgm",
+   "cw_kk_ins2_cstm_spas12",
+   "cw_kk_ins2_cstm_sten",
+   "cw_kk_ins2_cstm_uzi",
+   "cw_kk_ins2_doi_bar",
+   "cw_kk_ins2_doi_bino_de",
+   "cw_kk_ins2_doi_bino_gb",
+   "cw_kk_ins2_doi_bino_us",
+   "cw_kk_ins2_doi_bren",
+   "cw_kk_ins2_doi_browning",
+   "cw_kk_ins2_doi_browninghp",
+   "cw_kk_ins2_doi_c96",
+   "cw_kk_ins2_doi_c96_c",
+   "cw_kk_ins2_doi_enfield",
+   "cw_kk_ins2_doi_flame_de",
+   "cw_kk_ins2_doi_flame_gb",
+   "cw_kk_ins2_doi_flame_us",
+   "cw_kk_ins2_doi_g43",
+   "cw_kk_ins2_doi_garand",
+   "cw_kk_ins2_doi_ithaca",
+   "cw_kk_ins2_doi_k98k",
+   "cw_kk_ins2_doi_lewis",
+   "cw_kk_ins2_doi_luger",
+   "cw_kk_ins2_doi_m1912",
+   "cw_kk_ins2_doi_m1917",
+   "cw_kk_ins2_doi_m3",
+   "cw_kk_ins2_doi_m3a1",
+   "cw_kk_ins2_doi_mel_brass",
+   "cw_kk_ins2_doi_mel_enfield",
+   "cw_kk_ins2_doi_mel_enfield2",
+   "cw_kk_ins2_doi_mel_kabar",
+   "cw_kk_ins2_doi_mel_kabar2",
+   "cw_kk_ins2_doi_mel_kabar3",
+   "cw_kk_ins2_doi_mel_kabar4",
+   "cw_kk_ins2_doi_mel_kabar5",
+   "cw_kk_ins2_doi_mel_shovel_de",
+   "cw_kk_ins2_doi_mel_shovel_gb",
+   "cw_kk_ins2_doi_mel_shovel_us",
+   "cw_kk_ins2_doi_mg34",
+   "cw_kk_ins2_doi_mg42",
+   "cw_kk_ins2_doi_mk19",
+   "cw_kk_ins2_doi_molotov",
+   "cw_kk_ins2_doi_mp40",
+   "cw_kk_ins2_doi_nade_c4_de",
+   "cw_kk_ins2_doi_nade_c4_us",
+   "cw_kk_ins2_doi_nade_m24",
+   "cw_kk_ins2_doi_nade_mk2",
+   "cw_kk_ins2_doi_nade_n36",
+   "cw_kk_ins2_doi_nade_n39",
+   "cw_kk_ins2_doi_nade_n69",
+   "cw_kk_ins2_doi_nade_n76",
+   "cw_kk_ins2_doi_nade_n77",
+   "cw_kk_ins2_doi_owen_mk1",
+   "cw_kk_ins2_doi_owen_mk2",
+   "cw_kk_ins2_doi_p38",
+   "cw_kk_ins2_doi_piat",
+   "cw_kk_ins2_doi_ppk",
+   "cw_kk_ins2_doi_spring",
+   "cw_kk_ins2_doi_sten_mk5",
+   "cw_kk_ins2_doi_stg44",
+   "cw_kk_ins2_doi_tankfist",
+   "cw_kk_ins2_doi_tankshrek",
+   "cw_kk_ins2_doi_thom_1928",
+   "cw_kk_ins2_doi_thom_m1a1",
+   "cw_kk_ins2_doi_webley",
+   "cw_kk_ins2_doi_welrod",
+   "cw_kk_ins2_doi_wicked",
+   "cw_kk_ins2_doi_zooka",
+   "cw_kk_ins2_fnfal",
+   "cw_kk_ins2_galil",
+   "cw_kk_ins2_gp25",
+   "cw_kk_ins2_l1a1",
+   "cw_kk_ins2_m14",
+   "cw_kk_ins2_m16a4",
+   "cw_kk_ins2_m1911",
+   "cw_kk_ins2_m1a1",
+   "cw_kk_ins2_m1a1_para",
+   "cw_kk_ins2_m249",
+   "cw_kk_ins2_m40a1",
+   "cw_kk_ins2_m45",
+   "cw_kk_ins2_m4a1",
+   "cw_kk_ins2_m590",
+   "cw_kk_ins2_m9",
+   "cw_kk_ins2_makarov",
+   "cw_kk_ins2_mel_bayonet",
+   "cw_kk_ins2_mel_gurkha",
+   "cw_kk_ins2_mini14",
+   "cw_kk_ins2_mk18",
+   "cw_kk_ins2_mosin",
+   "cw_kk_ins2_mp40",
+   "cw_kk_ins2_mp5k",
+   "cw_kk_ins2_nade_anm14",
+   "cw_kk_ins2_nade_c4",
+   "cw_kk_ins2_nade_f1",
+   "cw_kk_ins2_nade_hl2",
+   "cw_kk_ins2_nade_ied",
+   "cw_kk_ins2_nade_kk2",
+   "cw_kk_ins2_nade_m18",
+   "cw_kk_ins2_nade_m67",
+   "cw_kk_ins2_nade_m84",
+   "cw_kk_ins2_nade_molotov",
+   "cw_kk_ins2_nam_m16a1",
+   "cw_kk_ins2_nam_m4",
+   "cw_kk_ins2_nam_m40",
+   "cw_kk_ins2_nam_m60",
+   "cw_kk_ins2_nam_m72",
+   "cw_kk_ins2_nam_mac10",
+   "cw_kk_ins2_nam_mat49",
+   "cw_kk_ins2_nam_mel_ak",
+   "cw_kk_ins2_nam_nade_m26v2",
+   "cw_kk_ins2_nam_nade_m34",
+   "cw_kk_ins2_nam_nade_magnet",
+   "cw_kk_ins2_nam_nade_rdg1",
+   "cw_kk_ins2_nam_nade_rgd5",
+   "cw_kk_ins2_nam_nambu",
+   "cw_kk_ins2_nam_ppsh",
+   "cw_kk_ins2_nam_python",
+   "cw_kk_ins2_nam_svt40",
+   "cw_kk_ins2_nam_sw39",
+   "cw_kk_ins2_nam_tt33",
+   "cw_kk_ins2_nam_vz58",
+   "cw_kk_ins2_nam_vz61",
+   "cw_kk_ins2_p2a1",
+   "cw_kk_ins2_revolver",
+   "cw_kk_ins2_rpg",
+   "cw_kk_ins2_rpg_pro",
+   "cw_kk_ins2_rpk",
+   "cw_kk_ins2_sks",
+   "cw_kk_ins2_sterling",
+   "cw_kk_ins2_toz",
+   "cw_kk_ins2_ump45"
+  ]
+ },
+ {
+  "id": "707343339",
+  "title": "CW 2.0 - Melee",
+  "slug": "cw_2_0_melee",
+  "bytes": 3281384,
+  "weapons": [
+   "cw_extrema_ratio_official"
+  ]
+ },
+ {
+  "id": "708840802",
+  "title": "[CW 2.0] ZM LR300",
+  "slug": "zm_lr300",
+  "bytes": 48328679,
+  "weapons": [
+   "cw_tr09_lr300"
+  ]
+ },
+ {
+  "id": "719660218",
+  "title": "[CW 2.0] M4A1 Carbine",
+  "slug": "m4a1_carbine",
+  "bytes": 127077537,
+  "weapons": [
+   "heretic_cw2_m27"
+  ]
+ },
+ {
+  "id": "727861475",
+  "title": "[CW 2.0] M84 Flash Grenade!",
+  "slug": "m84_flash_grenade",
+  "bytes": 3986100,
+  "weapons": [
+   "cw_rinic_flash"
+  ]
+ },
+ {
+  "id": "729326334",
+  "title": "[CW 2.0] FN P90 [UNSUPPORTED]",
+  "slug": "fn_p90",
+  "bytes": 41904623,
+  "weapons": [
+   "cw_p90"
+  ]
+ },
+ {
+  "id": "742722222",
+  "title": "[CW 2.0] MK20 SSR [UNSUPPORTED]",
+  "slug": "mk20_ssr",
+  "bytes": 104205548,
+  "weapons": [
+   "cw_scar_ssr"
+  ]
+ },
+ {
+  "id": "786813856",
+  "title": "[CW 2.0 KK INS2] SIG SG-551 Tactical Black",
+  "slug": "sig_sg_551_tactical_black",
+  "bytes": 2648390,
+  "weapons": []
+ },
+ {
+  "id": "786819807",
+  "title": "[CW 2.0 KK INS2] OTS-33 Pernach",
+  "slug": "ots_33_pernach",
+  "bytes": 5428766,
+  "weapons": [
+   "cw_kk_ins2_ots33"
+  ]
+ },
+ {
+  "id": "786821071",
+  "title": "[CW 2.0 KK INS2] Remington Model 700 Black",
+  "slug": "remington_model_700_black",
+  "bytes": 42337322,
+  "weapons": [
+   "cw_kk_ins2_r700"
+  ]
+ },
+ {
+  "id": "819757856",
+  "title": "CW 2.0 GITS:SAC-FAO - Attachments Pack",
+  "slug": "cw_2_0_gits_sac_fao_attachments_pack",
+  "bytes": 254901367,
+  "weapons": []
+ },
+ {
+  "id": "833360736",
+  "title": "[CW 2.0] HK416C",
+  "slug": "hk416c",
+  "bytes": 16117321,
+  "weapons": [
+   "cw_hk416c"
+  ]
+ },
+ {
+  "id": "838920776",
+  "title": "[CW 2.0] The Bullpup Arsenal",
+  "slug": "the_bullpup_arsenal",
+  "bytes": 91373339,
+  "weapons": [
+   "cw_tr09_auga3",
+   "cw_tr09_qbz97",
+   "cw_tr09_tar21"
+  ]
+ },
+ {
+  "id": "859981128",
+  "title": "[CW 2.0] Armaments of The Old World",
+  "slug": "armaments_of_the_old_world",
+  "bytes": 846924058,
+  "weapons": [
+   "doi_atow_bayonetcw",
+   "doi_atow_bayonetde",
+   "doi_atow_bayonetus",
+   "doi_atow_binocularscw",
+   "doi_atow_binocularsde",
+   "doi_atow_binocularsus",
+   "doi_atow_brassknuckles",
+   "doi_atow_bren",
+   "doi_atow_browninghp",
+   "doi_atow_c96",
+   "doi_atow_c96carbine",
+   "doi_atow_colt1903",
+   "doi_atow_enfield",
+   "doi_atow_etoolcw",
+   "doi_atow_etoolde",
+   "doi_atow_etoolus",
+   "doi_atow_fg42",
+   "doi_atow_g43",
+   "doi_atow_g98",
+   "doi_atow_ithaca37",
+   "doi_atow_k98k",
+   "doi_atow_knifeus",
+   "doi_atow_lewis",
+   "doi_atow_m1903a3",
+   "doi_atow_m1911a1",
+   "doi_atow_m1912",
+   "doi_atow_m1918a2",
+   "doi_atow_m1919a6",
+   "doi_atow_m1928a1",
+   "doi_atow_m1a1",
+   "doi_atow_m1a1carbine",
+   "doi_atow_m1garand",
+   "doi_atow_m3greasegun",
+   "doi_atow_mg34",
+   "doi_atow_mg42",
+   "doi_atow_mp40",
+   "doi_atow_owen",
+   "doi_atow_p08",
+   "doi_atow_p38",
+   "doi_atow_ppk",
+   "doi_atow_rossrifle",
+   "doi_atow_sten",
+   "doi_atow_stg44",
+   "doi_atow_sw1917",
+   "doi_atow_sw29",
+   "doi_atow_vickers",
+   "doi_atow_webley",
+   "doi_atow_welrod",
+   "doi_atow_win1907",
+   "doi_ws_atow_kp31",
+   "doi_ws_atow_mp34"
+  ]
+ },
+ {
+  "id": "885429754",
+  "title": "[CW 2.0] UTS-15",
+  "slug": "uts_15",
+  "bytes": 40683816,
+  "weapons": [
+   "cw_uts15"
+  ]
+ },
+ {
+  "id": "886125449",
+  "title": "[CW 2.0] Khris Pistols",
+  "slug": "khris_pistols",
+  "bytes": 210863616,
+  "weapons": [
+   "khr_cz52",
+   "khr_cz75",
+   "khr_deagle",
+   "khr_gsh18",
+   "khr_m92fs",
+   "khr_makarov",
+   "khr_microdeagle",
+   "khr_mp443",
+   "khr_ots33",
+   "khr_p226",
+   "khr_p345",
+   "khr_ruby",
+   "khr_rugermk3",
+   "khr_sr1m",
+   "khr_tokarev"
+  ]
+ },
+ {
+  "id": "886132509",
+  "title": "[CW 2.0] Khris SMGs",
+  "slug": "khris_smgs",
+  "bytes": 98634326,
+  "weapons": [
+   "khr_fmg9",
+   "khr_l2a3",
+   "khr_mp5a4",
+   "khr_mp5a5",
+   "khr_vector",
+   "khr_veresk"
+  ]
+ },
+ {
+  "id": "886137508",
+  "title": "[CW 2.0] Khris Assault Rifles",
+  "slug": "khris_assault_rifles",
+  "bytes": 160951370,
+  "weapons": [
+   "khr_aek971",
+   "khr_ak103",
+   "khr_delisle",
+   "khr_fnfal",
+   "khr_m1carbine",
+   "khr_m4a4",
+   "khr_simsks",
+   "khr_sks"
+  ]
+ },
+ {
+  "id": "886146194",
+  "title": "[CW 2.0] Khris Long-range rifles",
+  "slug": "khris_long_range_rifles",
+  "bytes": 249986274,
+  "weapons": [
+   "khr_hcar",
+   "khr_m82a3",
+   "khr_m95",
+   "khr_m98b",
+   "khr_mosin",
+   "khr_sr338",
+   "khr_svt40",
+   "khr_t5000"
+  ]
+ },
+ {
+  "id": "886148959",
+  "title": "[CW 2.0] Khris Shotguns",
+  "slug": "khris_shotguns",
+  "bytes": 64959711,
+  "weapons": [
+   "khr_m620",
+   "khr_mp153",
+   "khr_ns2000"
+  ]
+ },
+ {
+  "id": "886153712",
+  "title": "[CW 2.0] Khris Heavy Weapons",
+  "slug": "khris_heavy_weapons",
+  "bytes": 83569926,
+  "weapons": [
+   "khr_cb4",
+   "khr_hmg"
+  ]
+ },
+ {
+  "id": "886156547",
+  "title": "[CW 2.0] Khris Revolvers",
+  "slug": "khris_revolvers",
+  "bytes": 72377437,
+  "weapons": [
+   "khr_38snub",
+   "khr_410jury",
+   "khr_model29",
+   "khr_ragingbull",
+   "khr_swr8"
+  ]
+ },
+ {
+  "id": "886451400",
+  "title": "[CW 2.0] Khris Shared Content",
+  "slug": "khris_shared_content",
+  "bytes": 176010589,
+  "weapons": []
+ },
+ {
+  "id": "887113423",
+  "title": "[CW 2.0] M1014",
+  "slug": "m1014",
+  "bytes": 9345988,
+  "weapons": [
+   "cw_m1014"
+  ]
+ },
+ {
+  "id": "887661206",
+  "title": "[CW 2.0] SV-98",
+  "slug": "sv_98",
+  "bytes": 21178563,
+  "weapons": [
+   "cw_sv98"
+  ]
+ },
+ {
+  "id": "889559178",
+  "title": "[CW 2.0] Random stuff",
+  "slug": "random_stuff",
+  "bytes": 139442254,
+  "weapons": [
+   "cw_ber_honey_badger",
+   "cw_ber_msbs",
+   "cw_ber_sig552"
+  ]
+ },
+ {
+  "id": "891811214",
+  "title": "[CW 2.0] Bumpin (Fixed)",
+  "slug": "bumpin",
+  "bytes": 27805867,
+  "weapons": []
+ },
+ {
+  "id": "895376192",
+  "title": "[CW 2.0] COD: Black Ops III/MWR SWEPs - Essentials",
+  "slug": "cod_black_ops_iii_mwr_sweps_essentials",
+  "bytes": 1157578774,
+  "weapons": [
+   "cw_blackops3_38",
+   "cw_blackops3_dlc1_drakon",
+   "cw_blackops3_dlc1_locus",
+   "cw_blackops3_dlc1_p08",
+   "cw_blackops3_dlc2_arak",
+   "cw_blackops3_dlc2_isr27",
+   "cw_blackops3_dlc2_shva",
+   "cw_blackops3_dlc3_famas",
+   "cw_blackops3_dlc3_mp400",
+   "cw_blackops3_dlc3_peacekeeper",
+   "cw_blackops3_dlc3_quickscope",
+   "cw_blackops3_dlc4_cp_prec",
+   "cw_blackops3_dlc4_m8a7",
+   "cw_blackops3_dlc4_mnwr",
+   "cw_blackops3_melee_combat",
+   "cw_blackops3_mr6",
+   "cw_blackops3_spartan",
+   "cw_blackops3_xr2"
+  ]
+ },
+ {
+  "id": "900136266",
+  "title": "[CW 2.0] \"Yaklyfe\" Weapon Pack",
+  "slug": "yaklyfe_weapon_pack",
+  "bytes": 79753004,
+  "weapons": [
+   "cw_ak47",
+   "cw_glock20",
+   "cw_pp19"
+  ]
+ },
+ {
+  "id": "913756000",
+  "title": "Ammo Supplies for CW 2.0",
+  "slug": "ammo_supplies_for_cw_2_0",
+  "bytes": 3905923,
+  "weapons": []
+ },
+ {
+  "id": "934839887",
+  "title": "The L96 [CW 2.0]",
+  "slug": "the_l96",
+  "bytes": 110319616,
+  "weapons": [
+   "cw_b196"
+  ]
+ }
+]

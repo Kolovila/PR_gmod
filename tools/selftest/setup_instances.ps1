@@ -1,4 +1,4 @@
-# Prepares separate GMod copies for autotests: D:\GModTest\inst1..N
+﻿# Prepares separate GMod copies for autotests: D:\GModTest\inst1..N
 # (so tests can run while the user plays, and several at once).
 # Reads the main install only. Run again after a GMod update: it relinks/recopies what changed.
 #   hardlinked (no extra disk, the game never writes them): sourceengine\*, garrysmod\*.vpk, maps
@@ -63,9 +63,11 @@ foreach ($n in 1..$Count) {
     foreach ($f in 'gameinfo.txt', 'steam.inf', 'garrysmod.ver', 'cl.db', 'mn.db', 'detail.vbsp', 'lights.rad') {
         if (Test-Path "$G\garrysmod\$f") { Copy-Item "$G\garrysmod\$f" "$IG\" -Force }
     }
-    foreach ($d in 'lua', 'html', 'cfg', 'settings', 'resource', 'materials', 'models', 'sound', 'particles', 'scenes', 'backgrounds', 'addons') {
+    foreach ($d in 'lua', 'html', 'cfg', 'settings', 'resource', 'materials', 'models', 'sound', 'particles', 'scenes', 'backgrounds') {
         if (Test-Path "$G\garrysmod\$d") { Mirror "$G\garrysmod\$d" "$IG\$d" }
     }
+    # addons без оружейных ws_* (~25 ГБ): их run_selftest.ps1 подключает ссылками на репозиторий
+    if (Test-Path "$G\garrysmod\addons") { Mirror "$G\garrysmod\addons" "$IG\addons" @('/XD', 'ws_*') }
     foreach ($gm in 'base', 'sandbox', 'terrortown') { Mirror "$G\garrysmod\gamemodes\$gm" "$IG\gamemodes\$gm" }
     # maps: .bsp and the rest linked; graphs\ (node graphs the server writes) stays per instance
     "  maps: linked $(LinkTree "$G\garrysmod\maps" "$IG\maps" '*') files"

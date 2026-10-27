@@ -1,0 +1,21 @@
+AddCSLuaFile("shared.lua")
+include('shared.lua')
+/*-----------------------------------------------
+	*** Copyright (c) 2012-2017 by DrVrej, All rights reserved. ***
+	No parts of this code or any of its contents may be reproduced, copied, modified or adapted, 
+	without the prior written consent of the author, unless otherwise indicated for stand-alone materials.
+-----------------------------------------------*/
+ENT.SingleSpawner = true -- If set to true, it will spawn the entities once then remove itself
+ENT.Model = {"models/props_junk/popcan01a.mdl"} -- The models it should spawn with | Picks a random one from the table
+ENT.EntitiesToSpawn = {
+	{EntityName = "NPC1",SpawnPosition = {vForward=40,vRight=40,vUp=0},Entities = {"npc_vj_sparamilih"},WeaponsList = {"weapon_vj_senterrifle","weapon_vj_sentermilrifle","weapon_vj_sentermilrifle"}},
+	{EntityName = "NPC2",SpawnPosition = {vForward=-40,vRight=-40,vUp=0},Entities = {"npc_vj_sparamilimgh"}, WeaponsList = {"weapon_vj_sentermg"}},
+	{EntityName = "NPC3",SpawnPosition = {vForward=40,vRight=-40,vUp=0},Entities = {"npc_vj_sparamilih"}, WeaponsList = {"weapon_vj_sentercarbine","weapon_vj_senterassault"}},
+	{EntityName = "NPC4",SpawnPosition = {vForward=-40,vRight=40,vUp=0},Entities = {"npc_vj_sparamilileh"}, WeaponsList = {"weapon_vj_senterrifle","weapon_vj_sentermilrifle","weapon_vj_sentermilrifle"}},
+	{EntityName = "NPC5",SpawnPosition = {vForward=0,vRight=0,vUp=0},Entities = {"npc_vj_sparamilisnh"}, WeaponsList = {"weapon_vj_sentersniper"}}
+	}
+/*-----------------------------------------------
+	*** Copyright (c) 2012-2017 by DrVrej, All rights reserved. ***
+	No parts of this code or any of its contents may be reproduced, copied, modified or adapted, 
+	without the prior written consent of the author, unless otherwise indicated for stand-alone materials.
+-----------------------------------------------*/

@@ -60,6 +60,8 @@ $Suites = @{
     record   = @('pr_record_sv.lua', '')   # player flies a helicopter at a target; F6 record, F7 save and quit (data/pr_selftest/flight_*.csv)
     vanish   = @('pr_vanish_sv.lua', '')   # patrol «Техника» on spot 5: who removes its vehicles (VANISH lines)
     mapinfo  = @('pr_mapinfo_sv.lua', '')   # fog, draw distance, navmesh of the map (MAPINFO lines)
+    weapons  = @('pr_selftest_weapons_sv.lua', '')   # every CW weapon of addons\ws_weapons: models, fire sound, can be held (WEAPON_BAD lines)
+    npcs     = @('pr_selftest_npcs_sv.lua', '')      # every VJ human NPC of the spawn menu: alive, model, weapon in hands (NPC_BAD lines)
     navgen   = @('pr_navgen_sv.lua', '')   # build the map's navmesh (maps/<map>.nav in the test copy), up to 90 min
 }
 if (-not $Suites.ContainsKey($Suite)) { "UNKNOWN_SUITE $Suite (known: $($Suites.Keys -join ', '))"; exit 3 }
@@ -114,7 +116,21 @@ if ($Instance -gt 0) {
 # The branch into the game
 robocopy "$R\gamemodes\testgm" "$GM\gamemodes\testgm" /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
 foreach ($a in 'VJ-Base', 'GUI-MAP-Minimap-for-GMOD', 'eft_weapons') {
-    robocopy "$R\addons\$a" "$GM\addons\$a" /E /NFL /NDL /NJH /NJS /NP | Out-Null
+    robocopy "$R\addons\$a" "$GM\addons\$a" /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
+}
+# Оружейные аддоны из Workshop (addons\ws_weapons, ~25 ГБ): в копию игры — ссылки-соединения на папки
+# репозитория (мгновенно и без места); в основную установку — как deploy.ps1, зеркалом
+$ws = @(Get-ChildItem "$R\addons" -Directory -Filter 'ws_*' | ForEach-Object Name)
+foreach ($old in Get-ChildItem "$GM\addons" -Directory -Filter 'ws_*' | Where-Object { $ws -notcontains $_.Name }) {
+    if ($old.LinkType) { $old.Delete() } else { Remove-Item -Recurse -Force $old.FullName }
+}
+foreach ($a in $ws) {
+    if ($Instance -gt 0) {
+        $link = "$GM\addons\$a"
+        if (-not (Test-Path $link)) { New-Item -ItemType Junction -Path $link -Target "$R\addons\$a" | Out-Null }
+    } else {
+        robocopy "$R\addons\$a" "$GM\addons\$a" /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
+    }
 }
 # The mode's own content (icons, flags, the minimap picture, the font)
 robocopy "$R\materials" "$GM\materials" /E /NFL /NDL /NJH /NJS /NP | Out-Null
@@ -140,7 +156,8 @@ if ($Instance -gt 0) {
     $p = Start-Process $EXE -WorkingDirectory $G -PassThru -ArgumentList @(
         '-multirun', '-windowed', '-w', '1280', '-h', '720', '-novid', '-condebug', '-conclearlog',
         '-port', (27105 + 10 * $Instance), '+clientport', (27100 + 10 * $Instance), '-nohltv',
-        '+maxplayers', '16', '+sv_lan', '1', '+gamemode', 'testgm', '+cl_cloud_settings', '0'
+        '+maxplayers', '16', '+sv_lan', '1', '+gamemode', 'testgm', '+cl_cloud_settings', '0',
+        '+con_timestamp', '1'   # метки времени в console.log: видно, на что уходит загрузка
     )
 } else {
     # Main install: start without a map (the map lives in Workshop, mounted later), then -hijack
@@ -172,7 +189,7 @@ while ((Get-Date) -lt $mountDeadline) {
 $done = $false
 if ($mapSent) {
     # The vehicle scan goes through dozens of vehicles: give it longer
-    $deadline = (Get-Date).AddMinutes($(if ($Suite -eq 'navgen') { 95 } elseif ($Suite -like 'record*') { 65 } elseif ($Suite -like 'scan*') { 40 } else { 8 }))
+    $deadline = (Get-Date).AddMinutes($(if ($Suite -eq 'navgen') { 95 } elseif ($Suite -like 'record*') { 65 } elseif ($Suite -like 'scan*') { 40 } elseif ($Suite -in 'weapons', 'npcs') { 20 } else { 8 }))
     $sawStart = $false
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 3

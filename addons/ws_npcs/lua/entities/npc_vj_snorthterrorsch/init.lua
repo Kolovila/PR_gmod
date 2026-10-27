@@ -1,0 +1,134 @@
+AddCSLuaFile("shared.lua")
+include('shared.lua')
+/*-----------------------------------------------
+	*** Copyright (c) 2012-2019 by DrVrej, All rights reserved. ***
+	No parts of this code or any of its contents may be reproduced, copied, modified or adapted,
+	without the prior written consent of the author, unless otherwise indicated for stand-alone materials.
+-----------------------------------------------*/
+ENT.Model = {"models/sentry/sentrycag/northernsup/male_04.mdl","models/sentry/sentrycag/northernsup/male_07.mdl","models/sentry/sentrycag/northernsup/male_09.mdl"} -- The game will pick a random model from the table when the SNPC is spawned | Add as many as you want
+ENT.BlackModels = {"models/sentry/sentrycag/northernsup/male_04.mdl","models/sentry/sentrycag/northernsup/male_07.mdl","models/sentry/sentrycag/northernsup/male_09.mdl"}
+ENT.StartHealth = 60 -- or you can use a convar: GetConVarNumber("vj_dum_dummy_h")
+ENT.AllowPrintingInChat = false -- Should this SNPC be allowed to post in player's chat Example Blank no longer likes you.
+ENT.HasAllies = true -- Put to false if you want it not to have any allies 
+ENT.VJ_NPC_Class = {"CLASS_NORTHERN","CLASS_SURVIVALIST"} -- NPCs with the same class with be allied to each other 
+ENT.FriendsWithAllPlayerAllies = false -- Should this SNPC be friends with all other player allies that are running on VJ Base 
+ENT.BloodColor = "Red"
+ENT.HasGrenadeAttack = true
+ENT.GrenadeAttackEntity = "obj_vj_senmolotov" -- The entity that the SNPC throws | Half Life 2 Grenade: "npc_grenade_frag"
+ENT.GrenadeAttackModel = "models/props_junk/garbage_glassbottle003a.mdl"
+ENT.AnimTbl_GrenadeAttack = {"throw1"} -- Grenade Attack Animations
+ENT.HasMeleeAttack = true -- Should the SNPC have a melee attack?
+ENT.AnimTbl_MeleeAttack = {"swing","thrust"} -- Melee Attack Animations
+ENT.MeleeAttackDamage = 15
+//ENT.Weapon_FiringDistanceClose = 10 -- How close until it stops shooting
+ENT.FootStepTimeRun = 0.4 -- Next foot step sound when it is running
+ENT.FootStepTimeWalk = 0.5 -- Next foot step sound when it is walking
+ENT.HasOnPlayerSight = true -- Should do something when it sees the enemy? Example: Play a sound
+ENT.CanFlinch = 1
+ENT.AnimTbl_Medic_GiveHealth = {"heal"}
+
+ENT.SoundTbl_FootStep = {"npc/footsteps/hardboot_generic1.wav","npc/footsteps/hardboot_generic2.wav","npc/footsteps/hardboot_generic3.wav","npc/footsteps/hardboot_generic4.wav","npc/footsteps/hardboot_generic5.wav","npc/footsteps/hardboot_generic6.wav","npc/footsteps/hardboot_generic8.wav"}
+ENT.WSoundTbl_Alert = {"vj_arm/alert (1).mp3","vj_arm/alert (2).mp3","vj_arm/alert (3).mp3","vj_arm/becomehos (6).mp3","vj_arm/becomehos (1).mp3"}
+ENT.WSoundTbl_BecomeEnemyToPlayer = {"vj_arm/becomehos (2).mp3","vj_arm/becomehos (5).mp3"}
+ENT.WSoundTbl_MoveOutOfPlayersWay = {"vj_arm/bump (1).mp3","vj_arm/bump (2).mp3","vj_arm/bump (3).mp3","vj_arm/bump (5).mp3","vj_arm/bump (6).mp3"} 
+ENT.WSoundTbl_Idle = {"vj_arm/chat (1).mp3","vj_arm/chat (2).mp3","vj_arm/chat (3).mp3","vj_arm/chat (4).mp3","vj_arm/chat (5).mp3","vj_arm/chat (6).mp3","vj_arm/chat (7).mp3","vj_arm/chat (8).mp3","vj_arm/chat (9).mp3"}
+ENT.WSoundTbl_CombatIdle = {"vj_arm/combat (1).mp3","vj_arm/combat (2).mp3","vj_arm/combat (3).mp3","vj_arm/combat (4).mp3","vj_arm/combat (5).mp3","vj_arm/combat (6).mp3","vj_arm/combat (7).mp3","vj_arm/combat (8).mp3","vj_arm/combat (9).mp3","vj_arm/combat (10).mp3","vj_arm/combat (11).mp3"}
+ENT.WSoundTbl_Death = {"vj_arm/died (1).mp3","vj_arm/died (2).mp3","death/wdeath (3).mp3","death/wdeath (4).mp3","death/wdeath (5).mp3","death/wdeath (6).mp3","death/wdeath (7).mp3","death/wdeath (8).mp3","death/wdeath (9).mp3","death/wdeath (10).mp3","death/wdeath (11).mp3","death/wdeath (12).mp3"}
+ENT.WSoundTbl_FollowPlayer = {"vj_arm/follow (1).mp3","vj_arm/follow (2).mp3","vj_arm/follow (3).mp3","vj_arm/follow (4).mp3","vj_arm/follow (5).mp3","vj_arm/follow (6).mp3"}
+ENT.WSoundTbl_MedicReceiveHeal = {"vj_arm/gotmedic (1).mp3"}
+ENT.WSoundTbl_MedicBeforeHeal = {"vj_arm/heal (1).mp3","vj_arm/heal (2).mp3"} 
+ENT.WSoundTbl_OnPlayerSight = {"vj_arm/hi (1).mp3",}
+ENT.WSoundTbl_OnGrenadeSight = {"vj_arm/hidegrenade (1).mp3","vj_arm/hidegrenade (3).mp3","vj_arm/hidegrenade (2).mp3","vj_arm/hidegrenade (4).mp3","vj_arm/hidegrenade (5).mp3","vj_arm/hidegrenade (6).mp3"}
+ENT.WSoundTbl_Investigate = {"vj_arm/invest (1).mp3","vj_arm/invest (2).mp3","vj_arm/invest (3).mp3","vj_arm/invest (4).mp3","vj_arm/invest (5).mp3"}
+ENT.WSoundTbl_OnKilledEnemy = {"vj_arm/kill (1).mp3","vj_arm/kill (2).mp3","vj_arm/kill (3).mp3","vj_arm/kill (4).mp3"}
+ENT.WSoundTbl_LostEnemy = {"vj_arm/losthim (1).mp3","vj_arm/losthim (2).mp3","vj_arm/losthim (3).mp3","vj_arm/losthim (4).mp3"}
+ENT.WSoundTbl_AllyDeath = {"vj_arm/mandown (1).mp3","vj_arm/mandown (2).mp3"}
+ENT.WSoundTbl_UnFollowPlayer = {"vj_arm/nofollow (1).mp3","vj_arm/nofollow (2).mp3","vj_arm/nofollow (3).mp3"}
+ENT.WSoundTbl_Pain = {"vj_arm/pain (1).mp3","vj_arm/pain (2).mp3","vj_arm/pain (3).mp3","vj_arm/pain (4).mp3","vj_arm/pain (5).mp3","vj_arm/pain (6).mp3","vj_arm/pain (7).mp3","vj_arm/pain (8).mp3"}
+ENT.WSoundTbl_DamageByPlayer = {"vj_arm/playerdamage (1).mp3","vj_arm/playerdamage (2).mp3","vj_arm/playerdamage (3).mp3","vj_arm/playerdamage (4).mp3","vj_arm/playerdamage (5).mp3","vj_arm/playerdamage (6).mp3","vj_arm/playerdamage (7).mp3","vj_arm/playerdamage (8).mp3"}
+ENT.WSoundTbl_WeaponReload = {"vj_arm/reload (1).mp3","vj_arm/reload (2).mp3","vj_arm/reload (3).mp3","vj_arm/reload (4).mp3","vj_arm/reload (5).mp3","vj_arm/reload (6).mp3"}
+ENT.WSoundTbl_Suppressing = {"vj_arm/suppress (1).mp3","vj_arm/suppress (2).mp3","vj_arm/suppress (3).mp3","vj_arm/suppress (4).mp3","vj_arm/suppress (5).mp3","vj_arm/suppress (6).mp3"}
+
+ENT.BSoundTbl_Alert = {"vj_arm1/alert (1).mp3","vj_arm1/alert (2).mp3","vj_arm1/alert (3).mp3","vj_arm1/alert (4).mp3","vj_arm1/alert (5).mp3","vj_arm1/alert (6).mp3"}
+ENT.BSoundTbl_BecomeEnemyToPlayer = {"vj_arm1/becomehos (1).mp3","vj_arm1/becomehos (2).mp3","vj_arm1/becomehos (3).mp3","vj_arm1/becomehos (4).mp3","vj_arm1/becomehos (5).mp3","vj_arm1/becomehos (6).mp3"}
+ENT.BSoundTbl_MoveOutOfPlayersWay = {"vj_arm1/bump (1).mp3","vj_arm1/bump (2).mp3","vj_arm1/bump (3).mp3","vj_arm1/bump (4).mp3","vj_arm1/bump (5).mp3","vj_arm1/bump (6).mp3"} 
+ENT.BSoundTbl_Idle = {"vj_arm1/chat (1).mp3","vj_arm1/chat (2).mp3","vj_arm1/chat (3).mp3","vj_arm1/chat (4).mp3","vj_arm1/chat (5).mp3","vj_arm1/chat (6).mp3","vj_arm1/chat (7).mp3","vj_arm1/chat (8).mp3"}
+ENT.BSoundTbl_CombatIdle = {"vj_arm1/combat (1).mp3","vj_arm1/combat (2).mp3","vj_arm1/combat (3).mp3","vj_arm1/combat (4).mp3","vj_arm1/combat (5).mp3","vj_arm1/combat (6).mp3","vj_arm1/combat (7).mp3","vj_arm1/combat (8).mp3","vj_arm1/combat (9).mp3","vj_arm1/combat (10).mp3"}
+ENT.BSoundTbl_Death = {"death/wdeath (1).mp3","death/wdeath (2).mp3","death/wdeath (3).mp3","death/wdeath (4).mp3","death/wdeath (5).mp3","death/wdeath (6).mp3","death/wdeath (7).mp3","death/wdeath (8).mp3","death/wdeath (9).mp3","death/wdeath (10).mp3","death/wdeath (11).mp3","death/wdeath (12).mp3"}
+ENT.BSoundTbl_FollowPlayer = {"vj_arm1/follow (1).mp3","vj_arm1/follow (2).mp3","vj_arm1/follow (3).mp3","vj_arm1/follow (4).mp3","vj_arm1/follow (5).mp3","vj_arm1/follow (6).mp3"}
+ENT.BSoundTbl_MedicReceiveHeal = {"vj_arm1/gotmedic (1).mp3"}
+ENT.BSoundTbl_MedicBeforeHeal = {"vj_arm1/heal (1).mp3","vj_arm1/heal (2).mp3","vj_arm1/heal (3).mp3","vj_arm1/heal (4).mp3"} 
+ENT.BSoundTbl_OnPlayerSight = {"vj_arm1/hi (1).mp3","vj_arm1/hi (2).mp3"}
+ENT.BSoundTbl_OnGrenadeSight = {"vj_arm1/hidegrenade (1).mp3","vj_arm1/hidegrenade (3).mp3","vj_arm1/hidegrenade (2).mp3","vj_arm1/hidegrenade (4).mp3","vj_arm1/hidegrenade (5).mp3","vj_arm1/hidegrenade (6).mp3"}
+ENT.BSoundTbl_Investigate = {"vj_arm1/invest (1).mp3","vj_arm1/invest (2).mp3","vj_arm1/invest (3).mp3","vj_arm1/invest (4).mp3","vj_arm1/invest (5).mp3","vj_arm1/invest (6).mp3"}
+ENT.BSoundTbl_OnKilledEnemy = {"vj_arm1/kill (1).mp3","vj_arm1/kill (2).mp3","vj_arm1/kill (3).mp3","vj_arm1/kill (4).mp3","vj_arm1/kill (5).mp3","vj_arm1/kill (6).mp3"}
+ENT.BSoundTbl_LostEnemy = {"vj_arm1/losthim (1).mp3","vj_arm1/losthim (2).mp3","vj_arm1/losthim (3).mp3"}
+ENT.BSoundTbl_AllyDeath = {"vj_arm1/mandown (1).mp3","vj_arm1/mandown (2).mp3"}
+ENT.BSoundTbl_UnFollowPlayer = {"vj_arm1/nofollow (1).mp3","vj_arm1/nofollow (2).mp3","vj_arm1/nofollow (3).mp3","vj_arm1/nofollow (4).mp3"}
+ENT.BSoundTbl_Pain = {"vj_arm1/pain (1).mp3","vj_arm1/pain (2).mp3","vj_arm1/pain (3).mp3","vj_arm1/pain (4).mp3","vj_arm1/pain (5).mp3","vj_arm1/pain (6).mp3","vj_arm1/pain (7).mp3","vj_arm1/pain (8).mp3"}
+ENT.BSoundTbl_DamageByPlayer = {"vj_arm1/playerdamage (1).mp3","vj_arm1/playerdamage (2).mp3","vj_arm1/playerdamage (3).mp3","vj_arm1/playerdamage (4).mp3","vj_arm1/playerdamage (5).mp3","vj_arm1/playerdamage (6).mp3"}
+ENT.BSoundTbl_WeaponReload = {"vj_arm1/reload (1).mp3","vj_arm1/reload (2).mp3","vj_arm1/reload (3).mp3","vj_arm1/reload (4).mp3","vj_arm1/reload (5).mp3","vj_arm1/reload (6).mp3"}
+ENT.BSoundTbl_Suppressing = {"vj_arm1/suppress (1).mp3","vj_arm1/suppress (2).mp3","vj_arm1/suppress (3).mp3","vj_arm1/suppress (4).mp3","vj_arm1/suppress (5).mp3","vj_arm1/suppress (6).mp3"}
+
+function ENT:CustomInitialize()
+	self:SetBodygroup(1,math.random(2,2))
+	self:SetBodygroup(2,math.random(7,8))
+	self:SetBodygroup(3,math.random(1,1))
+	self:SetBodygroup(4,math.random(0,1))
+	if(math.random(0,1) == 0) then
+		self.Race = "B"
+	
+		self.SoundTbl_Idle = self.BSoundTbl_Idle
+		self.SoundTbl_MoveOutOfPlayersWay = self.BSoundTbl_MoveOutOfPlayersWay
+		self.SoundTbl_LostEnemy = self.BSoundTbl_LostEnemy
+		self.SoundTbl_AllyDeath = self.BSoundTbl_AllyDeath
+		self.SoundTbl_UnFollowPlayer = self.BSoundTbl_UnFollowPlayer
+		self.SoundTbl_FollowPlayer = self.BSoundTbl_FollowPlayer
+		self.SoundTbl_CombatIdle = self.BSoundTbl_CombatIdle
+		self.SoundTbl_MedicBeforeHeal = self.BSoundTbl_MedicBeforeHeal
+		self.SoundTbl_MedicReceiveHeal = self.BSoundTbl_MedicReceiveHeal
+		self.SoundTbl_OnPlayerSight = self.BSoundTbl_OnPlayerSight
+		self.SoundTbl_Alert = self.BSoundTbl_Alert
+		self.SoundTbl_CallForHelp = self.BSoundTbl_CallForHelp
+		self.SoundTbl_BecomeEnemyToPlayer = self.BSoundTbl_BecomeEnemyToPlayer
+		self.SoundTbl_Suppressing = self.BSoundTbl_Suppressing
+		self.SoundTbl_WeaponReload = self.BSoundTbl_WeaponReload
+		self.SoundTbl_BeforeMeleeAttack = self.BSoundTbl_BeforeMeleeAttack
+		self.SoundTbl_GrenadeAttack = self.BSoundTbl_GrenadeAttack
+		self.SoundTbl_OnGrenadeSight = self.BSoundTbl_OnGrenadeSight
+		self.SoundTbl_OnKilledEnemy = self.BSoundTbl_OnKilledEnemy
+		self.SoundTbl_Pain = self.BSoundTbl_Pain
+		self.SoundTbl_DamageByPlayer = self.BSoundTbl_DamageByPlayer
+		self.SoundTbl_Death = self.BSoundTbl_Death
+	else
+		self.Race = "W"
+	
+		self.SoundTbl_Idle = self.WSoundTbl_Idle
+		self.SoundTbl_MoveOutOfPlayersWay = self.WSoundTbl_MoveOutOfPlayersWay
+		self.SoundTbl_LostEnemy = self.WSoundTbl_LostEnemy
+		self.SoundTbl_AllyDeath = self.WSoundTbl_AllyDeath
+		self.SoundTbl_UnFollowPlayer = self.WSoundTbl_UnFollowPlayer
+		self.SoundTbl_FollowPlayer = self.WSoundTbl_FollowPlayer
+		self.SoundTbl_CombatIdle = self.WSoundTbl_CombatIdle
+		self.SoundTbl_MedicBeforeHeal = self.WSoundTbl_MedicBeforeHeal
+		self.SoundTbl_MedicReceiveHeal = self.WSoundTbl_MedicReceiveHeal
+		self.SoundTbl_OnPlayerSight = self.WSoundTbl_OnPlayerSight
+		self.SoundTbl_Alert = self.WSoundTbl_Alert
+		self.SoundTbl_CallForHelp = self.WSoundTbl_CallForHelp
+		self.SoundTbl_BecomeEnemyToPlayer = self.WSoundTbl_BecomeEnemyToPlayer
+		self.SoundTbl_Suppressing = self.WSoundTbl_Suppressing
+		self.SoundTbl_WeaponReload = self.WSoundTbl_WeaponReload
+		self.SoundTbl_BeforeMeleeAttack = self.WSoundTbl_BeforeMeleeAttack
+		self.SoundTbl_GrenadeAttack = self.WSoundTbl_GrenadeAttack
+		self.SoundTbl_OnGrenadeSight = self.WSoundTbl_OnGrenadeSight
+		self.SoundTbl_OnKilledEnemy = self.WSoundTbl_OnKilledEnemy
+		self.SoundTbl_Pain = self.WSoundTbl_Pain
+		self.SoundTbl_DamageByPlayer = self.WSoundTbl_DamageByPlayer
+		self.SoundTbl_Death = self.WSoundTbl_Death
+	end
+	end
+/*-----------------------------------------------
+	*** Copyright (c) 2012-2019 by DrVrej, All rights reserved. ***
+	No parts of this code or any of its contents may be reproduced, copied, modified or adapted,
+	without the prior written consent of the author, unless otherwise indicated for stand-alone materials.
+-----------------------------------------------*/

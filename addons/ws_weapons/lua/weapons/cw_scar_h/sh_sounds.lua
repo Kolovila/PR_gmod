@@ -1,0 +1,18 @@
+  CustomizableWeaponry:addFireSound("CW_BER_SCAR_H_FIRE", "weapons/cw_ber_scarh/mwscar3.wav", 1, 105, CHAN_STATIC)
+  CustomizableWeaponry:addFireSound("CW_BER_SCAR_H_FIRE_SHORT", "weapons/cw_ber_scarh/shot_short.wav", 1, 105, CHAN_STATIC)
+  CustomizableWeaponry:addFireSound("CW_BER_SCAR_H_FIRE_SUPPRESSED", "weapons/cw_ber_scarh/mwscars2.wav", 1, 100, CHAN_STATIC)
+  CustomizableWeaponry:addFireSound("CW_BER_SCAR_H_FIRE_SHORT_SUPPRESSED", "weapons/cw_ber_scarh/shots_short.wav", 1, 100, CHAN_STATIC)
+
+CustomizableWeaponry:addReloadSound("CW_BER_SCAR_H_MAGOUT", "weapons/cw_ber_scarh/flyout_01.wav")
+CustomizableWeaponry:addReloadSound("CW_BER_SCAR_H_MAGIN", "weapons/cw_ber_scarh/mwscar-in3.wav")
+CustomizableWeaponry:addReloadSound("CW_BER_SCAR_H_MAGKG", "weapons/cw_ber_scarh/mwsacrkg2.wav")
+CustomizableWeaponry:addReloadSound("CW_BER_SCAR_H_MAGKG1", "weapons/cw_ber_scarh/mwsacrkg4.wav")
+
+CustomizableWeaponry:addReloadSound("CW_BER_SCAR_H_SELECTOR", "weapons/cw_ber_scarh/selector.wav")
+CustomizableWeaponry:addReloadSound("CW_BER_SCAR_H_BOLTBACK", "weapons/cw_ber_scarh/boltback-2.wav")
+CustomizableWeaponry:addReloadSound("CW_BER_SCAR_H_BOLTFORWARD", "weapons/cw_ber_scarh/boltforward-1.wav")
+CustomizableWeaponry:addReloadSound("CW_BER_SCAR_H_BOLTPULL", "weapons/cw_ber_scarh/boltpull-6.wav")
+CustomizableWeaponry:addReloadSound("CW_BER_AK47SYN_HANDLE", "weapons/cw_ber_syn47/handle.wav")
+CustomizableWeaponry:addReloadSound("CW_BER_AK47SYN_FOLEY", "weapons/cw_ber_syn47/handle.wav")
+CustomizableWeaponry:addReloadSound("CW_BER_SCAR_H_SLAP", "weapons/cw_ber_scarh/slap.wav")
+CustomizableWeaponry:addReloadSound("CW_BER_SCAR_H_CALLOUT", {"callout/cw_ber_reload_callouts/flyout_01.wav"})

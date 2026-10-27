@@ -1,0 +1,11 @@
+CustomizableWeaponry:addFireSound("CW_STEYR_SSG08_FIRE", "weapons/cw_STEYR_SSG08/fire.wav", 1, 105, CHAN_STATIC)
+CustomizableWeaponry:addFireSound("CW_STEYR_SSG08_FIRE_SUPPRESSED", "weapons/cw_STEYR_SSG08/firesil.wav", 1, 75, CHAN_STATIC)
+
+CustomizableWeaponry:addReloadSound("CW_STEYR_SSG08_MAGOUT", "weapons/cw_STEYR_SSG08/magout.wav")
+CustomizableWeaponry:addReloadSound("CW_STEYR_SSG08_MAGIN", "weapons/cw_STEYR_SSG08/magin.wav")
+CustomizableWeaponry:addReloadSound("CW_STEYR_SSG08_BOLTFORWARD", "weapons/cw_STEYR_SSG08/boltforward.wav")
+CustomizableWeaponry:addReloadSound("CW_STEYR_SSG08_BOLTBACK", "weapons/cw_STEYR_SSG08/boltback.wav")
+CustomizableWeaponry:addReloadSound("CW_STEYR_SSG08_BOLTUP", "weapons/cw_STEYR_SSG08/boltup.wav")
+CustomizableWeaponry:addReloadSound("CW_STEYR_SSG08_BOLTDOWN", "weapons/cw_STEYR_SSG08/boltdown.wav")
+CustomizableWeaponry:addReloadSound("CW_STEYR_SSG08_BOLTTAP", "weapons/cw_STEYR_SSG08/button.wav")
+CustomizableWeaponry:addReloadSound("CW_STEYR_SSG08_MAGTAP", "weapons/cw_STEYR_SSG08/tap.wav")

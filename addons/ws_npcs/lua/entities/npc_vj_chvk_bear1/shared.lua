@@ -1,0 +1,8 @@
+ENT.Base 			= "npc_vj_human_base"
+ENT.Type 			= "ai"
+ENT.PrintName 		= "CHVK BEAR"
+ENT.Author 			= "KostDRS"
+ENT.Contact 		= ""
+ENT.Purpose 		= ""
+ENT.Instructions 	= ""
+ENT.Category		= "Escape From Tarkov +"

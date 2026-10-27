@@ -1,0 +1,22 @@
+CustomizableWeaponry:addFireSound("CW_EFT_MP7_FIRE", "weapons/cw_eft/mp7/mp7_outdoor_close.wav", 1, 108, CHAN_WEAPON)
+CustomizableWeaponry:addFireSound("CW_EFT_MP7_FIRE_SUPPRESSED", "weapons/cw_eft/mp7/mp7_outdoor_silenced_close.wav", 1, 85, CHAN_WEAPON)
+
+CustomizableWeaponry:addReloadSound("CW_EFT_MP7_MAGOUT", "weapons/cw_eft/mp7/mp7_mag_out.wav")
+CustomizableWeaponry:addReloadSound("CW_EFT_MP7_MAGRELEASE", "weapons/cw_eft/mp7/mp7_mag_button.wav")
+CustomizableWeaponry:addReloadSound("CW_EFT_MP7_MAGIN", "weapons/cw_eft/mp7/mp7_mag_in.wav")
+CustomizableWeaponry:addReloadSound("CW_EFT_MP7_BOLTBACK", "weapons/cw_eft/mp7/mp7_bolt_na_tebya.wav")
+CustomizableWeaponry:addReloadSound("CW_EFT_MP7_BOLTFORWARD", "weapons/cw_eft/mp7/mp7_bolt_ot_tebya.wav")
+CustomizableWeaponry:addReloadSound("CW_EFT_MP7_StockOn", "weapons/cw_eft/mp7/mp7_stock_on.wav")
+CustomizableWeaponry:addReloadSound("CW_EFT_MP7_StockOff", "weapons/cw_eft/mp7/mp7_stock_off.wav")
+CustomizableWeaponry:addReloadSound("CW_EFT_MP7_StockButton", "weapons/cw_eft/mp7/mp7_stock_button.wav")
+
+CustomizableWeaponry:addReloadSound("CW_EFT_MAGPULLOUT", "weapons/eft/generic/weap_mag_pullout.wav")
+CustomizableWeaponry:addReloadSound("CW_EFT_DRAW", "weapons/eft/uni/uni_weapon_draw_01.wav", "weapons/eft/uni/uni_weapon_draw_02.wav", "weapons/eft/uni/uni_weapon_draw_03.wav")
+CustomizableWeaponry:addReloadSound("CW_EFT_HOLSTER", "weapons/eft/uni/uni_weapon_holster.wav")
+CustomizableWeaponry:addReloadSound("CW_EFT_GEARMOVEMENT", "weapons/eft/generic/gear_fast_stereo1.wav", "weapons/eft/generic/gear_fast_stereo2.wav", "weapons/eft/generic/gear_fast_stereo3.wav", "weapons/eft/generic/gear_fast_stereo4.wav", "weapons/eft/generic/gear_fast_stereo5.wav", "weapons/eft/generic/gear_fast_stereo6.wav")
+CustomizableWeaponry:addReloadSound("CW_EFT_CLOTHMOVEMENT", "weapons/eft/generic/generic_cloth_movement1.wav", "weapons/eft/generic/generic_cloth_movement2.wav", "weapons/eft/generic/generic_cloth_movement3.wav", "weapons/eft/generic/generic_cloth_movement4.wav")
+CustomizableWeaponry:addReloadSound("CW_EFT_LEANIN", "weapons/eft/uni/uni_lean_in_01.wav", "weapons/eft/uni/uni_lean_in_02.wav", "weapons/eft/uni/uni_lean_in_03.wav", "weapons/eft/uni/uni_lean_in_04.wav")
+CustomizableWeaponry:addReloadSound("CW_EFT_HANDGRIP", "weapons/eft/generic/hand_grip1.wav", "weapons/eft/generic/hand_grip2.wav", "weapons/eft/generic/hand_grip3.wav", "weapons/eft/generic/hand_grip4.wav", "weapons/eft/generic/hand_grip5.wav", "weapons/eft/generic/hand_grip6.wav", "weapons/eft/generic/hand_grip7.wav")
+CustomizableWeaponry:addReloadSound("CW_EFT_CATCH", "weapons/eft/generic/other/weap_bolt_catch.wav")
+CustomizableWeaponry:addReloadSound("CW_EFT_MAGLOCK", "weapons/eft/generic/other/weap_mag_shaftlock.wav")
+

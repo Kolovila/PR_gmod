@@ -1,0 +1,6 @@
+# Оружейные аддоны из Workshop (tools/workshop, папка addons/ws_weapons): в git только их Lua,
+# модели, звуки и текстуры (~25 ГБ) — локально; восстанавливаются tools/workshop/rebuild.ps1
+/addons/ws_*/*
+!/addons/ws_*/lua/
+
+__pycache__/

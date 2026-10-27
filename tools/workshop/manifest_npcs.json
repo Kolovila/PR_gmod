@@ -1,0 +1,157 @@
+[
+ {
+  "id": "1196565715",
+  "title": "Ins2 Security Forces 3 Pack Playermodels & NPCs",
+  "slug": "ins2_security_forces_3_pack_playermodels",
+  "bytes": 14093558,
+  "weapons": []
+ },
+ {
+  "id": "1202342807",
+  "title": "Ins2 Insurgent Forces 3 Pack Playermodels & NPCs",
+  "slug": "ins2_insurgent_forces_3_pack_playermodel",
+  "bytes": 13048989,
+  "weapons": []
+ },
+ {
+  "id": "1207119041",
+  "title": "Ins2 VIPs 2 Pack Playermodels & NPCs",
+  "slug": "ins2_vips_2_pack_playermodels_npcs",
+  "bytes": 10354473,
+  "weapons": []
+ },
+ {
+  "id": "2389491188",
+  "title": "[VJ] Sentry's Military SNPCs",
+  "slug": "sentry_s_military_snpcs",
+  "bytes": 1253562022,
+  "weapons": [
+   "weapon_vj_senbmspumpshotarmy",
+   "weapon_vj_senbmssmgarmy",
+   "weapon_vj_sencarbinearmy",
+   "weapon_vj_sendescarbinearmy",
+   "weapon_vj_senmgarmy",
+   "weapon_vj_senpumpshotarmy",
+   "weapon_vj_senretroriflearmy",
+   "weapon_vj_senriflearmy",
+   "weapon_vj_sensilensmgarmy",
+   "weapon_vj_sensmgarmy",
+   "weapon_vj_sensniperarmy"
+  ]
+ },
+ {
+  "id": "2398758318",
+  "title": "[VJ] Sentry's Insurgent SNPCs",
+  "slug": "sentry_s_insurgent_snpcs",
+  "bytes": 1141211027,
+  "weapons": [
+   "weapon_vj_senterassault",
+   "weapon_vj_sentercarbine",
+   "weapon_vj_sentermg",
+   "weapon_vj_sentermilrifle",
+   "weapon_vj_senterpistol",
+   "weapon_vj_senterpumpshot",
+   "weapon_vj_senterrifle",
+   "weapon_vj_sentersmg",
+   "weapon_vj_sentersniper"
+  ]
+ },
+ {
+  "id": "2568198284",
+  "title": "ESCAPE FROM TARKOV - PMC PLAYERMODELS [REDUX]",
+  "slug": "escape_from_tarkov_pmc_playermodels",
+  "bytes": 368294034,
+  "weapons": []
+ },
+ {
+  "id": "3303933513",
+  "title": "[VJ] Sentry's Russian Military SNPCs",
+  "slug": "sentry_s_russian_military_snpcs",
+  "bytes": 878028662,
+  "weapons": [
+   "weapon_vj_senruakarmy",
+   "weapon_vj_senruaksmgarmy",
+   "weapon_vj_senrubizonarmy",
+   "weapon_vj_senrupistolarmy",
+   "weapon_vj_senrupkmarmy",
+   "weapon_vj_senrusilenriflearmy",
+   "weapon_vj_senrusniperarmy"
+  ]
+ },
+ {
+  "id": "3539600882",
+  "title": "[VJ] Escape From Tarkov + (PMC Bear&Usec)",
+  "slug": "escape_from_tarkov",
+  "bytes": 729261420,
+  "weapons": [
+   "weapon_vj_ak74_spec",
+   "weapon_vj_ak74_spec2",
+   "weapon_vj_ak74n",
+   "weapon_vj_ak74n_plum",
+   "weapon_vj_aks74u_spec",
+   "weapon_vj_aks74un",
+   "weapon_vj_asval",
+   "weapon_vj_asval_spec",
+   "weapon_vj_colt_m4a1",
+   "weapon_vj_dvl10",
+   "weapon_vj_m4a1_spec",
+   "weapon_vj_m4a1_spec2",
+   "weapon_vj_m700",
+   "weapon_vj_m870",
+   "weapon_vj_saiga12",
+   "weapon_vj_ump45",
+   "weapon_vj_ump45_silenced"
+  ]
+ },
+ {
+  "id": "3649774215",
+  "title": "[VJ] Escape From Tarkov + (RUAF Soldiers)",
+  "slug": "escape_from_tarkov",
+  "bytes": 272649832,
+  "weapons": [
+   "weapon_vj_ak12",
+   "weapon_vj_ak12_2shots",
+   "weapon_vj_ak74m",
+   "weapon_vj_pkm",
+   "weapon_vj_rpg7",
+   "weapon_vj_svds"
+  ]
+ },
+ {
+  "id": "3665409456",
+  "title": "[VJ] Escape From Tarkov + (Raiders)",
+  "slug": "escape_from_tarkov",
+  "bytes": 439114166,
+  "weapons": [
+   "weapon_vj_ak12_raider",
+   "weapon_vj_ak74_raider",
+   "weapon_vj_ak74_raider2",
+   "weapon_vj_aks74u_raider",
+   "weapon_vj_m4a1_raider",
+   "weapon_vj_m4a1_raider2",
+   "weapon_vj_m870_raider",
+   "weapon_vj_mpx_raider",
+   "weapon_vj_mr153_raider",
+   "weapon_vj_sa58_raider",
+   "weapon_vj_uzi_raider"
+  ]
+ },
+ {
+  "id": "3684161210",
+  "title": "[VJ] Sentry's Middle East Military SNPCs",
+  "slug": "sentry_s_middle_east_military_snpcs",
+  "bytes": 710462073,
+  "weapons": [
+   "weapon_vj_senarabassault",
+   "weapon_vj_senarabcarbinearmy",
+   "weapon_vj_senarabg3army",
+   "weapon_vj_senarabmg",
+   "weapon_vj_senarabminimiarmy",
+   "weapon_vj_senjewcarbinearmy",
+   "weapon_vj_senjewmgarmy",
+   "weapon_vj_senjewriflearmy",
+   "weapon_vj_senjewsmgarmy",
+   "weapon_vj_senjewsniperarmy"
+  ]
+ }
+]

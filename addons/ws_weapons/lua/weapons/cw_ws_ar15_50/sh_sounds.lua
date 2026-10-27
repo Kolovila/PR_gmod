@@ -1,0 +1,10 @@
+CustomizableWeaponry:addFireSound("CW_WS_AR15_50_FIRE", "weapons/ar15.50/fire1.wav", 1, 100, CHAN_STATIC)
+CustomizableWeaponry:addFireSound("CW_WS_AR15_50_FIRE_AMR", "weapons/ar15.50/awp1.wav", 1, 100, CHAN_STATIC)
+CustomizableWeaponry:addFireSound("CW_WS_AR15_50_FIRE_SUPPRESSED", "weapons/ar15.50/sfire1.wav", 1, 75, CHAN_STATIC)
+
+CustomizableWeaponry:addReloadSound("CW_AR15_50_MAGOUT", "weapons/ar15.50/m16_magout.wav")
+CustomizableWeaponry:addReloadSound("CW_AR15_50_MAGIN", "weapons/ar15.50/m16_magin.wav")
+CustomizableWeaponry:addReloadSound("CW_AR15_50_MAGRELEASE", "weapons/ar15.50/m16_magrelease.wav")
+CustomizableWeaponry:addReloadSound("CW_AR15_50_HIT", "weapons/ar15.50/m16_hit.wav")
+CustomizableWeaponry:addReloadSound("CW_AR15_50_BOLTRELEASE", "weapons/ar15.50/m16_boltrelease.wav")
+CustomizableWeaponry:addReloadSound("CW_AR15_50_BOLTBACK", "weapons/ar15.50/m16_boltback.wav")

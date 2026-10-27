@@ -1,0 +1,12 @@
+CustomizableWeaponry:addFireSound("CW_MP9_FIRE", "weapons/smg9/sr2fire.wav", 1, 98, CHAN_STATIC)
+CustomizableWeaponry:addFireSound("CW_MP9_FIRE_SUPPRESSED", "weapons/smg9/sr2sil.wav", 1, 70, CHAN_STATIC)
+
+CustomizableWeaponry:addReloadSound("CW_MP9_MAGOUT", "weapons/smg9/magout.wav")
+CustomizableWeaponry:addReloadSound("CW_MP9_MAGIN", "weapons/smg9/magin.wav")
+CustomizableWeaponry:addReloadSound("CW_MP9_MAGSPIN", "weapons/smg9/magswish.wav")
+CustomizableWeaponry:addReloadSound("CW_MP9_BOLTBACK", "weapons/cw_mp5/boltback.wav")
+CustomizableWeaponry:addReloadSound("CW_MP9_BOLTFORWARD", "weapons/cw_mp5/boltforward.wav")
+CustomizableWeaponry:addReloadSound("CW_MP9_DEPLOY", "weapons/smg9/shoulder.wav")
+CustomizableWeaponry:addReloadSound("CW_MP9_RATTLE", "weapons/smg9/rattle.wav")
+CustomizableWeaponry:addReloadSound("CW_MP9_CLOTH", "weapons/smg9/cloth.wav")
+CustomizableWeaponry:addReloadSound("CW_MP9_START", "weapons/smg9/startreload.wav")
