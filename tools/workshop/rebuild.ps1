@@ -54,6 +54,8 @@ if (-not $SkipDownload) {
     & "$Here\fetch.ps1" -List "$Work\npc_todo.txt" -Log "$Work\npc_fetch.log"
 }
 python -I "$Here\cw_index.py" "$Here\npc_ids.txt" "$Work\npc_index.json" $Subs $Cmd | Out-Null
-python -I "$Here\npc_select.py" "$Work\npc_index.json" "$Work\npc_det.json" "$R\addons" "$Work\npc_selection.json"
+# Боссы EFT (npc_models_only_ids.txt): из заброшенных VJ-паков и плеермоделей — только модели,
+# текстуры и звуки, без их Lua; NPC из них — наш класс бойца
+python -I "$Here\npc_select.py" "$Work\npc_index.json" "$Work\npc_det.json" "$R\addons" "$Work\npc_selection.json" "--models-only=$Here\npc_models_only_ids.txt"
 python -I "$Here\cw_extract.py" "$Work\npc_selection.json" "$Work\npc_index.json" "$R\addons" --folder=ws_npcs "--manifest=$Here\manifest_npcs.json" | Select-Object -Last 3
 'Дальше: tools\deploy.ps1 (в игру), run_selftest.ps1 -Suite weapons и -Suite npcs'

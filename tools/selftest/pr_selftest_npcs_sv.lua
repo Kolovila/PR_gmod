@@ -11,6 +11,17 @@ local S, log, step = T.S, T.log, T.step
 
 local SPOT = Vector(-7795.6, -1890, -505)
 
+local BOSS_MODELS = {
+	"models/player/eft/bosses/reshala.mdl", "models/player/eft/bosses/killa.mdl", "models/player/eft/bosses/glukhar.mdl",
+	"models/player/eft/followers/glukhar/glukhar_assault_ar.mdl", "models/player/eft/followers/glukhar/glukhar_assault_cr.mdl",
+	"models/player/eft/followers/glukhar/glukhar_scout.mdl", "models/player/eft/followers/glukhar/glukhar_security.mdl",
+	"models/player/eft/bosses/sanitar.mdl", "models/eft/bosses/shturman.mdl", "models/eft/bosses/tagilla.mdl",
+	"models/eft/bosses/kaban.mdl", "models/player/eft/bosses/kollontai.mdl", "models/eft/bosses/partisan.mdl",
+	"models/eft/bosses/zryachii_pm.mdl", "models/eft/bosses/knight_pm.mdl", "models/eft/bosses/big_pipe_pm.mdl",
+	"models/eft/bosses/birdeye_pm.mdl", "models/knight_npc.mdl", "models/big_pipe_npc.mdl", "models/birdeye_npc.mdl",
+	"models/eft/scavs/scav_extended_pm.mdl"
+}
+
 step(0, function()
 	log("start (npcs)")
 	PR_Patrol.NextSpawn = math.huge
@@ -27,6 +38,13 @@ step(0, function()
 	end
 	log("VJ human NPCs in the spawn menu: " .. #S.list)
 	T.check("100+ VJ human NPCs from the packs", #S.list >= 100, #S.list)
+
+	-- Модели боссов EFT (только модели, без чужого Lua — tools/workshop/README.md): есть и грузятся
+	local bad = {}
+	for _, m in ipairs(BOSS_MODELS) do
+		if not (file.Exists(m, "GAME") and util.IsValidModel(m)) then table.insert(bad, m) log("NPC_BAD boss model " .. m) end
+	end
+	T.check("EFT boss models load", #bad == 0, #bad .. ": " .. table.concat(bad, " "))
 	S.i, S.bad = 0, {dead = {}, model = {}, weapon = {}, failed = {}}
 end)
 

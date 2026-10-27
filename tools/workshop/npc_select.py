@@ -6,7 +6,10 @@
 - если такой файл — Lua и отличается по размеру, печатаем: это возможный конфликт, смотреть руками;
 - между самими паками: папка lua/entities|weapons|effects/<класс> целиком из одного (самого свежего).
 
-usage: python -I npc_select.py <index.json> <det.json> <addons_dir> <out.json>
+- аддоны из --models-only=<файл со списком id>: только ресурсы (модели, текстуры, звуки) без Lua —
+  так берём боссов EFT из заброшенных VJ-паков и плеермоделей: NPC из них делаем своим классом.
+
+usage: python -I npc_select.py <index.json> <det.json> <addons_dir> <out.json> [--models-only=<ids.txt>]
 """
 import json
 import os
@@ -19,6 +22,10 @@ det = {d["publishedfileid"]: d for d in json.load(open(sys.argv[2], encoding="ut
 root = sys.argv[3]
 out_path = sys.argv[4]
 OWN = "ws_npcs"
+models_only = set()
+for a in sys.argv[5:]:
+    if a.startswith("--models-only="):
+        models_only |= {l.strip() for l in open(a.split("=", 1)[1]) if l.strip().isdigit()}
 
 existing = {}
 for d in os.listdir(root):
@@ -43,6 +50,8 @@ def unit(path):
 prov = defaultdict(set)
 for w, a in addons.items():
     for p in a["files"]:
+        if w in models_only and p.startswith("lua/"):
+            continue
         prov[unit(p)].add(w)
 winner = {u: max(ws, key=lambda w: (updated(w), addons[w]["size"])) for u, ws in prov.items()}
 
@@ -51,6 +60,8 @@ final = {}
 for w, a in addons.items():
     files = {}
     for p, size in a["files"].items():
+        if w in models_only and p.startswith("lua/"):
+            continue
         if winner.get(unit(p)) != w:
             continue
         if p in existing:
@@ -61,7 +72,7 @@ for w, a in addons.items():
         files[p] = size
     if files:
         final[w] = {"title": title(w), "files": files, "bytes": sum(files.values()),
-                    "weapons": sorted(a["weapons"])}
+                    "weapons": [] if w in models_only else sorted(a["weapons"]), "modelsOnly": w in models_only}
 
 json.dump({"addons": final, "lua_conflicts": lua_conflicts}, open(out_path, "w", encoding="utf-8"), ensure_ascii=False)
 print(f"addons {len(final)}, files {sum(len(a['files']) for a in final.values())}, "

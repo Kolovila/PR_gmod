@@ -18,6 +18,32 @@ Insurgent, VIPs (последний — обязательный для двух
 `addons` (VJ-Base 3.2, ws_weapons), не дублируем. Итог — `manifest_npcs.json`.
 Проверка: `run_selftest.ps1 -Suite npcs -Instance 1`.
 
+### Боссы EFT — только модели (`npc_models_only_ids.txt`)
+
+23 аддона: заброшенный VJ-пак 3053125420 (SCAV, Raiders, боссы), (VJ) The Goon Squad, (VJ) Killa
+и плеермодели боссов со снаряжением. Из них берём **только** модели, текстуры и звуки (голоса) —
+ни строчки их Lua (`npc_select.py --models-only`); NPC из этих моделей делаем своим классом.
+Зависимость «EFT – Shared Stuff» (2886973051) из Workshop удалена; проверка `mdl_textures.py`:
+у 412 моделей боссов нет текстур только у 4 моделей рук от первого лица — NPC их не используют.
+
+Тела (плеермодели, анимации игрока — VJ 3.2 их поддерживает):
+
+| босс | модель |
+|---|---|
+| Решала | `models/player/eft/bosses/reshala.mdl` |
+| Килла | `models/player/eft/bosses/killa.mdl` |
+| Глухарь | `models/player/eft/bosses/glukhar.mdl` |
+| охрана Глухаря | `models/player/eft/followers/glukhar/glukhar_{assault_ar,assault_cr,scout,security}.mdl` |
+| Санитар | `models/player/eft/bosses/sanitar.mdl` |
+| Штурман | `models/eft/bosses/shturman.mdl` |
+| Тагилла | `models/eft/bosses/tagilla.mdl` |
+| Кабан | `models/eft/bosses/kaban.mdl` |
+| Коллонтай | `models/player/eft/bosses/kollontai.mdl` |
+| Партизан | `models/eft/bosses/partisan.mdl` |
+| Зрячий | `models/eft/bosses/zryachii_pm.mdl` |
+| Knight / Big Pipe / Birdeye | `models/eft/bosses/{knight,big_pipe,birdeye}_pm.mdl`, NPC-модели `models/{knight,big_pipe,birdeye}_npc.mdl` |
+| Дикие | `models/eft/scavs/scav_extended_pm.mdl` и EFT SCAV PMs (3018571046) |
+
 ## Что выкинуто целиком
 
 - база CWC (Cturiselection) и всё под неё — автор прямо пишет «не ставить вместе с обычным CW 2.0»;
@@ -60,6 +86,7 @@ Insurgent, VIPs (последний — обязательный для двух
 | `cw_select.py` | отбор: исключения, победитель каждого файла, дубли, битые |
 | `cw_extract.py` | пишет файлы-победители в `addons/ws_weapons/`, убирает лишние, обновляет `manifest.json` |
 | `npc_select.py` | отбор файлов паков NPC для `addons/ws_npcs` |
+| `mdl_textures.py` | у каких моделей не нашлись материалы / текстуры |
 | `vpk_list.py` | список файлов самой игры из `*_dir.vpk` (что есть без аддонов) |
 
 Игра получает копию через `tools/deploy.ps1`, тестовые копии — ссылку на папку репозитория
