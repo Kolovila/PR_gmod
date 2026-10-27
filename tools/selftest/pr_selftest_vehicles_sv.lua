@@ -1020,6 +1020,12 @@ waitFor(25, function() return S.hs and IsValid(S.hs.ent) and not S.hs.holdUntil 
 
 step(0, function()
 	for _, v in ipairs({S.plane, S.oh6, S.heli}) do if v then v.ignoreTargets, v.forceTarget = true, nil end end
+	-- И по текущему списку техники патруля охраны: его Ми-24 бил машину-мишень управляемыми, хотя по
+	-- ссылке S.heli запрет стоял
+	for _, v in ipairs(S.armor and S.armor.vehicles or {}) do
+		if v.class == "gred_lfs_mi24a" and v ~= S.heli then log("armor Mi-24 entry is not the saved S.heli") end
+		v.ignoreTargets, v.forceTarget = true, nil
+	end
 	if S.hs and IsValid(S.hs.ent) then
 		S.hs.ent:SetLoadout(8)
 		S.hs.ent:SetMissiles(false)
@@ -1108,8 +1114,11 @@ end)
 step(0, function()
 	local v = S.hs
 	if not (v and IsValid(v.ent)) then return end
-	-- Без оружия пилота (подвес 0): иначе его ракеты убивали цель раньше, чем стрелок пускал свою
-	v.ent:SetLoadout(0)
+	-- Пилоту стрелять нечем (подвес с ракетами, но они кончились): иначе его ракеты убивали цель раньше,
+	-- чем стрелок пускал свою. Подвес 0 ставить нельзя — режим его сразу возвращает
+	v.ent:SetLoadout(1)
+	v.ent:SetAmmoPrimary(0)
+	v.ent:SetMissiles(true)   -- смена подвеса снимает управляемые
 	v.missilesLeft, v.nextMissile = 4, 0
 	spawnStrikeTarget()
 	S.nullErrors = {}

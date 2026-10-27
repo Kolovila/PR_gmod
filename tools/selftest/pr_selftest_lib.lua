@@ -95,11 +95,13 @@ end
 -- водят свою камеру (T.noDirector). Клиент на время скриншотов теста камеру отдаёт игроку
 ----------------------------------------------------------------------------------------------------
 util.AddNetworkString("PR_SELFTEST_DIRECTOR")
+util.AddNetworkString("PR_SELFTEST_DIRLIST")   -- список «отслеживаемых» для ручной камеры (раз в 2 с)
+util.AddNetworkString("PR_SELFTEST_DIRPICK")   -- клиент выбрал объект вручную: его — в видимость
 
 local PLANS = {"follow", "flyby", "fixed"}
 
-local function directorPick(state)
-	local vehicles, npcs = {}, {}
+local function directorCollect()
+	local vehicles, npcs, bots = {}, {}, {}
 	for _, p in ipairs(PR_Patrol and PR_Patrol.Active or {}) do
 		for _, v in ipairs(p.vehicles or {}) do
 			if IsValid(v.ent) then
@@ -111,10 +113,14 @@ local function directorPick(state)
 			if IsValid(npc) and npc:Health() > 0 then npcs[#npcs + 1] = {ent = npc, label = "NPC · " .. npc:GetClass()} end
 		end
 	end
+	for _, b in ipairs(player.GetBots()) do if b:Alive() then bots[#bots + 1] = {ent = b, label = "цель (бот) · " .. b:Nick()} end end
+	return vehicles, npcs, bots
+end
+
+local function directorPick(state)
+	local vehicles, npcs, bots = directorCollect()
 	local list = (#vehicles > 0 and (#npcs == 0 or math.random() < 0.75)) and vehicles or npcs
-	if #list == 0 then
-		for _, b in ipairs(player.GetBots()) do if b:Alive() then list[#list + 1] = {ent = b, label = "цель (бот)"} end end
-	end
+	if #list == 0 then list = bots end
 	if #list == 0 then return nil end
 	state.n = (state.n or 0) + 1
 	return list[(state.n - 1) % #list + 1]
@@ -159,10 +165,30 @@ function T.startDirector()
 		end
 		net.Send(host)
 	end)
+	-- Ручная камера: список всех, за кем можно следить
+	timer.Create("PR_SelftestDirectorList", 2, 0, function()
+		local host = player.GetHumans()[1]
+		if not IsValid(host) then return end
+		local vehicles, npcs, bots = directorCollect()
+		local all = {}
+		for _, l in ipairs({vehicles, npcs, bots}) do for _, c in ipairs(l) do all[#all + 1] = c end end
+		net.Start("PR_SELFTEST_DIRLIST")
+		net.WriteUInt(math.min(#all, 64), 8)
+		for i = 1, math.min(#all, 64) do
+			net.WriteUInt(all[i].ent:EntIndex(), 16)
+			net.WriteString(all[i].label)
+		end
+		net.Send(host)
+	end)
+	net.Receive("PR_SELFTEST_DIRPICK", function()
+		local e = Entity(net.ReadUInt(16))
+		state.manual = IsValid(e) and e or nil
+	end)
 	-- Сервер шлёт клиенту только то, что рядом с игроком: камера вдали показывала бы пустоту
 	hook.Add("SetupPlayerVisibility", "PR_SelftestDirector", function()
 		if IsValid(state.ent) then AddOriginToPVS(state.ent:WorldSpaceCenter()) end
 		if state.cam then AddOriginToPVS(state.cam) end
+		if IsValid(state.manual) then AddOriginToPVS(state.manual:WorldSpaceCenter()) end
 	end)
 end
 

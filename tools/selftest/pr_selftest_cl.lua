@@ -316,12 +316,77 @@ concommand.Add("pr_test_cam", function()
 	chat.AddText(director.on and "Камера теста: режиссёр" or "Камера теста: глаза игрока")
 end)
 
-local function Directing()
-	return director.on and director.active and not watch.active and CurTime() > (director.pauseUntil or 0)
+-- Ручная камера: ЛКМ / ПКМ — следующий / предыдущий объект, мышь — крутить вокруг него, колёсико —
+-- ближе/дальше, R — снова «режиссёр». Пока она ручная, мышь не двигает прицел игрока (тестам не мешает)
+local manual = {list = {}, i = 0, yaw = 0, pitch = 15, zoom = 1}
+
+net.Receive("PR_SELFTEST_DIRLIST", function()
+	local list = {}
+	for _ = 1, net.ReadUInt(8) do list[#list + 1] = {idx = net.ReadUInt(16), label = net.ReadString()} end
+	manual.list = list
+	-- Выбранный остаётся выбранным, даже если список сдвинулся
+	if manual.idx then
+		for i, c in ipairs(list) do if c.idx == manual.idx then manual.i = i end end
+	end
+end)
+
+local function ManualPick(step)
+	local n = #manual.list
+	if n == 0 then return end
+	if not manual.on then
+		manual.on = true
+		-- Начинаем с того, кого сейчас показывал «режиссёр»
+		manual.i = 0
+		for i, c in ipairs(manual.list) do if c.idx == director.idx then manual.i = i - step end end
+		local cam = director.last
+		if cam then manual.yaw, manual.pitch = cam.angles.y, math.Clamp(cam.angles.p, -80, 80) end
+	end
+	manual.i = (manual.i + step - 1) % n + 1
+	manual.idx = manual.list[manual.i].idx
+	net.Start("PR_SELFTEST_DIRPICK")
+	net.WriteUInt(manual.idx, 16)
+	net.SendToServer()
 end
+
+local function Directing()
+	return director.on and (director.active or manual.on) and not watch.active and CurTime() > (director.pauseUntil or 0)
+end
+
+hook.Add("PlayerBindPress", "PR_SelfTestManualCam", function(ply, bind, pressed)
+	if not (director.on and not watch.active and pressed) then return end
+	if bind == "+attack" then ManualPick(1) return true end
+	if bind == "+attack2" then ManualPick(-1) return true end
+	if not manual.on then return end
+	if bind == "+reload" then
+		manual.on = false
+		net.Start("PR_SELFTEST_DIRPICK") net.WriteUInt(0, 16) net.SendToServer()
+		chat.AddText("Камера теста: снова режиссёр")
+		return true
+	end
+	if bind == "invprev" then manual.zoom = math.max(manual.zoom / 1.15, 0.2) return true end
+	if bind == "invnext" then manual.zoom = math.min(manual.zoom * 1.15, 6) return true end
+end)
+
+hook.Add("InputMouseApply", "PR_SelfTestManualCam", function(cmd, x, y, ang)
+	if not (manual.on and Directing()) then return end
+	manual.yaw = manual.yaw - x * 0.022
+	manual.pitch = math.Clamp(manual.pitch + y * 0.022, -85, 85)
+	cmd:SetMouseX(0) cmd:SetMouseY(0)
+	return true
+end)
 
 hook.Add("CalcView", "PR_SelfTestDirector", function(ply, origin, angles, fov)
 	if not Directing() then return end
+	if manual.on then
+		local ent = Entity(manual.idx or 0)
+		if not IsValid(ent) then return director.last end
+		local center = ent:WorldSpaceCenter()
+		local ang = Angle(manual.pitch, manual.yaw, 0)
+		local dist = math.Clamp(ent:BoundingRadius() * 2.5 + 200, 250, 3000) * manual.zoom
+		local tr = util.TraceLine({start = center, endpos = center - ang:Forward() * dist, mask = MASK_SOLID_BRUSHONLY})
+		director.last = {origin = tr.HitPos + tr.HitNormal * 10, angles = ang, fov = 75, drawviewer = true}
+		return director.last
+	end
 	local ent = Entity(director.idx)
 	if not IsValid(ent) then return director.last end
 	local center = ent:WorldSpaceCenter()
@@ -348,8 +413,16 @@ end)
 hook.Add("HUDPaint", "PR_SelfTestDirector", function()
 	if not Directing() then return end
 	local names = {follow = "за объектом", flyby = "пролёт", fixed = "с места"}
-	draw.SimpleTextOutlined("Камера: " .. tostring(director.label) .. " (" .. (names[director.plan] or director.plan) .. ")",
-		"DermaDefaultBold", 16, ScrH() - 40, Color(255, 220, 120), TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP, 1, color_black)
+	local text
+	if manual.on then
+		local c = manual.list[manual.i]
+		text = string.format("Камера (вручную %d/%d): %s", manual.i, #manual.list, c and c.label or "?")
+	else
+		text = "Камера: " .. tostring(director.label) .. " (" .. (names[director.plan] or tostring(director.plan)) .. ")"
+	end
+	draw.SimpleTextOutlined(text, "DermaDefaultBold", 16, ScrH() - 58, Color(255, 220, 120), TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP, 1, color_black)
+	draw.SimpleTextOutlined("ЛКМ/ПКМ — следующий/предыдущий · мышь — крутить · колёсико — ближе/дальше · R — режиссёр",
+		"DermaDefault", 16, ScrH() - 38, Color(200, 200, 200), TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP, 1, color_black)
 	local target = Entity(director.target or 0)
 	if IsValid(target) then
 		local p = (target:WorldSpaceCenter() + Vector(0, 0, 50)):ToScreen()

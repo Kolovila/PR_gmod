@@ -36,10 +36,26 @@ local function Quiet(e)
 	e.Think = function(self, ...) return PR_Quietly(think, self, ...) end
 end
 
+-- Ракета Гредвича, взорванная до того, как полетела (хозяин исчез, вертолёт сбит), берёт в
+-- AddOnExplode MuzzleVelocity, а у части ракет (С-5 Ми-24) его нет — ошибка base_rocket/init.lua:535
+-- «arithmetic on local 'Meters'». Пуск его, если надо, перезапишет
+local function DefaultMuzzle(e)
+	if not (IsValid(e) and isfunction(e.Launch) and isfunction(e.AddOnExplode)) or e.PR_SafeExplode then return end
+	e.PR_SafeExplode = true
+	if e.MuzzleVelocity == nil then e.MuzzleVelocity = 300 end
+	-- И LastVel (init.lua:593 «index field 'LastVel'»): ракета, не успевшая полететь, — скорость по оси
+	local explode = e.AddOnExplode
+	e.AddOnExplode = function(self, ...)
+		if self.LastVel == nil then self.LastVel = self:GetForward() * ((tonumber(self.MuzzleVelocity) or 300) / 0.01905) end
+		return explode(self, ...)
+	end
+end
+
 -- PhysicsUpdate ракеты аддон часто задаёт сразу после создания — оборачиваем на следующем тике
 hook.Add("OnEntityCreated", "PR_GuardMissileGuidance", function(e)
 	timer.Simple(0, function()
 		Guard(e)
 		Quiet(e)
+		DefaultMuzzle(e)
 	end)
 end)
