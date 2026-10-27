@@ -71,7 +71,8 @@ if only["debugaim"] then for _, c in ipairs(AIMDEBUG) do CLASSES[#CLASSES + 1] =
 if only["debugground"] then for _, c in ipairs(GROUNDDEBUG) do CLASSES[#CLASSES + 1] = c end end
 if only["long"] then for _, c in ipairs(LONG) do CLASSES[#CLASSES + 1] = c end end
 if only["show"] then
-	for _, c in ipairs(HELISHOW) do CLASSES[#CLASSES + 1] = c end
+	-- show plane — показ штурмовика A-10 по наземной цели (90 с)
+	for _, c in ipairs(only["plane"] and {"gred_lfs_a10"} or HELISHOW) do CLASSES[#CLASSES + 1] = c end
 	local n = 0
 	timer.Create("PR_ScanShowShots", 6, 0, function()
 		if not (S.cur and IsValid(S.cur.ent)) then return end
@@ -584,7 +585,7 @@ for _, class in ipairs(CLASSES) do
 		end)
 	end
 
-	step(PREFIRE and (air and 22 or 14) or (only["show"] and 60) or (air and 35 or (only["long"] and 40 or 25)), function()
+	step(PREFIRE and (air and 22 or 14) or (only["show"] and (only["plane"] and 90 or 60)) or (air and 35 or (only["long"] and 40 or 25)), function()
 		local c = S.cur
 		if not c then return end
 		for _, plate in ipairs(S.box or {}) do if IsValid(plate) then plate:Remove() end end

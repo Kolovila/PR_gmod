@@ -34,6 +34,7 @@ $Suites = @{
     scanair1 = @('pr_selftest_scan_sv.lua', 'air 1')
     scanair2 = @('pr_selftest_scan_sv.lua', 'air 2')
     scanair2fix = @('pr_selftest_scan_sv.lua', 'air 2 fix')   # half 2 of the helicopters + the FIX list
+    scanshowplane = @('pr_selftest_scan_sv.lua', 'show plane')   # A-10 vs a ground target 90 s, camera follows
     scanshow = @('pr_selftest_scan_sv.lua', 'show')   # rocket helicopters 60 s each, camera follows, screenshot every 6 s
     scanairfix = @('pr_selftest_scan_sv.lua', 'airfix')   # a few helicopters with extra aim diagnostics
     scanaim = @('pr_selftest_scan_sv.lua', 'debugaim prefire')
@@ -51,6 +52,7 @@ $Suites = @{
     mapshot  = @('pr_mapshot_sv.lua', '')   # map picture for the minimap: then stitch_mapshot.ps1
     recordclimb = @('pr_record_sv.lua', 'climb')   # does the helicopter climb over the range (AI aims 3000 up)
     recordcheck = @('pr_record_sv.lua', 'auto')   # the range itself: presses F6/F7 on its own
+    recordplane = @('pr_record_sv.lua', 'plane')   # the same with the A-10: spawns in the air 9000 from the target
     record   = @('pr_record_sv.lua', '')   # player flies a helicopter at a target; F6 record, F7 save and quit (data/pr_selftest/flight_*.csv)
     vanish   = @('pr_vanish_sv.lua', '')   # patrol «Техника» on spot 5: who removes its vehicles (VANISH lines)
     mapinfo  = @('pr_mapinfo_sv.lua', '')   # fog, draw distance, navmesh of the map (MAPINFO lines)
@@ -166,7 +168,7 @@ while ((Get-Date) -lt $mountDeadline) {
 $done = $false
 if ($mapSent) {
     # The vehicle scan goes through dozens of vehicles: give it longer
-    $deadline = (Get-Date).AddMinutes($(if ($Suite -eq 'navgen') { 95 } elseif ($Suite -eq 'record') { 65 } elseif ($Suite -like 'scan*') { 40 } else { 8 }))
+    $deadline = (Get-Date).AddMinutes($(if ($Suite -eq 'navgen') { 95 } elseif ($Suite -like 'record*') { 65 } elseif ($Suite -like 'scan*') { 40 } else { 8 }))
     $sawStart = $false
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 3

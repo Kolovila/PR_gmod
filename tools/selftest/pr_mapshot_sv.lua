@@ -87,4 +87,5 @@ end)
 
 step(1, T.done)
 
+T.noDirector = true   -- своя камера (снимок карты сверху)
 hook.Add("InitPostEntity", "PR_SelfTest", function() T.run(8) end)

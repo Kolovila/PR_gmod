@@ -1967,10 +1967,18 @@ local function RocketRunPoint(entry, ent, target, o)
 		-- Отход «завис» (скорость < 300 дольше 3 с: у Ка-50 у потолка неба) — разворачиваемся
 		if fwd < 300 then entry.rrSlowSince = entry.rrSlowSince or now else entry.rrSlowSince = nil end
 		local stalled = entry.rrSlowSince and now - entry.rrSlowSince > 3 and dist > 3000
-		if dist > o.extend or stalled then
+		-- Край карты по ходу ближе ~5 с полёта — разворот сейчас и к центру (уходил в стену неба на западе)
+		local mapCfg = PR_MINIMAPS and PR_MINIMAPS[string.lower(game.GetMap())]
+		local ahead = pos + heading * math.max(vel:Length2D() * 5, 3000)
+		local nearEdge = mapCfg and (ahead.x < mapCfg.minX or ahead.x > mapCfg.maxX or ahead.y < mapCfg.minY or ahead.y > mapCfg.maxY)
+		if dist > o.extend or stalled or (nearEdge and dist > 3000) then
 			entry.rrSlowSince = nil
 			mode = "turn"
 			entry.rrTurnSign = -(entry.rrTurnSign or 1)   -- каждый раз в другую сторону: восьмёрка
+			if nearEdge then
+				local c = Vector((mapCfg.minX + mapCfg.maxX) / 2, (mapCfg.minY + mapCfg.maxY) / 2, 0)
+				entry.rrTurnSign = math.AngleDifference((c - pos):Angle().y, heading:Angle().y) >= 0 and 1 or -1
+			end
 		end
 	elseif mode == "turn" then
 		if pathYawOff < 25 and noseYawOff < 30 and dist > o.pullDist + 500 then
@@ -3021,12 +3029,13 @@ end
 -- захода через цель (sweep — от недолёта до перелёта) и накрывает полосу, а не точку. Раньше пике
 -- 20–25° с огнём только с ≤ 5° на цель — стрелял он уже в 3000–4000, одной точкой
 local PLANE_RUNS = {
-	infantry = {angle = 14, height = 1800, rockets = 0, sweep = 600},
-	vehicle = {angle = 20, height = 2200, rockets = 6, sweep = 0},   -- по технике — точно (ракетам нос на цель)
+	-- Выше и дальше (по записи игрока: пике с 9–10 км, на 3500–4600 выше цели, очередь всю дорогу)
+	infantry = {angle = 21, height = 3500, rockets = 0, sweep = 0},
+	vehicle = {angle = 30, height = 4000, rockets = 6, sweep = 0},   -- круче: ракеты под 22° рвались о крыши у цели   -- по технике — точно (ракетам нос на цель)
 }
 -- from — с какой дальности пушка; off — на сколько градусов нос может смотреть мимо точки очереди;
 -- prefire — цель скрылась: столько секунд заход и огонь туда, где её видели
-local PLANE_FIRE = {from = 8000, off = 8, prefire = 10}
+local PLANE_FIRE = {from = 9500, off = 4, prefire = 10, ipMax = 9500, pullDist = 2500, extend = 9500, extendHeight = 3500, floor = 800, rocketPitch = 2}
 local ROCKET_SPEED = 5000 -- примерно, для упреждения (у Hydra разгон ~700 за тик, сопротивление воздуха)
 
 local function PlaneAttack(entry, ent, target, kind)
@@ -3058,9 +3067,9 @@ local function PlaneAttack(entry, ent, target, kind)
 	-- Высота захода над целью: по профилю, но не ниже 1000 над рельефом по ходу и под небом
 	local h = math.max(run.height, TerrainAhead(ent, ceil) + 1000 - tpos.z)
 	h = math.Clamp(h, 1200, math.max(ceil - 500 - tpos.z, 1200))
-	-- Точка входа не дальше 8000: если рельеф заставляет идти выше, пике круче (до 35°), а не длиннее —
-	-- с 9–11 км самолёт к цели не доворачивал
-	local ipDist = math.min(h / math.tan(math.rad(run.angle)), 8000)
+	-- Точка входа не дальше PLANE_FIRE.ipMax: если рельеф заставляет идти выше, пике круче (до 35°), а
+	-- не длиннее (с 11 км самолёт к цели не доворачивал)
+	local ipDist = math.min(h / math.tan(math.rad(run.angle)), PLANE_FIRE.ipMax)
 	local angle = math.min(math.deg(math.atan2(h, ipDist)), 35)
 
 	-- Сторона захода; первый раз — со стороны самолёта, потом каждый раз другая
@@ -3104,11 +3113,41 @@ local function PlaneAttack(entry, ent, target, kind)
 			entry.planeRunYaw = PlaneRunYaw(ent, target, tpos, (pos - tpos):Angle().y, PLANE_SIDES_NEXT, angle, ipDist)
 		end
 	end
-	-- Пике до 1100 над целью (в крутом — раньше: на 50 за каждый градус круче 25°) или 2000 до неё
-	local diveFloor = 1100 + math.max(0, math.NormalizeAngle(ent:GetVelocity():Angle().p) - 25) * 50
-	if mode == "dive" and (pos.z - tpos.z < diveFloor or pos:Distance(tpos) < 2000) then
-		mode, entry.planeUntil, entry.planeAfter = "pull up", now + 3, "approach"
+	-- Пике до PLANE_FIRE.floor над целью (в крутом — раньше: на 50 за каждый градус круче 25°) или PLANE_FIRE.pullDist
+	-- до неё (очередь — как можно дольше на подлёте)
+	-- Нижний предел — от самых высоких крыш и рельефа на 2 с полёта вперёд (+600), а не от цели: на
+	-- 800 над целью самолёт задевал дома вокруг неё (300–800)
+	local roof = -math.huge
+	if mode == "dive" then
+		local v = ent:GetVelocity()
+		for t = 0, 2, 0.5 do roof = math.max(roof, TopAt(pos.x + v.x * t, pos.y + v.y * t, ceil, pos.z - 8000)) end
 	end
+	local diveFloor = math.max(PLANE_FIRE.floor, roof + 600 - tpos.z) + math.max(0, math.NormalizeAngle(ent:GetVelocity():Angle().p) - 25) * 50
+	if mode == "dive" and (pos.z - tpos.z < diveFloor or pos:Distance(tpos) < PLANE_FIRE.pullDist) then
+		mode, entry.planeUntil, entry.planeAfter = "pull up", now + 3, "approach"
+		-- Выход как у игрока: 1,5 с нос вверх по прямой (проход над целью, скорость не теряем — отворот на
+		-- 80° держал самолёт 3 с у цели), дальше уход прямо от цели (extend) и разворот уже вдали
+		entry.planeUntil, entry.planeAfter = now + 1.5, "extend"
+		entry.planeBreakYaw = PlaneHeading(ent)
+	end
+	-- Уход от цели: по прямой с рывками курса, набор высоты; ушёл на extend — сразу разворот на цель
+	-- (или край карты ближе 6000 по ходу: цель в 7 тыс. от края — уход «на 11 км» врезался в стену неба)
+	local mapCfg = PR_MINIMAPS and PR_MINIMAPS[string.lower(game.GetMap())]
+	local ahead = pos + ent:GetVelocity():GetNormalized() * 6000   -- разворот уносит ещё на ~2000
+	local nearEdge = mapCfg and (ahead.x < mapCfg.minX or ahead.x > mapCfg.maxX or ahead.y < mapCfg.minY or ahead.y > mapCfg.maxY)
+	-- Край близко, а до цели ещё мало для захода — уходим вдоль края (раньше бросал атаку)
+	if mode == "extend" and nearEdge and dist <= 7000 then entry.planeExtendOff = entry.planeExtendOff or 70 end
+	if mode ~= "extend" then entry.planeExtendOff = nil end
+	if mode == "extend" and (dist >= PLANE_FIRE.extend or (nearEdge and dist > 7000)) then
+		mode, entry.planeTurnSince = "turn in", now
+		entry.planeRunYaw = (pos - tpos):Angle().y
+		-- Разворот (цель за спиной) — в сторону центра карты: в другую сторону он упирался в край
+		if mapCfg then
+			local c = Vector((mapCfg.minX + mapCfg.maxX) / 2, (mapCfg.minY + mapCfg.maxY) / 2, 0)
+			ent.prTurnSign = math.AngleDifference((c - pos):Angle().y, PlaneHeading(ent)) >= 0 and 1 or -1
+		end
+	end
+	if mode ~= "pull up" then entry.planeBreakYaw = nil end
 	-- Вышел из пике — следующий заход с другой стороны
 	if mode == "pull up" and was == "dive" then
 		entry.planeRunYaw = PlaneRunYaw(ent, target, tpos, (pos - tpos):Angle().y, PLANE_SIDES_NEXT, angle, ipDist)
@@ -3120,18 +3159,25 @@ local function PlaneAttack(entry, ent, target, kind)
 	if mode ~= was then
 		local aimed = was == "dive" and entry.planeBestAim and string.format(", нос до цели не ближе %.1f°%s%s", entry.planeBestAim,
 			entry.planeFired and ", стрелял" or entry.planeNoFire and ", " .. entry.planeNoFire or "",
-			(entry.salvo or 0) > 0 and ", ракет " .. entry.salvo or "") or ""
+			(entry.salvo or 0) > 0 and ", ракет " .. entry.salvo .. (entry.planeDropUsed and string.format(" (поправка на падение %d)", entry.planeDropUsed) or "") or "") or ""
 		PR_Patrol.Log(string.format("%s: заход по %s %s → %s (до цели %d, выше цели %d, скорость %d%s%s)", VehicleLabel(entry),
 			kind == "vehicle" and "технике" or "пехоте", was, mode, pos:Distance(tpos), pos.z - tpos.z, ent:GetVelocity():Length(),
 			danger and ", " .. why or "", aimed))
 		entry.planeBestAim, entry.planeFired, entry.planeNoFire = nil, nil, nil
 	end
 
+	if mode == "extend" then
+		PlaneThrottle(ent, 1)
+		local jink = 6 * math.sin(now * 2 * math.pi / 3)
+		return PlaneSteer(ent, toTarget + 180 + (entry.planeExtendOff or 0) + jink, math.max(AltitudePitch(pos, tpos.z + PLANE_FIRE.extendHeight), -12))
+	end
 	if mode == "pull up" then
 		PlaneThrottle(ent, 1)
+		if entry.planeBreakYaw then return PlaneSteer(ent, entry.planeBreakYaw, -20) end
 		return PlaneSteer(ent, PlaneHeading(ent), -35)
 	elseif mode == "dive" then
-		PlaneThrottle(ent, 0.5)
+		-- Полный газ (игрок пикирует на 1900–2100; на 50% «полз» на 1400), притормаживаем выше 2050
+		PlaneThrottle(ent, ent:GetVelocity():Length() > 2050 and 0.7 or 1)
 		local muzzle = ent:WorldSpaceCenter()
 		local range = pos:Distance(tpos)
 		-- Упреждение на скорость цели (по технике — под ракеты; в префайр — точка неподвижна)
@@ -3143,9 +3189,13 @@ local function PlaneAttack(entry, ent, target, kind)
 			if entry.rocketKey then
 				local saved = entry.shellKey
 				entry.shellKey = entry.rocketKey
-				aimPos = aimPos + Vector(0, 0, ShellDrop(entry, Vector(tpos.x - pos.x, tpos.y - pos.y, 0):Length()))
+				entry.planeDropUsed = ShellDrop(entry, Vector(tpos.x - pos.x, tpos.y - pos.y, 0):Length())
+				aimPos = aimPos + Vector(0, 0, entry.planeDropUsed)
 				entry.shellKey = saved
 			end
+			-- A-10 Гредвича пускает ракеты на PLANE_FIRE.rocketPitch° выше носа (Angle(-2, ±1, 0)): нос ниже
+			-- на столько же, иначе с 30° пике перелёт 400–1000 (ракеты рвались за машиной)
+			aimPos = aimPos - Vector(0, 0, muzzle:Distance(tpos) * math.tan(math.rad(PLANE_FIRE.rocketPitch)))
 		end
 		-- Очередь ведём вдоль захода: издали — с недолётом, ближе к выходу — с перелётом
 		local sweepK = math.Clamp((range - 3000) / (PLANE_FIRE.from - 3000), 0, 1) * 2 - 1
@@ -3162,7 +3212,7 @@ local function PlaneAttack(entry, ent, target, kind)
 				entry.planeNoFire = string.format("цель закрыта (%s в %d от цели)", los.HitSky and "небо" or "стена/земля", los.HitPos:Distance(tpos))
 			else
 				-- Ракеты — только точно (≤ 2.5° на саму цель) и с 2000–6000; пушка — с PLANE_FIRE.off
-				local useRockets = kind == "vehicle" and offTarget <= 2.5 and range > 2000 and range < 6000
+				local useRockets = kind == "vehicle" and offTarget <= 2.5 and range > 2500 and range < 5000
 				local before = ent.NextPrimary
 				FirePilot(ent, entry, prefire and PointTarget(gunPos) or target, useRockets and "vehicle" or "infantry", true)
 				if ent.NextPrimary ~= before or (entry.salvo or 0) > 0 then entry.planeFired = true end
@@ -3175,8 +3225,12 @@ local function PlaneAttack(entry, ent, target, kind)
 		-- Не круче 40°: из более крутого самолёт не успевал выйти
 		return PlaneSteer(ent, aim.y, math.Clamp(math.NormalizeAngle(aim.p), 0, 40))
 	elseif mode == "turn in" then
-		PlaneThrottle(ent, 0.8)
-		return PlaneSteer(ent, toTarget, math.min(AltitudePitch(pos, ip.z), 15))
+		-- Полный газ и без набора (не круче 5° вверх): разворот на 1450 разносил до 13 тыс.
+		PlaneThrottle(ent, 1)
+		-- PlaneSteer в крутом развороте сам поднимает нос на |Δкурса|/3 (до 15°) — тут гасим это: иначе
+		-- разворот на цель задирал нос, скорость падала до ~800 и он лез на 5700 над целью
+		local turnUp = math.min(math.abs(math.AngleDifference(toTarget, PlaneHeading(ent))), 45) / 3
+		return PlaneSteer(ent, toTarget, math.Clamp(AltitudePitch(pos, ip.z), -5, 15) + turnUp)
 	end
 	-- К точке разворота снижаемся не круче 15°: круче — земля по ходу, и уход вверх
 	PlaneThrottle(ent, 1)

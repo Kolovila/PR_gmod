@@ -353,7 +353,8 @@ local function Directing()
 end
 
 hook.Add("PlayerBindPress", "PR_SelfTestManualCam", function(ply, bind, pressed)
-	if not (director.on and not watch.active and pressed) then return end
+	-- Только когда камера-режиссёр в этом наборе работает (полигон, скан — без неё: ЛКМ — стрелять)
+	if not (director.on and (director.active or manual.on) and not watch.active and pressed) then return end
 	if bind == "+attack" then ManualPick(1) return true end
 	if bind == "+attack2" then ManualPick(-1) return true end
 	if not manual.on then return end

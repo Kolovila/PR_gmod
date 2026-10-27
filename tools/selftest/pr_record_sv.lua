@@ -12,6 +12,10 @@ local T = include("pr_selftest_lib.lua")
 local S, log, step, waitFor = T.S, T.log, T.step, T.waitFor
 
 local HELIS = {"gred_lfs_oh6", "lfs_grdn_md500tow", "gd_lfs_mi24v", "lfs_grdn_ah64d", "gd_lfs_mi28n", "lfs_grdn_ka50"}
+-- recordplane: штурмовик A-10 — появляется в воздухе в ~9000 от цели на ~3000 над ней, носом на цель;
+-- висит, пока игрок не возьмёт управление, и отпускается сразу на скорости 1500 с полным газом
+local PLANE = T.only and T.only.plane
+if PLANE then HELIS = {"gred_lfs_a10"} end
 local LOADOUTS = {
 	lfs_grdn_ka50 = {2, 1}, gd_lfs_mi24v = {2, 0}, lfs_grdn_ah64d = {3, 1, 2}, gd_lfs_mi28n = {1, 2, 3}, lfs_grdn_md500tow = {1, 2},
 }
@@ -62,6 +66,19 @@ local function SpawnHeli()
 	-- появляются вместе с корпусом. Раньше ставили на землю и потом поднимали корпус — колёса
 	-- оставались в земле и держали вертолёт, как на привязи (выше ~900 он не поднимался)
 	local pos = S.spawnPos + Vector(0, 0, 400)
+	if PLANE then
+		-- Направление захода — где над путём к цели свободно
+		pos = nil
+		for yaw = 0, 345, 30 do
+			local p = TARGET + Angle(0, yaw, 0):Forward() * 9000 + Vector(0, 0, 3000)
+			if not util.TraceLine({start = p, endpos = TARGET + Vector(0, 0, 1500), mask = MASK_SOLID_BRUSHONLY}).Hit
+				and not util.TraceHull({start = p, endpos = p + Vector(0, 0, 1), mins = Vector(-800, -800, -300), maxs = Vector(800, 800, 300), mask = MASK_SOLID_BRUSHONLY}).Hit then
+				pos = p
+				break
+			end
+		end
+		pos = pos or TARGET + Vector(9000, 0, 3000)
+	end
 	local ent = ents.Create(class)
 	if not IsValid(ent) then Say("нет вертолёта " .. class) return end
 	ent:SetPos(pos)
@@ -103,6 +120,13 @@ hook.Add("Think", "PR_RecordHold", function()
 	-- В кресле LFS кнопки движения не доходят до KeyDown — отпускаем по самим клавишам (PlayerButtonDown)
 	if S.flyPressed then
 		S.holdPos, S.spunSaid, S.flyPressed = nil, nil, nil
+		if PLANE then
+			-- Самолёт с места не полетит: сразу скорость и полный газ, шасси убрано
+			local phys = ent:GetPhysicsObject()
+			if IsValid(phys) then phys:SetVelocity(ent:GetForward() * 1500) end
+			if isfunction(ent.GetMaxRPM) then ent.TargetRPM = ent:GetMaxRPM() end
+			if isfunction(ent.RaiseLandingGear) then ent:RaiseLandingGear() end
+		end
 		Say("управление ваше")
 		return
 	end
@@ -284,4 +308,5 @@ end)
 
 step(1, T.done)
 
+T.noDirector = true   -- игрок летает сам: камера-режиссёр не нужна
 hook.Add("InitPostEntity", "PR_SelfTest", function() T.run(8) end)
