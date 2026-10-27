@@ -161,3 +161,4 @@ end
 
 -- Мини-карта: снимки карт и их границы (нужны клиенту, cl_minimap.lua)
 include("config/minimap.lua")
+include("sh_cw_compat.lua")

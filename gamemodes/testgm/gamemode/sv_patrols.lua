@@ -18,6 +18,7 @@ util.AddNetworkString("PR_PatrolDeleteType") -- админ удаляет вар
 util.AddNetworkString("PR_PatrolSpawnType")  -- админ выпускает вариант сейчас
 util.AddNetworkString("PR_PatrolTypeResult") -- итог для админа: ок/ошибка, ключ, текст
 util.AddNetworkString("PR_PatrolCrewName")   -- имя бота-экипажа: клиенты прячут «вступает в игру»
+util.AddNetworkString("PR_PatrolUI")         -- у админа открыто / закрыто окно редактора
 
 PR_Patrol = PR_Patrol or {}
 PR_Patrol.Spots = PR_Patrol.Spots or {}   -- [id] = {Id, Pos, Zone}
@@ -659,8 +660,8 @@ local function SpawnMember(patrol, def, pos, role)
 	-- VJ-паки в Initialize ставят свой класс и дружбу с игроками (vj_me_scav): перебиваем после спавна
 	npc.VJ_NPC_Class = {patrol.cfg.npcClass or "CLASS_PR_BANDITS"}
 	npc.PlayerFriendly = false
-	npc.FriendsWithAllPlayerAllies = false
-	npc.WhiteFractionList = nil
+	npc.AlliedWithPlayerAllies = false
+	npc.BecomeEnemyToPlayer = false
 	-- Сами не бродят: куда идти, решает патруль
 	npc.DisableWandering = true
 
@@ -807,8 +808,8 @@ local function MoveTo(npc, pos, run)
 	end
 
 	npc:SetLastPosition(pos)
-	if isfunction(npc.VJ_TASK_GOTO_LASTPOS) then
-		npc:VJ_TASK_GOTO_LASTPOS(run and "TASK_RUN_PATH" or "TASK_WALK_PATH")
+	if isfunction(npc.SCHEDULE_GOTO_POSITION) then
+		npc:SCHEDULE_GOTO_POSITION(run and "TASK_RUN_PATH" or "TASK_WALK_PATH")
 	else
 		npc:SetSchedule(run and SCHED_FORCED_GO_RUN or SCHED_FORCED_GO)
 	end
@@ -5352,6 +5353,18 @@ end
 net.Receive("PR_PatrolTypes", function(len, ply)
 	if PR_IsAdmin(ply) then PR_Patrol.SendTypes(ply) end
 end)
+
+-- Окно редактора открыто или закрылось только что (UI_GRACE с): ЛКМ редактора спот не ставит
+PR_Patrol.UI_GRACE = 0.6
+
+net.Receive("PR_PatrolUI", function(len, ply)
+	ply.PR_PatrolUIOpen = net.ReadBool()
+	ply.PR_PatrolUIAt = CurTime()
+end)
+
+function PR_Patrol.UIBusy(ply)
+	return ply.PR_PatrolUIOpen == true or CurTime() - (ply.PR_PatrolUIAt or -100) < PR_Patrol.UI_GRACE
+end
 
 net.Receive("PR_PatrolSaveType", function(len, ply)
 	if not PR_IsAdmin(ply) or not PR_NetThrottle(ply, "PR_PatrolSaveType", 0.5) then return end

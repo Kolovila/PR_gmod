@@ -54,6 +54,8 @@ function SWEP:PrimaryAttack()
 
 	local owner = self:GetOwner()
 	if not IsValid(owner) or not PR_IsAdmin(owner) then return end
+	-- Клик был по окну редактора, а не в мир (см. PR_PatrolEditor.Guard в cl_patrols.lua)
+	if PR_Patrol.UIBusy(owner) then return end
 
 	local tr = AimTrace(owner)
 	if not tr.Hit or tr.HitNormal.z < 0.6 then
@@ -205,6 +207,7 @@ function PR_PatrolEditor.OpenZoneMenu()
 
 	local frame, body = PR_UI.Popup("Территория", 560, 470)
 	PR_PatrolEditor.Menu = frame
+	PR_PatrolEditor.Guard(frame)
 
 	local hint = vgui.Create("DLabel", body)
 	hint:Dock(TOP)

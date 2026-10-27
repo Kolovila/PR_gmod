@@ -287,9 +287,8 @@ function ENT:SpawnGuardian(class, weaponClass, hpMul, signal)
 	guard:SetPos(self:FindGuardianSpot())
 	guard:SetAngles(Angle(0, math.random(0, 359), 0))
 
-	-- Свой/чужой: правки в addons/VJ-Base читают WhiteFractionList.
-	-- Отдельный VJ-класс на фракцию, чтобы защитники разных фракций воевали друг с другом.
-	guard.WhiteFractionList = team
+	-- Свой/чужой: отдельный VJ-класс на фракцию, чтобы защитники разных фракций воевали друг с другом.
+	-- Игроки своей группировки получают тот же класс (sv_vj_compat.lua) — VJ считает их своими
 	guard.VJ_NPC_Class = {"CLASS_PR_" .. team}
 	guard:SetNWString("PR_fraction", team)
 
@@ -306,6 +305,8 @@ function ENT:SpawnGuardian(class, weaponClass, hpMul, signal)
 
 	-- Некоторые VJ-паки ставят свой класс в Initialize, возвращаем фракционный
 	guard.VJ_NPC_Class = {"CLASS_PR_" .. team}
+	-- EFT-пак ставит BecomeEnemyToPlayer: после пары случайных попаданий свой игрок стал бы врагом
+	guard.BecomeEnemyToPlayer = false
 
 	guard:SetHealth(math.floor(guard:Health() * hpMul))
 	guard:SetMaxHealth(guard:Health())

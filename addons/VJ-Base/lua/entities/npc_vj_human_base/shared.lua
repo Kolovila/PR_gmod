@@ -1,20 +1,13 @@
-if (!file.Exists("autorun/vj_base_autorun.lua","LUA")) then return end
----------------------------------------------------------------------------------------------------------------------------------------------
 ENT.Base 			= "base_entity"
 ENT.Type 			= "ai"
-ENT.PrintName 		= "VJ Human SNPC Base"
+ENT.PrintName 		= "VJ Base Human"
 ENT.Author 			= "DrVrej"
 ENT.Contact 		= "http://steamcommunity.com/groups/vrejgaming"
-ENT.Purpose 		= "To make SNPCs."
-ENT.Instructions 	= "Don't change anything."
 ENT.Category		= "VJ Base"
-
-ENT.Spawnable = false
-ENT.AdminSpawnable = false
 ENT.AutomaticFrameAdvance = false
 
-ENT.IsVJBaseSNPC = true -- Is it a VJ Base SNPC?
-ENT.IsVJBaseSNPC_Human = true -- Is it a VJ Base human?
+ENT.IsVJBaseSNPC = true
+ENT.IsVJBaseSNPC_Human = true
 ---------------------------------------------------------------------------------------------------------------------------------------------
 function ENT:SetAutomaticFrameAdvance(val)
 	self.AutomaticFrameAdvance = val
@@ -27,15 +20,50 @@ function ENT:MatFootStepQCEvent(data)
 	return false
 end
 ---------------------------------------------------------------------------------------------------------------------------------------------
+//function ENT:FireAnimationEvent(pos, ang, event, name)
+	//VJ.DEBUG_Print(self, "FireAnimationEvent", pos, ang, event, name)
+//end
+---------------------------------------------------------------------------------------------------------------------------------------------
 if CLIENT then
+	function ENT:Init() end
+	---------------------------------------------------------------------------------------------------------------------------------------------
+	--[[---------------------------------------------------------
+		UNCOMMENT TO USE | Called whenever CalcView is ran on the NPC controller | Useful to override the camera calculations
+			- controller = Controller entity (Includes all the necessary data)
+			- ply = Player that is controlling the NPC
+			- origin = Current view position
+			- angles = Current view angles
+			- fov = Current field of view
+		Returns
+			- false or nothing = Run base code
+			- Table: Override base code, possible values --> {origin, ang, fov, speed}, "speed" = Camera lerp speed
+		Example Code:
+			Use a new cool view origin while in third person mode!
+			--
+			if controller:GetCameraMode() == 1 then
+				return {origin = origin - (angles:Forward() * 300)}
+			end
+			return false
+			--
+	-----------------------------------------------------------]]
+	-- function ENT:Controller_OnCalcView(controller, ply, origin, angles, fov) end
+	---------------------------------------------------------------------------------------------------------------------------------------------
 	//ENT.RenderGroup = RENDERGROUP_BOTH
-	function ENT:Initialize() end
-	function ENT:Draw() self:DrawModel() self:CustomOnDraw() end
+	local metaEntity = FindMetaTable("Entity")
+	local funcDrawModel = metaEntity.DrawModel
+	
+	function ENT:Initialize()
+		if GetConVar("vj_npc_ikchains"):GetInt() == 0 then self:SetIK(false) end
+		if GetConVar("vj_npc_forcelowlod"):GetInt() == 1 then self:SetLOD(8) end
+		if self.CustomOnDraw then -- !!!!!!!!!!!!!! DO NOT USE THIS FUNCTION !!!!!!!!!!!!!! [Backwards Compatibility!]
+			function self:Draw()
+				funcDrawModel(self)
+				self:CustomOnDraw()
+			end
+		end
+		self:Init()
+	end
+	function ENT:Draw() funcDrawModel(self) end
 	function ENT:DrawTranslucent() self:Draw() end
-	function ENT:BuildBonePositions(NumBones,NumPhysBones) end
-	function ENT:SetRagdollBones(bIn) self.m_bRagdollSetup = bIn end
-	function ENT:DoRagdollBone(PhysBoneNum,BoneNum) /*self:SetBonePosition(BoneNum,Pos,Angle)*/ end
 	//function ENT:CalcAbsolutePosition(pos, ang) end
-	-- Custom functions ---------------------------------------------------------------------------------------------------------------------------------------------
-	function ENT:CustomOnDraw() end
 end

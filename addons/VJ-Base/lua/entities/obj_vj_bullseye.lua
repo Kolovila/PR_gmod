@@ -1,22 +1,19 @@
-/*--------------------------------------------------
-	*** Copyright (c) 2012-2022 by DrVrej, All rights reserved. ***
+/*-----------------------------------------------
+	*** Copyright (c) 2012-2026 by DrVrej, All rights reserved. ***
 	No parts of this code or any of its contents may be reproduced, copied, modified or adapted,
 	without the prior written consent of the author, unless otherwise indicated for stand-alone materials.
---------------------------------------------------*/
+-----------------------------------------------*/
 AddCSLuaFile()
-if (!file.Exists("autorun/vj_base_autorun.lua","LUA")) then return end
 
 ENT.Base 			= "base_entity"
 ENT.Type 			= "ai"
-ENT.PrintName 		= "Bullseye"
+ENT.PrintName 		= "VJ Base Bullseye"
 ENT.Author 			= "DrVrej"
 ENT.Contact 		= "http://steamcommunity.com/groups/vrejgaming"
-ENT.Purpose 		= "To make my a target for NPCs"
-ENT.Instructions 	= "Don't change anything."
+ENT.Information 	= "Target for VJ Base NPCs."
 ENT.Category		= "VJ Base"
 
-ENT.Spawnable 		= false
-ENT.AdminSpawnable 	= false
+ENT.IsVJBaseBullseye = true
 ---------------------------------------------------------------------------------------------------------------------------------------------
 if CLIENT then
 	function ENT:Draw()
@@ -26,22 +23,24 @@ end
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 if !SERVER then return end
 
-//ENT.VJBULLSEYE_TheAttacker = nil
-//ENT.Alreadydoneit = false
-ENT.SolidMovementType = "Dynamic"
-ENT.UseActivationSystem = false -- Mostly used for the Bullseye tool, allows you to activate/deactivate the bullseye
+ENT.SolidMovementType = "Dynamic" -- Physics type to use | Applied in initialize
+ENT.CanToggle = false -- Can it be toggled (activate/deactivate) by players by interacting with it? | Used by the Bullseye tool
+ENT.ToggleDisplayColors = true -- Should it color the bullseye based on the toggle state?
+ENT.ForceEntAsEnemy = false -- Set this to an NPC that should always override all other enemies and target this bullseye instead | Used by the NPC Controller
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------ ///// BASE IMPLEMENTATION BELOW — Override with caution and only when necessary! \\\\\ ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ENT.Activated = true
-ENT.UserStatusColors = true
-ENT.EnemyToIndividual = false
-ENT.EnemyToIndividualEnt = NULL
 
-local sdActivated = Sound("hl1/fvox/activated.wav")
-local sdDeactivated = Sound("hl1/fvox/deactivated.wav")
+local sdActivated = "hl1/fvox/activated.wav"
+local sdDeactivated = "hl1/fvox/deactivated.wav"
 ---------------------------------------------------------------------------------------------------------------------------------------------
 function ENT:Initialize()
 	//self:SetModel("models/hunter/plates/plate.mdl")
-	//self:SetMoveType(MOVETYPE_NONE)
-	//self:SetSolid(SOLID_NONE)
 	if self.SolidMovementType == "Dynamic" then
 		self:PhysicsInit(SOLID_VPHYSICS)
 		self:SetMoveType(MOVETYPE_NONE)
@@ -58,49 +57,33 @@ function ENT:Initialize()
 	self:SetUseType(SIMPLE_USE)
 	self:SetMaxHealth(999999)
 	self:SetHealth(999999) -- So SNPCs won't think it's dead
-	//self:SetColor(Color(255,0,0))
 end
 ---------------------------------------------------------------------------------------------------------------------------------------------
 function ENT:AcceptInput(key, activator, caller, data)
 	if !activator:IsPlayer() then return end
-	if self.Activated == false then
+	if !self.Activated then
 		self.Activated = true
-		activator:PrintMessage(HUD_PRINTTALK, "#vjbase.print.bullseye.activated")
+		activator:PrintMessage(HUD_PRINTTALK, "#vjbase.bullseye.print.activated")
 		self:EmitSound(sdActivated, 70, 100)
-	elseif self.Activated == true then
+	elseif self.Activated then
 		self.Activated = false
-		activator:PrintMessage(HUD_PRINTTALK, "#vjbase.print.bullseye.deactivated")
+		activator:PrintMessage(HUD_PRINTTALK, "#vjbase.bullseye.print.deactivated")
 		self:EmitSound(sdDeactivated, 70, 100)
 	end
 end
 ---------------------------------------------------------------------------------------------------------------------------------------------
 function ENT:Think()
-	if self.EnemyToIndividual == true then
-		self:AddFlags(FL_NOTARGET)
-		if IsValid(self.EnemyToIndividualEnt) && self.EnemyToIndividualEnt:IsNPC() then
-			self.EnemyToIndividualEnt:AddEntityRelationship(self,D_HT,99)
-			self:AddEntityRelationship(self.EnemyToIndividualEnt,D_HT,99)
-			if self.EnemyToIndividualEnt.IsVJBaseSNPC then
-				self.EnemyToIndividualEnt:VJ_DoSetEnemy(self,false,false)
-			end
-			self.EnemyToIndividualEnt:SetEnemy(self)
-		end
-	elseif self.UseActivationSystem == true then
-		if self.Activated == false then
+	local selfData = self:GetTable()
+	if selfData.ForceEntAsEnemy then return end
+	if selfData.CanToggle then
+		if !selfData.Activated then
 			self:AddFlags(FL_NOTARGET)
-			if self.UserStatusColors == true then self:SetColor(Color(255,0,0)) end
-		elseif self.Activated == true then
+			if selfData.ToggleDisplayColors then self:SetColor(VJ.COLOR_RED) end
+		elseif selfData.Activated then
 			self:RemoveFlags(FL_NOTARGET)
-			if self.UserStatusColors == true then self:SetColor(Color(0,255,0)) end
+			if selfData.ToggleDisplayColors then self:SetColor(VJ.COLOR_GREEN) end
 		end
 	end
-	/*if IsValid(self.VJBULLSEYE_TheAttacker) && self.Alreadydoneit == false then
-		table.insert(self.VJBULLSEYE_TheAttacker.CurrentPossibleEnemies,self)
-		//print(self.VJBULLSEYE_TheAttacker)
-		//self.Alreadydoneit = true
-		self:AddEntityRelationship(self.VJBULLSEYE_TheAttacker,D_HT,99)
-		self.VJBULLSEYE_TheAttacker:VJ_DoSetEnemy(self)
-	end*/
 end
 ---------------------------------------------------------------------------------------------------------------------------------------------
 function ENT:OnTakeDamage(dmginfo)

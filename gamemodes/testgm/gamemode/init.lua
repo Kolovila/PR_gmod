@@ -10,6 +10,7 @@ AddCSLuaFile("cl_menu.lua")
 AddCSLuaFile("cl_patrols.lua")
 AddCSLuaFile("cl_minimap.lua")
 AddCSLuaFile("config/minimap.lua")
+AddCSLuaFile("sh_cw_compat.lua")
 
 -- Снимок карты для мини-карты: клиенты скачивают его с сервера (или с sv_downloadurl)
 resource.AddFile("materials/test_gm_mat/minimap/rp_desert_conflict.jpg")
@@ -26,6 +27,7 @@ include("sv_minimap.lua")
 include("sv_vivo_compat.lua")
 include("sv_simfphys_compat.lua")
 include("sv_rocket_compat.lua")
+include("sv_vj_compat.lua")
 include("sv_map.lua")
 include("sv_nav.lua")
 include("sv_gameplay_rec.lua")
@@ -122,7 +124,9 @@ hook.Add("OnNPCKilled", "PR_KillReward", function(victim, attacker, inflictor)
 	if not attacker then return end
 
 	-- За своих защитников точки не платим
-	if victim.WhiteFractionList != nil and victim.WhiteFractionList == attacker:GetNWString("PR_fraction") then return end
+	-- (группировку NPC ставит только точка своим защитникам — zahvat_ojka)
+	local guardFrac = victim:GetNWString("PR_fraction")
+	if guardFrac ~= "" and guardFrac == attacker:GetNWString("PR_fraction") then return end
 
 	-- У патрульных своя награда (config/patrols.lua), у остальных NPC — 100$ и 1 опыта
 	local reward = victim.PR_Reward or {}

@@ -670,7 +670,8 @@ step(1, function()
 	check("four reshala guards", allBully, #guards)
 	check("patrol health from config", IsValid(leader) and leader:Health() == 600 and guards[1] and guards[1]:Health() == 300,
 		IsValid(leader) and leader:Health())
-	check("patrol hostile to everyone", IsValid(leader) and leader.PlayerFriendly == false and leader.VJ_NPC_Class[1] == "CLASS_PR_BANDITS" and leader.DisableWandering == true)
+	check("patrol hostile to everyone", IsValid(leader) and leader.PlayerFriendly == false and leader.VJ_NPC_Class[1] == "CLASS_PR_BANDITS"
+		and not table.HasValue(leader.VJ_NPC_Class, "CLASS_PLAYER_ALLY") and leader.DisableWandering == true)
 	check("patrol members don't block each other", IsValid(leader) and guards[1] and table.HasValue(leader.EntitiesToNoCollide or {}, guards[1]:GetClass())
 		and not table.HasValue(scripted_ents.GetStored(leader:GetClass()).t.EntitiesToNoCollide or {}, guards[1]:GetClass()))
 end)
@@ -817,6 +818,39 @@ step(1, function()
 	wep:SetNextSecondaryFire(0)
 	wep:SecondaryAttack()
 	check("editor RMB removes the aimed spot", table.Count(PR_Patrol.Spots) == before)
+
+	-- Окно патрулей открыто: клик (провалившийся из окна) спот не ставит
+	S.spotsBefore = before
+	net.Start("PR_SELFTEST_PTYPES_OPEN") net.WriteString("reshala") net.Send(S.host)
+end)
+
+step(1.5, function()
+	local wep = S.host:GetActiveWeapon()
+	if not IsValid(wep) or wep:GetClass() ~= "pr_patrol_tool" then return end
+	wep:SetNextPrimaryFire(0)
+	wep:PrimaryAttack()
+	check("editor LMB ignored while patrol window open", table.Count(PR_Patrol.Spots) == S.spotsBefore and S.host.PR_PatrolUIOpen == true,
+		tostring(S.host.PR_PatrolUIOpen))
+	net.Start("PR_SELFTEST_CLOSE") net.Send(S.host)
+end)
+
+step(0.2, function()
+	local wep = S.host:GetActiveWeapon()
+	if not IsValid(wep) or wep:GetClass() ~= "pr_patrol_tool" then return end
+	wep:SetNextPrimaryFire(0)
+	wep:PrimaryAttack()
+	check("editor LMB ignored right after the window closed", table.Count(PR_Patrol.Spots) == S.spotsBefore and S.host.PR_PatrolUIOpen == false,
+		tostring(S.host.PR_PatrolUIOpen))
+end)
+
+step(1, function()
+	local wep = S.host:GetActiveWeapon()
+	if not IsValid(wep) or wep:GetClass() ~= "pr_patrol_tool" then return end
+	wep:SetNextPrimaryFire(0)
+	wep:PrimaryAttack()
+	check("editor LMB works again after the window", table.Count(PR_Patrol.Spots) == S.spotsBefore + 1)
+	wep:SetNextSecondaryFire(0)
+	wep:SecondaryAttack()
 
 	-- Снимок редактора: смотрим вдоль линии спотов
 	local a, c = PR_Patrol.Spots[S.spotA], PR_Patrol.Spots[S.spotC]

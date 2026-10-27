@@ -1,364 +1,394 @@
 AddCSLuaFile("shared.lua")
-include('shared.lua')
+include("shared.lua")
+include("vj_base/ai/base_tank.lua")
 /*-----------------------------------------------
-	*** Copyright (c) 2012-2022 by DrVrej, All rights reserved. ***
+	*** Copyright (c) 2012-2026 by DrVrej, All rights reserved. ***
 	No parts of this code or any of its contents may be reproduced, copied, modified or adapted,
 	without the prior written consent of the author, unless otherwise indicated for stand-alone materials.
 -----------------------------------------------*/
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
------- Core Variables ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------ Core ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ENT.StartHealth = 0
-ENT.HullType = HULL_TINY
-ENT.HullSizeNormal = false -- set to false to cancel out the self:SetHullSizeNormal()
-ENT.HasSetSolid = false -- set to false to disable SetSolid
-ENT.VJ_IsHugeMonster = true -- Is this a huge monster?
-ENT.MovementType = VJ_MOVETYPE_STATIONARY -- How does the SNPC move?
-ENT.CanTurnWhileStationary = false -- If set to true, the SNPC will be able to turn while it's a stationary SNPC
-ENT.Stationary_UseNoneMoveType = true -- Technical variable, use this if there is any issues with the SNPC's position, though it does have its downsides, so use it only when needed
-ENT.GodMode = true -- Immune to everything
-ENT.Bleeds = false -- Does the SNPC bleed? (Blood decal, particle, etc.)
-ENT.Immune_Dissolve = true -- Immune to Dissolving | Example: Combine Ball
-ENT.Immune_AcidPoisonRadiation = true -- Immune to Acid, Poison and Radiation
-ENT.Immune_Bullet = true -- Immune to Bullets
-ENT.Immune_Physics = true -- Immune to Physics
-ENT.ImmuneDamagesTable = {DMG_SLASH,DMG_GENERIC,DMG_CLUB,DMG_PHYSGUN} -- You can set Specific types of damages for the SNPC to be immune to
-ENT.FindEnemy_UseSphere = true -- Should the SNPC be able to see all around him? (360) | Objects and walls can still block its sight!
-ENT.DeathCorpseCollisionType = COLLISION_GROUP_NONE -- Collision type for the corpse | SNPC Options Menu can only override this value if it's set to COLLISION_GROUP_DEBRIS!
-ENT.HasMeleeAttack = false -- Should the SNPC have a melee attack?
-ENT.DisableInitializeCapabilities = true -- If true, it will disable the initialize capabilities, this will allow you to add your own
-ENT.DisableSelectSchedule = true -- Disables Schedule code, Custom Schedule can still work
-ENT.DisableWandering = true -- Disables wandering when the SNPC is idle
-ENT.DisableFindEnemy = true -- Disables FindEnemy code, friendly code still works though
-ENT.BringFriendsOnDeath = false -- Should the SNPC's friends come to its position before it dies?
-ENT.CallForBackUpOnDamage = false -- Should the SNPC call for help when damaged? (Only happens if the SNPC hasn't seen a enemy)
-ENT.MoveOrHideOnDamageByEnemy = false -- Should the SNPC move or hide when being damaged by an enemy?
-ENT.CallForHelp = false -- Does the SNPC call for help?
-ENT.HasPainSounds = false -- If set to false, it won't play the pain sounds
+ENT.MovementType = VJ_MOVETYPE_STATIONARY
+ENT.CanTurnWhileStationary = false
+ENT.GodMode = true
+ENT.EnemyDetection = false
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
------- Tank Base Variables ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------ Tank Base ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-ENT.Tank_AngleDiffuseNumber = 180 -- Used if the forward direction of the y-axis isn't correct on the model
+ENT.Tank_AngleOffset = 0 -- Use to offset the forward angle if the model's y-axis isn't facing the correct direction
 ENT.Tank_AngleDiffuseFiringLimit = 5 -- Firing angle diffuse limit, useful for larger barrel tanks by increasing it | lower number = More specific the barrel has to aim to fire
-	-- ====== Sight Variables ====== --
-ENT.Tank_SeeClose = 350 -- If the enemy is closer than this number, than don't shoot!
-ENT.Tank_SeeFar = 6500 -- If the enemy is higher than this number, than don't shoot!
-	-- ====== Movement Variables ====== --
 ENT.Tank_TurningSpeed = 5 -- How fast the gun moves as it's aiming towards an enemy
-	-- ====== Projectile Shell Variables ====== --
+	-- ====== Projectile Shell ====== --
+ENT.Tank_HasShellAttack = true
+ENT.Tank_Shell_FireMin = 350 -- If the enemy is closer than this number, than don't shoot!
+ENT.Tank_Shell_FireMax = ENT.SightDistance -- If the enemy is higher than this number, than don't shoot!
 ENT.Tank_Shell_NextFireTime = 0 -- Delay between each fire, triggered the moment when the shell leaves the tank | It can NOT even reload if this delay is active!
-ENT.Tank_Shell_TimeUntilFire = 2 -- Delay until it fires the shell (Ran after reloading) | If Failure: it will instantly fire it the moment it's facing the enemy again!
+ENT.Tank_Shell_TimeUntilFire = 2.5 -- Delay until it fires the shell (Ran after reloading) | If Failure: it will instantly fire it the moment it's facing the enemy again!
 ENT.Tank_Shell_SpawnPos = Vector(-170, 0, 65)
-ENT.Tank_Shell_EntityToSpawn = "obj_vj_tank_shell" -- The entity that is spawned when the shell is fired
-ENT.Tank_Shell_VelocitySpeed = 5000 -- How fast should the tank shell travel?
-ENT.Tank_Shell_DynamicLightPos = Vector(-200, 0, 0)
+ENT.Tank_Shell_Entity = "obj_vj_rocket" -- Shell entity to spawn
+ENT.Tank_Shell_VelocitySpeed = 4000 -- How fast should the shell travel?
 ENT.Tank_Shell_MuzzleFlashPos = Vector(0, -235, 18)
-ENT.Tank_Shell_ParticlePos = Vector(-205, 00, 72)
-	-- ====== Sound Variables ====== --
-ENT.HasReloadShellSound = true
-ENT.Tank_SoundTbl_Turning = {}
+ENT.Tank_Shell_ParticlePos = Vector(-205, 0, 72)
+	-- ====== Sounds ====== --
+	-- Gun turning movement sound
+	-- Recommended to use looping WAV sound!
+ENT.HasMoveSound = true
+ENT.Tank_SoundTbl_Turning = false
 ENT.Tank_TurningSoundLevel = 80
-ENT.Tank_TurningSoundPitch = VJ_Set(100, 100)
---
+ENT.Tank_TurningSoundPitch = VJ.SET(100, 100)
+	-- Shell reload sound
+ENT.HasReloadShellSound = true
+ENT.Tank_SoundTbl_ReloadShell = false
+ENT.Tank_ReloadShellSoundLevel = 75
+ENT.Tank_ReloadShellSoundPitch = VJ.SET(90, 100)
+	-- Shell fire sound
 ENT.HasFireShellSound = true
-ENT.Tank_SoundTbl_ReloadShell = {}
-ENT.Tank_ReloadShellSoundLevel = 90
-ENT.Tank_ReloadShellSoundPitch = VJ_Set(100, 100)
+ENT.Tank_SoundTbl_FireShell = false
+ENT.Tank_FireShellSoundLevel = 140
+ENT.Tank_FireShellSoundPitch = VJ.SET(90, 100)
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------ Hooks ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 --
-ENT.Tank_SoundTbl_FireShell = {}
+-- Use the functions below to customize or add new systems and behaviors
+-- Use "self.BaseClass.FuncName(self)" or "baseclass.Get(baseName).FuncName(self)" to run the base code as well when overriding functions not listed below
+--
+---------------------------------------------------------------------------------------------------------------------------------------------
+function ENT:Tank_Init() end
+---------------------------------------------------------------------------------------------------------------------------------------------
+function ENT:Tank_OnThink() end -- Return true to disable the default base code (Its just the Tank_UpdateIdleParticles)
+---------------------------------------------------------------------------------------------------------------------------------------------
+function ENT:Tank_OnThinkActive() end
+---------------------------------------------------------------------------------------------------------------------------------------------
+function ENT:Tank_OnPrepareShell() end
+---------------------------------------------------------------------------------------------------------------------------------------------
+--[[
+Called when the tank is firing its shell
 
-ENT.Tank_DefaultSoundTbl_Turning = {"vj_mili_tank/tank_gunnermove2_x.wav"}
-ENT.Tank_DefaultSoundTbl_ReloadShell = {"vehicles/tank_readyfire1.wav"}
-ENT.Tank_DefaultSoundTbl_FireShell = {"vj_mili_tank/tank_fire1.wav","vj_mili_tank/tank_fire2.wav","vj_mili_tank/tank_fire3.wav","vj_mili_tank/tank_fire4.wav"}
+=-=-=| PARAMETERS |=-=-=
+	1. status [string] : Type of update that is occurring, holds one of the following states:
+		-> "Init" : Before the shell is created, can be used to override the shell entity code
+				USAGE EXAMPLES -> Create completely custom shell entity code
+				PARAMETERS
+					5. statusData [nil]
+				RETURNS
+					-> [nil | bool] : Returning true will NOT let the base shell execute, effectively overriding it entirely (Effects still run!)
+		-> "OnCreate" : Right after the shell is created but before anything is set
+				USAGE EXAMPLES -> Set an spawn value for the projectile, such various types of shells inside a single projectile class
+				PARAMETERS
+					5. statusData [entity] : The newly created shell entity (but not spawned!)
+				RETURNS
+					-> [nil | vector] : Returning a vector to override the spawn position
+		-> "OnSpawn" : After the shell has spawned
+				USAGE EXAMPLES -> Override the default velocity
+				PARAMETERS
+					5. statusData [entity] : The newly spawned shell entity
+				RETURNS
+					-> [nil | bool] : Returning true will NOT let the base velocity apply
+		-> "Effects" : Firing effects including dynamic light, particles, muzzle flash, world shake, etc.
+				USAGE EXAMPLES -> Add extra effects | Override the base effects completely
+				PARAMETERS
+					5. statusData [nil]
+				RETURNS
+					-> [nil | bool] : Returning true will NOT let the base effects be created
+	2. statusData [nil | entity] : Depends on `status` value, refer to it for more details
 
-//util.AddNetworkString("vj_tankg_base_spawneffects")
-//util.AddNetworkString("vj_tankg_base_shooteffects")
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
------- Customization Functions ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-	-- Use the functions below to customize certain parts of the base or to add new custom systems
+=-=-=| RETURNS |=-=-=
+	-> [nil | bool | vector] : Depends on `status` value, refer to it for more details
+--]]
+function ENT:Tank_OnFireShell(status, statusData) end
 ---------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:CustomInitialize_CustomTank() end
----------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:Tank_CustomOnThink() return true end -- Return false to disable think code (Its just the StartSpawnEffects)
----------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:Tank_CustomOnThink_AIEnabled() end
----------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:Tank_CustomOnReloadShell() end
----------------------------------------------------------------------------------------------------------------------------------------------
--- Use this function to set your own effects or to change the existing ones
-function ENT:Tank_ShellFireEffects()
-	local myAng = self:GetAngles()
-	
-	local lightFire = ents.Create("light_dynamic")
-	lightFire:SetKeyValue("brightness", "4")
-	lightFire:SetKeyValue("distance", "400")
-	lightFire:SetPos(self:LocalToWorld(self.Tank_Shell_DynamicLightPos))
-	lightFire:SetLocalAngles(myAng)
-	lightFire:Fire("Color", "255 150 60")
-	lightFire:SetParent(self)
-	lightFire:Spawn()
-	lightFire:Activate()
-	lightFire:Fire("TurnOn", "", 0)
-	lightFire:Fire("Kill", "", 0.1)
-	self:DeleteOnRemove(lightFire)
-	
-	local muzzleFlash = ents.Create("env_muzzleflash")
-	muzzleFlash:SetPos(self:LocalToWorld(self.Tank_Shell_MuzzleFlashPos))
-	muzzleFlash:SetAngles(self:GetAngles() + Angle(0, self.Tank_AngleDiffuseNumber, 0))
-	muzzleFlash:SetKeyValue("scale", "6")
-	muzzleFlash:Fire("Fire", 0, 0)
-
-	local iClientEffect = 0
-	for _ = 1, 40 do
-		iClientEffect = iClientEffect + 0.1
-		timer.Simple(iClientEffect, function() if self.Dead == false then self:StartShootEffects() end end)
-	end
-	
-	local smokeAngle = Angle(myAng.x, -myAng.y, myAng.z)
-	local particleSmoke = ents.Create("info_particle_system")
-	particleSmoke:SetKeyValue("effect_name", "smoke_exhaust_01a")
-	particleSmoke:SetPos(self:LocalToWorld(self.Tank_Shell_ParticlePos))
-	particleSmoke:SetAngles(smokeAngle)
-	particleSmoke:SetParent(self)
-	particleSmoke:Spawn()
-	particleSmoke:Activate()
-	particleSmoke:Fire("Start", "", 0)
-	particleSmoke:Fire("Kill", "", 4)
-	
-	local particleSmokeWhite = ents.Create("info_particle_system")
-	particleSmokeWhite:SetKeyValue("effect_name", "Advisor_Pod_Steam_Continuous")
-	particleSmokeWhite:SetPos(self:LocalToWorld(self.Tank_Shell_ParticlePos))
-	particleSmokeWhite:SetAngles(smokeAngle)
-	particleSmokeWhite:SetParent(self)
-	particleSmokeWhite:Spawn()
-	particleSmokeWhite:Activate()
-	particleSmokeWhite:Fire("Start", "", 0)
-	particleSmokeWhite:Fire("Kill", "", 4)
-		
-	local dust = EffectData()
-	dust:SetOrigin(self:GetParent():GetPos())
-	dust:SetScale(500)
-	util.Effect("ThumperDust", dust)
-	
-	util.ScreenShake(self:GetPos(), 100, 200, 1, 2500)
+function ENT:Tank_UpdateIdleParticles()
+	-- Example:
+	//local effectData = EffectData()
+	//effectData:SetScale(1)
+	//effectData:SetEntity(self)
+	//effectData:SetOrigin(self:GetPos() + self:GetForward() * -130 + self:GetRight() * 25  + self:GetUp() * 45)
+	//util.Effect("VJ_VehicleExhaust", effectData, true, true)
+	//effectData:SetOrigin(self:GetPos() + self:GetForward() * -130 + self:GetRight() * -28 + self:GetUp() * 45)
+	//util.Effect("VJ_VehicleExhaust", effectData, true, true)
 end
----------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:Tank_CustomOnShellFire_BeforeShellCreate() return true end -- Return false to not create the default shell
----------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:Tank_CustomOnShellFire_BeforeShellSpawn(shell, spawnPos) end
----------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:Tank_ShellFireVelocity(shell, spawnPos, calculatedVel, phys)
-	-- Use this override the firing shell velocity, calculatedVel is not required but is a helpful variable to utilize
-	phys:SetVelocity(Vector(calculatedVel.x, calculatedVel.y, math.Clamp(calculatedVel.z, self.Tank_Shell_SpawnPos.z - 735, self.Tank_Shell_SpawnPos.z + 335)))
-end
----------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:Tank_CustomOnShellFire(shell) end
----------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:StartSpawnEffects()
-	/* Example:
-	net.Start("vj_tankg_base_spawneffects")
-	net.WriteEntity(self)
-	net.Broadcast()
-	*/
-end
----------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:StartShootEffects()
-	/* Example:
-	-- Note: This is ran many times (~40) when the tank fires!
-	net.Start("vj_tankg_base_shooteffects")
-	net.WriteEntity(self)
-	net.Broadcast()
-	*/
-end
----------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:Tank_CustomOnDeath_AfterCorpseSpawned(dmginfo, hitgroup, corpseEnt) end
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
------- ///// WARNING: Don't touch anything below this line! \\\\\ ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------ ///// BASE IMPLEMENTATION BELOW — Override with caution and only when necessary! \\\\\ ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ENT.Tank_FacingTarget = false -- Is it facing the enemy?
-ENT.Tank_Shell_Status = 0 -- 0 = Not reloaded or ready | 1 = Reloading | 2 = Reloaded & ready
-ENT.Tank_ProperHeightShoot = false -- Is the enemy position proper height for it to shoot?
-ENT.Tank_GunnerIsTurning = false
-ENT.Tank_Status = 0
+ENT.Tank_ReachableHeight = false -- Is the enemy position proper height for it to shoot?
+ENT.Tank_Status = 0 -- 0 = Can fire | 1 = Can NOT fire
 ENT.Tank_Shell_NextFireT = 0
 ENT.Tank_TurningLerp = nil
+ENT.Tank_NextIdleParticles = 0
+
+local TANK_SHELL_STATUS_EMPTY = 0
+local TANK_SHELL_STATUS_RELOADING = 1
+local TANK_SHELL_STATUS_READY = 2
+ENT.Tank_Shell_Status = TANK_SHELL_STATUS_EMPTY
+
+local vj_npc_range = GetConVar("vj_npc_range")
+local vj_npc_reduce_vfx = GetConVar("vj_npc_reduce_vfx")
+
+local metaEntity = FindMetaTable("Entity")
+local funcGetTable = metaEntity.GetTable
 ---------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:CustomOnInitialize()
-	self:CustomInitialize_CustomTank()
+function ENT:Init()
+	self:SetSolid(SOLID_NONE)
+	self.Tank_NextIdleParticles = CurTime() + 1
+	self.DeathAnimationCodeRan = true -- So corpse doesn't fly away on death (Take this out if not using death explosion sequence)
+	self:SetPhysicsDamageScale(0) -- Take no physics damage
+	if vj_npc_range:GetInt() == 0 then self.Tank_HasShellAttack = false end
+	self:Tank_Init()
+	if self.CustomInitialize_CustomTank then self:CustomInitialize_CustomTank() end -- !!!!!!!!!!!!!! DO NOT USE !!!!!!!!!!!!!! [Backwards Compatibility!]
 end
 ---------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:AngleDiffuse(ang1, ang2)
-	local outcome = ang1 - ang2
-	if outcome < -180 then outcome = outcome + 360 end
-	if outcome > 180 then outcome = outcome - 360 end
-	return outcome
-end
----------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:CustomOnThink()
-	if self:Tank_CustomOnThink() == true && GetConVar("vj_npc_noidleparticle"):GetInt() == 0 then
-		timer.Simple(0.1, function()
-			if IsValid(self) && self.Dead == false then
-				self:StartSpawnEffects()
-			end
-		end)
+function ENT:OnThink()
+	if self:Tank_OnThink() != true && vj_npc_reduce_vfx:GetInt() == 0 && self.Tank_NextIdleParticles < CurTime() then
+		self:Tank_UpdateIdleParticles()
+		self.Tank_NextIdleParticles = CurTime() + 0.1
 	end
 end
 ---------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:CustomOnThink_AIEnabled()
-	if self.Dead == true then return end
-	self:SetEnemy(self:GetParent():GetEnemy())
-	self:Tank_CustomOnThink_AIEnabled()
-
-	if self.Tank_GunnerIsTurning == true then self:Tank_Sound_Moving() else VJ_STOPSOUND(self.CurrentTankMovingSound) end
-	self:CustomOnSchedule()
+function ENT:OnThinkActive()
+	local selfData = funcGetTable(self)
+	if selfData.Dead then return end
+	local parent = self:GetParent()
+	if !IsValid(parent) then return end
+	if selfData.VJ_NPC_Class != parent.VJ_NPC_Class then
+		selfData.VJ_NPC_Class = parent.VJ_NPC_Class
+	end
+	local turning = false
+	local ene = parent:GetEnemy()
+	self:SetEnemy(ene)
+	self:Tank_OnThinkActive()
+	self:SelectSchedule()
 	
-	if self.Tank_Status == 0 then
-		local ene = self:GetEnemy()
-		if IsValid(ene) && self.LatestEnemyDistance < self.Tank_SeeFar then
-			self.Tank_GunnerIsTurning = false
-			local angEne = (ene:GetPos() - self:GetPos()):Angle()
-			local angDiffuse = self:AngleDiffuse(angEne.y, self:GetAngles().y + self.Tank_AngleDiffuseNumber) -- Cannon looking direction
-			local heightRatio = (ene:GetPos().z - self:GetPos().z) / self:GetPos():Distance(Vector(ene:GetPos().x, ene:GetPos().y, self:GetPos().z))
-			self.Tank_ProperHeightShoot = math.abs(heightRatio) < 0.15 and true or false -- How high it can fire
+	if selfData.Tank_Status == 0 then
+		if IsValid(ene) then
+			turning = false
+			local myPos = self:GetPos()
+			local enePos = ene:GetPos()
+			local angEne = (enePos - myPos):Angle()
+			local angDiffuse = self:Tank_AngleDiffuse(angEne.y, self:GetAngles().y + selfData.Tank_AngleOffset) -- Cannon looking direction
+			local heightRatio = (enePos.z - myPos.z) / myPos:Distance(Vector(enePos.x, enePos.y, myPos.z))
+			selfData.Tank_ReachableHeight = math.abs(heightRatio) < 0.15 and true or false -- How high it can fire
 			-- If the enemy is within the barrel firing limit AND not already firing a shell AND its height is is reachable AND the enemy is not extremely close, then FIRE!
-			if math.abs(angDiffuse) < self.Tank_AngleDiffuseFiringLimit && self.Tank_ProperHeightShoot && self.LatestEnemyDistance > self.Tank_SeeClose then
-				self.Tank_FacingTarget = true
-				if self:Visible(ene) && GetConVar("vj_npc_norange"):GetInt() == 0 then
-					self:Tank_PrepareShell() 
+			if math.abs(angDiffuse) < selfData.Tank_AngleDiffuseFiringLimit && selfData.Tank_ReachableHeight && selfData.EnemyData.Distance > selfData.Tank_Shell_FireMin then
+				selfData.Tank_FacingTarget = true
+				if self.Tank_HasShellAttack && self:Visible(ene) then
+					self:Tank_PrepareShell()
 				end
 			-- Turn Left
-			elseif angDiffuse > self.Tank_AngleDiffuseFiringLimit then
-				if self.Tank_TurningLerp == nil then self.Tank_TurningLerp = self:GetLocalAngles() end
-				self.Tank_TurningLerp = LerpAngle(1, self.Tank_TurningLerp, self.Tank_TurningLerp + Angle(0, math.Clamp(angDiffuse, 0, self.Tank_TurningSpeed), 0))
-				self:SetLocalAngles(self.Tank_TurningLerp)
-				self.Tank_GunnerIsTurning = true
-				self.Tank_FacingTarget = false
+			elseif angDiffuse > selfData.Tank_AngleDiffuseFiringLimit then
+				if selfData.Tank_TurningLerp == nil then selfData.Tank_TurningLerp = self:GetLocalAngles() end
+				selfData.Tank_TurningLerp = LerpAngle(1, selfData.Tank_TurningLerp, selfData.Tank_TurningLerp + Angle(0, math.Clamp(angDiffuse, 0, selfData.Tank_TurningSpeed), 0))
+				self:SetLocalAngles(selfData.Tank_TurningLerp)
+				turning = true
+				selfData.Tank_FacingTarget = false
 			-- Turn Right
-			elseif angDiffuse < -self.Tank_AngleDiffuseFiringLimit then
-				if self.Tank_TurningLerp == nil then self.Tank_TurningLerp = self:GetLocalAngles() end
-				self.Tank_TurningLerp = LerpAngle(1, self.Tank_TurningLerp, self.Tank_TurningLerp + Angle(0, -math.Clamp(math.abs(angDiffuse), 0, self.Tank_TurningSpeed), 0))
-				self:SetLocalAngles(self.Tank_TurningLerp)
-				self.Tank_GunnerIsTurning = true
-				self.Tank_FacingTarget = false
+			elseif angDiffuse < -selfData.Tank_AngleDiffuseFiringLimit then
+				if selfData.Tank_TurningLerp == nil then selfData.Tank_TurningLerp = self:GetLocalAngles() end
+				selfData.Tank_TurningLerp = LerpAngle(1, selfData.Tank_TurningLerp, selfData.Tank_TurningLerp + Angle(0, -math.Clamp(math.abs(angDiffuse), 0, selfData.Tank_TurningSpeed), 0))
+				self:SetLocalAngles(selfData.Tank_TurningLerp)
+				turning = true
+				selfData.Tank_FacingTarget = false
 			end
 		else
-			self.Tank_Status = 1
-			self.Tank_GunnerIsTurning = false
+			selfData.Tank_Status = 1
+			turning = false
 		end
 	end
+	
+	if turning then self:Tank_PlaySoundSystem("Movement") else VJ.STOPSOUND(selfData.CurrentTankMovingSound) end
 end
 ---------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:CustomOnSchedule()
-	if self.Dead == true then return end
+function ENT:SelectSchedule()
+	local selfData = funcGetTable(self)
+	if selfData.Dead then return end
 	
-	self:IdleSoundCode()
-	self:DoIdleAnimation()
+	local eneValid = IsValid(self:GetEnemy())
+	self:PlayIdleSound(nil, nil, eneValid)
+	self:MaintainIdleBehavior()
 	
-	if IsValid(self:GetEnemy()) then
-		if self:GetParent().VJ_IsBeingControlled == true then
-			self.Tank_Status = 0
+	if eneValid then
+		-- Can always fire when being controlled
+		if self:GetParent().VJ_IsBeingControlled then
+			selfData.Tank_Status = 0
 		else
-			if self.LatestEnemyDistance < self.Tank_SeeFar && self.LatestEnemyDistance > self.Tank_SeeClose then -- Between this two numbers than fire!
-				self.Tank_Status = 0
+			-- Between these 2 limits it can fire! --
+			local eneData = selfData.EnemyData
+			if eneData.Distance < selfData.Tank_Shell_FireMax && eneData.Distance > selfData.Tank_Shell_FireMin then
+				selfData.Tank_Status = 0
+			-- Out of range, can't fire!
 			else
-				self.Tank_Status = 0
+				selfData.Tank_Status = 1
 			end
 		end
 	end
 end
 ---------------------------------------------------------------------------------------------------------------------------------------------
 function ENT:Tank_PrepareShell()
-	if (CurTime() < self.Tank_Shell_NextFireT) or (self:GetParent().VJ_IsBeingControlled == true && !self:GetParent().VJ_TheController:KeyDown(IN_ATTACK2)) then return end
+	if (CurTime() < self.Tank_Shell_NextFireT) or (self:GetParent().VJ_IsBeingControlled && !self:GetParent().VJ_TheController:KeyDown(IN_ATTACK2)) then return end
 	
 	-- If it's already ready, then just fire it!
-	if self.Tank_Shell_Status == 2 then
+	if self.Tank_Shell_Status == TANK_SHELL_STATUS_READY then
 		self:Tank_FireShell()
 	-- Otherwise reload and fire
-	elseif self.Tank_Shell_Status == 0 then
-		self:Tank_CustomOnReloadShell()
-		self:Tank_Sound_ReloadShell()
-		self.Tank_Shell_Status = 1
-		timer.Create("timer_shell_attack"..self:EntIndex(), self.Tank_Shell_TimeUntilFire, 1, function()
-			self.Tank_Shell_Status = 2
+	elseif self.Tank_Shell_Status == TANK_SHELL_STATUS_EMPTY then
+		self:Tank_OnPrepareShell()
+		self:Tank_PlaySoundSystem("ShellReload")
+		self.Tank_Shell_Status = TANK_SHELL_STATUS_RELOADING
+		local ene = self:GetEnemy()
+		if !ene:IsNPC() or (ene:IsNPC() && ene:GetEnemy() == self:GetParent()) then -- Don't run away when you don't even know that the tank exists!
+			sound.EmitHint(SOUND_DANGER, ene:GetPos() + ene:OBBCenter(), 80, self.Tank_Shell_TimeUntilFire, self)
+		end
+		timer.Create("timer_shell_attack" .. self:EntIndex(), self.Tank_Shell_TimeUntilFire, 1, function()
+			self.Tank_Shell_Status = TANK_SHELL_STATUS_READY
 			self:Tank_FireShell()
 		end)
 	end
 end
 ---------------------------------------------------------------------------------------------------------------------------------------------
 function ENT:Tank_FireShell()
+	local selfData = funcGetTable(self)
 	local ene = self:GetEnemy()
-	if (GetConVar("ai_disabled"):GetInt() == 1) or (self.Dead == true) or (!self.Tank_ProperHeightShoot) or (!IsValid(ene)) or (!self.Tank_FacingTarget) then return end // self.Tank_FacingTarget != true
+	if !VJ_CVAR_AI_ENABLED or selfData.Dead or !selfData.Tank_ReachableHeight or !selfData.Tank_FacingTarget or !IsValid(ene) then return end // selfData.Tank_FacingTarget != true
 	if self:Visible(ene) then
-		self:Tank_Sound_FireShell()
-		self:Tank_ShellFireEffects()
+		self:Tank_PlaySoundSystem("ShellFire")
 		
-		if self:Tank_CustomOnShellFire_BeforeShellCreate() == true then
-			local spawnPos = self:LocalToWorld(self.Tank_Shell_SpawnPos)
-			local calculatedVel = (ene:GetPos() + ene:OBBCenter() - spawnPos):GetNormal()*self.Tank_Shell_VelocitySpeed
-			-- If not facing, then just shoot straight ahead
-			if !self.Tank_FacingTarget then
-				calculatedVel = self:GetForward()
-				calculatedVel:Rotate(Angle(0, self.Tank_AngleDiffuseNumber, 0))
-				calculatedVel = calculatedVel*self.Tank_Shell_VelocitySpeed
+		if self:Tank_OnFireShell("Init") != true then
+			local shell = ents.Create(selfData.Tank_Shell_Entity)
+			local spawnPos;
+			local onCreateCall = self:Tank_OnFireShell("OnCreate", shell)
+			if isvector(onCreateCall) then
+				spawnPos = onCreateCall
+			else
+				spawnPos = self:LocalToWorld(selfData.Tank_Shell_SpawnPos)
 			end
-			local shell = ents.Create(self.Tank_Shell_EntityToSpawn)
+			local calculatedVel = (ene:GetPos() + ene:OBBCenter() - spawnPos):GetNormal()*selfData.Tank_Shell_VelocitySpeed
+			-- If not facing, then just shoot straight ahead
+			if !selfData.Tank_FacingTarget then
+				calculatedVel = self:GetForward()
+				calculatedVel:Rotate(Angle(0, selfData.Tank_AngleOffset, 0))
+				calculatedVel = calculatedVel * selfData.Tank_Shell_VelocitySpeed
+			end
 			shell:SetPos(spawnPos)
 			shell:SetAngles(calculatedVel:Angle())
-			self:Tank_CustomOnShellFire_BeforeShellSpawn(shell, spawnPos)
 			shell:Spawn()
 			shell:Activate()
 			shell:SetOwner(self)
-			local phys = shell:GetPhysicsObject()
-			if IsValid(phys) then
-				self:Tank_ShellFireVelocity(shell, spawnPos, calculatedVel, phys)
+			if self:Tank_OnFireShell("OnSpawn", shell) != true then
+				local phys = shell:GetPhysicsObject()
+				if IsValid(phys) then
+					phys:SetVelocity(calculatedVel)
+				end
 			end
-			self:Tank_CustomOnShellFire(shell)
 		end
-		self.Tank_Shell_Status = 0
-		self.Tank_Shell_NextFireT = CurTime() + self.Tank_Shell_NextFireTime
+		if self:Tank_OnFireShell("Effects") != true then
+			local myAng = self:GetAngles()
+			local myAngForward = myAng + Angle(0, selfData.Tank_AngleOffset, 0)
+			util.ScreenShake(self:GetPos(), 100, 200, 1, 2500)
+			
+			-- Muzzle flash
+			local muzzleFlashPos = self:LocalToWorld(selfData.Tank_Shell_MuzzleFlashPos)
+			local muzzleFlash = ents.Create("env_muzzleflash")
+			muzzleFlash:SetPos(muzzleFlashPos)
+			muzzleFlash:SetAngles(myAngForward)
+			muzzleFlash:SetKeyValue("scale", "10")
+			muzzleFlash:Fire("Fire")
+			local lightFire = ents.Create("light_dynamic")
+			lightFire:SetKeyValue("brightness", "4")
+			lightFire:SetKeyValue("distance", "400")
+			lightFire:SetPos(muzzleFlashPos)
+			lightFire:SetLocalAngles(myAng)
+			lightFire:Fire("Color", "255 150 60")
+			lightFire:SetParent(self)
+			lightFire:Spawn()
+			lightFire:Activate()
+			lightFire:Fire("TurnOn")
+			lightFire:Fire("Kill", nil, 0.1)
+			self:DeleteOnRemove(lightFire)
+			
+			-- Smoke effect
+			local smokePos = self:LocalToWorld(selfData.Tank_Shell_ParticlePos)
+			local smokeWhite = ents.Create("info_particle_system")
+			smokeWhite:SetKeyValue("effect_name", "vj_smoke_white_medium")
+			smokeWhite:SetPos(smokePos)
+			smokeWhite:SetAngles(myAngForward)
+			smokeWhite:SetParent(self)
+			smokeWhite:Spawn()
+			smokeWhite:Activate()
+			smokeWhite:Fire("Start")
+			smokeWhite:Fire("Kill", nil, 6)
+			
+			-- Dust effect
+			local dust = EffectData()
+			dust:SetOrigin(self:GetParent():GetPos())
+			dust:SetScale(800)
+			util.Effect("ThumperDust", dust)
+			
+			//local smoke = ents.Create("env_smoketrail")
+			//smoke:SetPos(self:LocalToWorld(selfData.Tank_Shell_ParticlePos))
+			//smoke:SetAngles(myAngForward)
+			//smoke:SetKeyValue("opacity", "1")
+			//smoke:SetKeyValue("spawnrate", "15")
+			//smoke:SetKeyValue("lifetime", "5")
+			//smoke:SetKeyValue("startsize", "1")
+			//smoke:SetKeyValue("endsize", "50")
+			//smoke:SetKeyValue("spawnradius", "5")
+			//smoke:SetKeyValue("startcolor", "255 255 255 255")
+			//smoke:SetKeyValue("endcolor", "255 255 255 255")
+			//smoke:SetKeyValue("minspeed", "30")
+			//smoke:SetKeyValue("maxspeed", "50")
+			//smoke:SetKeyValue("mindirectedspeed", "50")
+			//smoke:SetKeyValue("maxdirectedspeed", "75")
+			//smoke:SetParent(self)
+			//smoke:Spawn()
+			//smoke:Activate()
+			//smoke:Fire("Kill", nil, 4)
+		end
+		selfData.Tank_Shell_Status = TANK_SHELL_STATUS_EMPTY
+		selfData.Tank_Shell_NextFireT = CurTime() + selfData.Tank_Shell_NextFireTime
 	else -- Not visible
-		self.Tank_FacingTarget = false
+		selfData.Tank_FacingTarget = false
 	end
 end
 ---------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:CustomOnDeath_AfterCorpseSpawned(dmginfo, hitgroup, corpseEnt)
-	if self:Tank_CustomOnDeath_AfterCorpseSpawned(dmginfo, hitgroup, corpseEnt) == true then
-		corpseEnt:GetPhysicsObject():AddVelocity(Vector(math.Rand(-200, 200), math.Rand(-200, 200), math.Rand(200, 400)))
-		corpseEnt:GetPhysicsObject():AddAngleVelocity(Vector(math.Rand(-100, 100), math.Rand(-100, 100), math.Rand(-100, 100)))
+function ENT:OnCreateDeathCorpse(dmginfo, hitgroup, corpse)
+	local corpsePhys = corpse:GetPhysicsObject()
+	if IsValid(corpsePhys) then
+		corpsePhys:AddVelocity(Vector(math.Rand(-200, 200), math.Rand(-200, 200), math.Rand(200, 400)))
+		corpsePhys:AddAngleVelocity(Vector(math.Rand(-100, 100), math.Rand(-100, 100), math.Rand(-100, 100)))
 	end
 end
 ---------------------------------------------------------------------------------------------------------------------------------------------
 function ENT:CustomOnRemove()
-	VJ_STOPSOUND(self.CurrentTankMovingSound)
+	VJ.STOPSOUND(self.CurrentTankMovingSound)
 	timer.Destroy("timer_shell_attack" .. self:EntIndex())
 end
 ---------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:Tank_Sound_Moving()
-	if self.HasSounds == false or self.HasFootStepSound == false then return end
-	
-	local sdTbl = VJ_PICK(self.Tank_SoundTbl_Turning)
-	if sdTbl == false then sdTbl = VJ_PICK(self.Tank_DefaultSoundTbl_Turning) end -- Default table
-	self.CurrentTankMovingSound = VJ_CreateSound(self, sdTbl, self.Tank_TurningSoundLevel, math.random(self.Tank_TurningSoundPitch.a, self.Tank_TurningSoundPitch.b))
-end
----------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:Tank_Sound_ReloadShell()
-	if self.HasSounds == false or self.HasReloadShellSound == false then return end
-	
-	local sdTbl = VJ_PICK(self.Tank_SoundTbl_ReloadShell)
-	if sdTbl == false then sdTbl = VJ_PICK(self.Tank_DefaultSoundTbl_ReloadShell) end -- Default table
-	//self.CurrentTankFiringSound = VJ_CreateSound(self, sdTbl, self.Tank_ReloadShellSoundLevel, math.random(self.Tank_ReloadShellSoundPitch.a, self.Tank_ReloadShellSoundPitch.b))
-	VJ_EmitSound(self, sdTbl, self.Tank_ReloadShellSoundLevel, math.random(self.Tank_ReloadShellSoundPitch.a, self.Tank_ReloadShellSoundPitch.b))
-end
----------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:Tank_Sound_FireShell()
-	if self.HasSounds == false or self.HasFireShellSound == false then return end
-	
-	local sdTbl = VJ_PICK(self.Tank_SoundTbl_FireShell)
-	if sdTbl == false then sdTbl = VJ_PICK(self.Tank_DefaultSoundTbl_FireShell) end -- Default table
-	VJ_EmitSound(self, sdTbl, 500, 100)
+function ENT:Tank_PlaySoundSystem(sdSet)
+	local selfData = funcGetTable(self)
+	if !selfData.HasSounds or !sdSet then return end
+	if sdSet == "Movement" then
+		if selfData.HasMoveSound then
+			local curMoveSD = selfData.CurrentTankMovingSound
+			if !curMoveSD or (curMoveSD && !curMoveSD:IsPlaying()) then
+				VJ.STOPSOUND(curMoveSD)
+				selfData.CurrentTankMovingSound = VJ.CreateSound(self, VJ.PICK(selfData.Tank_SoundTbl_Turning) or "vj_base/vehicles/armored/gun_move2.wav", selfData.Tank_TurningSoundLevel, math.random(selfData.Tank_TurningSoundPitch.a, selfData.Tank_TurningSoundPitch.b))
+			end
+		end
+	elseif sdSet == "ShellFire" then
+		if selfData.HasFireShellSound then
+			VJ.EmitSound(self, VJ.PICK(selfData.Tank_SoundTbl_FireShell) or "VJ.NPC_Tank.Fire", selfData.Tank_FireShellSoundLevel, math.random(selfData.Tank_FireShellSoundPitch.a, selfData.Tank_FireShellSoundPitch.b))
+		end
+	elseif sdSet == "ShellReload" then
+		if selfData.HasReloadShellSound then
+			VJ.EmitSound(self, VJ.PICK(selfData.Tank_SoundTbl_ReloadShell) or "vj_base/vehicles/armored/gun_reload.wav", selfData.Tank_ReloadShellSoundLevel, math.random(selfData.Tank_ReloadShellSoundPitch.a, selfData.Tank_ReloadShellSoundPitch.b))
+		end
+	end
 end

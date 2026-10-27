@@ -1,293 +1,435 @@
-if (!file.Exists("autorun/vj_base_autorun.lua","LUA")) then return end
 AddCSLuaFile("shared.lua")
 include("shared.lua")
 /*--------------------------------------------------
 	=============== Projectile Base ===============
-	*** Copyright (c) 2012-2022 by DrVrej, All rights reserved. ***
+	*** Copyright (c) 2012-2026 by DrVrej, All rights reserved. ***
 	No parts of this code or any of its contents may be reproduced, copied, modified or adapted,
 	without the prior written consent of the author, unless otherwise indicated for stand-alone materials.
 --------------------------------------------------*/
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
------- Core Variables ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------ Core ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-ENT.Model = {""} -- The models it should spawn with | Picks a random one from the table
-ENT.PhysicsInitType = SOLID_VPHYSICS
-ENT.MoveType = MOVETYPE_VPHYSICS -- Move type, recommended to keep it as it is
-ENT.MoveCollideType = MOVECOLLIDE_FLY_BOUNCE -- Move type | Some examples: MOVECOLLIDE_FLY_BOUNCE, MOVECOLLIDE_FLY_SLIDE
-ENT.CollisionGroupType = COLLISION_GROUP_PROJECTILE -- Collision type, recommended to keep it as it is
-ENT.SolidType = SOLID_CUSTOM -- Solid type, recommended to keep it as it is
+ENT.Model = false -- Model(s) to spawn with | Picks a random one if it's a table
+ENT.ProjectileType = VJ.PROJ_TYPE_LINEAR -- What type of projectile is this?
+ENT.CollisionBehavior = VJ.PROJ_COLLISION_REMOVE -- What should it do when it collides with something?
+ENT.CollisionFilter = true -- Should the projectile attempt to go through certain entities when the owner is an NPC? | Examples: Entity is an ally or a player with no target
+ENT.CollisionDecal = false -- Decals that paint when the projectile collides with something (string or table of strings) | false = to not paint anything
+ENT.RemoveDelay = 0 -- Setting this greater than 0 will delay the entity's removal | Useful for lingering trail effects
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
------- Collision / Damage Variables ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------ Damage ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-ENT.RemoveOnHit = true -- Should it remove itself when it touches something? | It will run the hit sound, place a decal, etc.
-ENT.PaintDecalOnCollide = true -- Should it paint decals when it collides with something? | Use this only when using a projectile that doesn't get removed when it collides with something
-ENT.DecalTbl_OnCollideDecals = {} -- Decals that paint when the projectile collides with something | It picks a random one from this table
-ENT.CollideCodeWithoutRemoving = false -- If RemoveOnHit is set to false, you can still make the projectile deal damage, place a decal, etc.
-ENT.NextCollideWithoutRemove = VJ_Set(1,1) -- Time until it can run the code again
-	-- ====== Shake World On Death Variables ====== --
-ENT.ShakeWorldOnDeath = false -- Should the world shake when the projectile hits something?
-ENT.ShakeWorldOnDeathAmplitude = 16 -- How much the screen will shake | From 1 to 16, 1 = really low 16 = really high
-ENT.ShakeWorldOnDeathRadius = 3000 -- How far the screen shake goes, in world units
-ENT.ShakeWorldOnDeathDuration = 1 -- How long the screen shake will last, in seconds
-ENT.ShakeWorldOnDeathFrequency = 200 -- The frequency
-	-- ====== Radius Damage Variables ====== --
-ENT.DoesRadiusDamage = false -- Should it do a blast damage when it hits something?
-ENT.RadiusDamageRadius = 250 -- How far the damage go? The farther away it's from its enemy, the less damage it will do | Counted in world units
-ENT.RadiusDamageUseRealisticRadius = true -- Should the damage decrease the farther away the enemy is from the position that the projectile hit?
-ENT.RadiusDamage = 30 -- How much damage should it deal? Remember this is a radius damage, therefore it will do less damage the farther away the entity is from its enemy
-ENT.RadiusDamageType = DMG_BLAST -- Damage type
-ENT.RadiusDamageForce = false -- Put the force amount it should apply | false = Don't apply any force
+	-- ====== Radius Damage ====== --
+ENT.DoesRadiusDamage = false -- Should it deal radius damage when it collides with something?
+ENT.RadiusDamageRadius = 250
+ENT.RadiusDamageUseRealisticRadius = true -- Should the damage decrease the farther away the hit entity is from the radius origin?
+ENT.RadiusDamage = 30
+ENT.RadiusDamageType = DMG_BLAST
+ENT.RadiusDamageForce = false -- Damage force to apply to the hit entity | false = Don't apply any force
 ENT.RadiusDamageForce_Up = false -- How much up force should it have? | false = Let the base automatically decide the force using RadiusDamageForce value
 ENT.RadiusDamageDisableVisibilityCheck = false -- Should it disable the visibility check? | true = Disables the visibility check
-	-- ====== Direct Damage Variables ====== --
-ENT.DoesDirectDamage = false -- Should it do a direct damage when it hits something?
-ENT.DirectDamage = 30 -- How much damage should it do when it hits something
-ENT.DirectDamageType = DMG_SLASH -- Damage type
+	-- ====== Direct Damage ====== --
+ENT.DoesDirectDamage = false -- Should it deal direct damage when it collides with something?
+ENT.DirectDamage = 30
+ENT.DirectDamageType = DMG_SLASH
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
------- Killed / Remove Variables ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-ENT.PaintDecalOnDeath = true -- Should it paint a decal when it hits something?
-ENT.DecalTbl_DeathDecals = {} -- Decals that paint when the projectile dies | It picks a random one from this table
-ENT.DelayedRemove = 0 -- Change this to a number greater than 0 to delay the removal of the entity
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
------- Sound Variables ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------ Sound ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ENT.HasStartupSounds = true -- Does it make a sound when the projectile is created?
 ENT.HasIdleSounds = true -- Does it have idle sounds?
 ENT.HasOnCollideSounds = true -- Should it play a sound when it collides something?
 ENT.HasOnRemoveSounds = true -- Should it play a sound when it gets removed?
-	-- ====== File Path Variables ====== --
-	-- Leave blank if you don't want any sounds to play
-ENT.SoundTbl_Startup = {}
-ENT.SoundTbl_Idle = {}
-ENT.SoundTbl_OnCollide = {}
-ENT.SoundTbl_OnRemove = {}
-	-- ====== Sound Chance Variables ====== --
+	-- ====== Sound Paths ====== --
+ENT.SoundTbl_Startup = false
+ENT.SoundTbl_Idle = false -- Recommendation: Use looped wav files, otherwise use "OnThink" to control when it plays again
+ENT.SoundTbl_OnCollide = false
+ENT.SoundTbl_OnRemove = false
+	-- ====== Sound Chance ====== --
 	-- Higher number = less chance of playing | 1 = Always play
 ENT.StartupSoundChance = 1
 ENT.IdleSoundChance = 1
 ENT.OnCollideSoundChance = 1
 ENT.OnRemoveSoundChance = 1
-	-- ====== Timer Variables ====== --
-ENT.NextSoundTime_Idle = VJ_Set(0.2, 0.5)
-	-- ====== Sound Level Variables ====== --
+	-- ====== Sound Timer ====== --
+ENT.NextSoundTime_Idle = VJ.SET(0.2, 0.5)
+	-- ====== Sound Level ====== --
 	-- The proper number are usually range from 0 to 180, though it can go as high as 511
 	-- More Information: https://developer.valvesoftware.com/wiki/Soundscripts#SoundLevel_Flags
 ENT.StartupSoundLevel = 80
 ENT.IdleSoundLevel = 80
 ENT.OnCollideSoundLevel = 80
 ENT.OnRemoveSoundLevel = 90
-	-- ====== Sound Pitch Variables ====== --
-ENT.StartupSoundPitch = VJ_Set(90, 100)
-ENT.IdleSoundPitch = VJ_Set(90, 100)
-ENT.OnCollideSoundPitch = VJ_Set(90, 100)
-ENT.OnRemoveSoundPitch = VJ_Set(90, 100)
+	-- ====== Sound Pitch ====== --
+ENT.StartupSoundPitch = VJ.SET(90, 100)
+ENT.IdleSoundPitch = VJ.SET(90, 100)
+ENT.OnCollideSoundPitch = VJ.SET(90, 100)
+ENT.OnRemoveSoundPitch = VJ.SET(90, 100)
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
------- Customization Functions ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------ Hooks ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-	-- Use the functions below to customize certain parts of the base or to add new custom systems
+--
+-- Use the functions below to customize or add new systems and behaviors
+-- Use "self.BaseClass.FuncName(self)" or "baseclass.Get(baseName).FuncName(self)" to run the base code as well when overriding functions not listed below
+--
 ---------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:CustomOnPreInitialize() end
+function ENT:PreInit() end
 ---------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:CustomOnInitializeBeforePhys() /* Example: self:PhysicsInitSphere(1, "metal_bouncy") */ end
+function ENT:InitPhys() /* Example: self:PhysicsInitSphere(1, "metal_bouncy") */ end -- Called right after the entity's physics has been initialized | Return true to override the base code
 ---------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:CustomPhysicsObjectOnInitialize(phys)
-	phys:Wake()
-	phys:EnableGravity(false)
-	phys:EnableDrag(false)
-	phys:SetBuoyancyRatio(0)
-end
+function ENT:Init() end
 ---------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:CustomOnInitialize() end
+function ENT:OnThink() end
 ---------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:CustomOnThink() end
+function ENT:OnDamaged(dmginfo) end
 ---------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:CustomOnTakeDamage(dmginfo) end
+function ENT:OnCollision(data, phys) end -- Return true to override the base code
 ---------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:CustomOnPhysicsCollide(data, phys) end -- Return false to disable the base functions from running
+function ENT:OnCollisionPersist(data, phys) end -- Called when collision behavior is set to "PROJ_COLLISION_PERSIST"
 ---------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:CustomOnCollideWithoutRemove(data, phys) end
+function ENT:OnDealDamage(data, phys, hitEnts) end -- "hitEnts" = Table of entities damage or false if it hit nothing
 ---------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:CustomOnDoDamage(data, phys, hitEnt) end
----------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:CustomOnDoDamage_Direct(data, phys, hitEnt) end
----------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:DeathEffects(data, phys) end
+function ENT:OnDestroy(data, phys) end
 ---------------------------------------------------------------------------------------------------------------------------------------------
 function ENT:CustomOnRemove() end
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
------- ///// WARNING: Don't touch anything below this line! \\\\\ ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------ ///// BASE IMPLEMENTATION BELOW — Override with caution and only when necessary! \\\\\ ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-ENT.AlreadyPaintedDeathDecal = false
 ENT.Dead = false
 ENT.NextIdleSoundT = 0
-ENT.NextCollideWithoutRemoveT = 0
+ENT.PaintedFinalDecal = false
+ENT.NextPersistCollisionT = 0
+
+local defVec = Vector(0, 0, 0)
+local PICK = VJ.PICK
+local PROJ_COLLISION_REMOVE = VJ.PROJ_COLLISION_REMOVE
+local PROJ_COLLISION_PERSIST = VJ.PROJ_COLLISION_PERSIST
 ---------------------------------------------------------------------------------------------------------------------------------------------
 function ENT:Initialize()
-	self:CustomOnPreInitialize()
-	if self:GetModel() == "models/error.mdl" then self:SetModel(VJ_PICK(self.Model)) end
-	self:PhysicsInit(self.PhysicsInitType)
-	self:SetMoveType(self.MoveType)
-	self:SetMoveCollide(self.MoveCollideType)
-	self:SetCollisionGroup(self.CollisionGroupType)
-	self:SetSolid(self.SolidType)
+	self:PreInit()
+	if self.CustomOnPreInitialize then self:CustomOnPreInitialize() end -- !!!!!!!!!!!!!! DO NOT USE !!!!!!!!!!!!!! [Backwards Compatibility!]
+	if self:GetModel() == "models/error.mdl" && PICK(self.Model) then self:SetModel(PICK(self.Model)) end
 	
-	self:CustomOnInitializeBeforePhys()
-	local phys = self:GetPhysicsObject()
-	if IsValid(phys) then
-		self:CustomPhysicsObjectOnInitialize(phys)
+	local projType = self.ProjectileType
+	-- Some models do NOT have a physics mesh, so let's initialize a basic sphere physics
+	if !self:PhysicsInit(MOVETYPE_VPHYSICS) then
+		local boundsMin, boundsMax = self:GetModelRenderBounds()
+		local radius = (boundsMax - boundsMin):Length() * 0.5
+		self:PhysicsInitSphere(radius, "metal_bouncy")
+	end
+	self:SetMoveType(MOVETYPE_VPHYSICS)
+	self:SetMoveCollide(MOVECOLLIDE_FLY_BOUNCE)
+	self:SetSolid(SOLID_BBOX)
+	
+	if self.CustomOnInitializeBeforePhys then self:CustomOnInitializeBeforePhys() end -- !!!!!!!!!!!!!! DO NOT USE !!!!!!!!!!!!!! [Backwards Compatibility!]
+	if self.CustomPhysicsObjectOnInitialize then local phys = self:GetPhysicsObject() if IsValid(phys) then self.InitPhys = function() return true end self:CustomPhysicsObjectOnInitialize(phys) end end
+	if !self:InitPhys() then
+		local phys = self:GetPhysicsObject()
+		if IsValid(phys) then
+			phys:Wake()
+			if projType == VJ.PROJ_TYPE_LINEAR then
+				phys:SetMass(1)
+				phys:EnableGravity(false)
+				phys:EnableDrag(false)
+			elseif projType == VJ.PROJ_TYPE_GRAVITY then
+				phys:SetMass(1)
+				phys:EnableGravity(true)
+				phys:EnableDrag(false)
+			elseif projType == VJ.PROJ_TYPE_PROP then
+				phys:EnableGravity(true)
+				phys:EnableDrag(true)
+			end
+			//phys:AddGameFlag(FVPHYSICS_NO_IMPACT_DMG)
+			phys:SetBuoyancyRatio(0)
+		end
 	end
 	
-	self:StartupSoundCode()
-	if self.IdleSoundPitch1 then self.IdleSoundPitch = VJ_Set(self.IdleSoundPitch1, self.IdleSoundPitch2) end -- !!!!!!!!!!!!!! DO NOT USE THIS VARIABLE !!!!!!!!!!!!!! [Backwards Compatibility!]
+	if projType == VJ.PROJ_TYPE_PROP then
+		self:SetCollisionGroup(COLLISION_GROUP_NONE)
+	else
+		self:SetTrigger(true)
+		-- Set a trigger bound for models that do NOT have a physics mesh, otherwise they will not hit collision-based entities (ex: NPCs, players)
+		if !util.IsValidProp(self:GetModel()) then
+			local boundsMin, boundsMax = self:GetModelRenderBounds()
+			local radius = math.max(2, (boundsMax - boundsMin):Length() * 0.05)
+			self:UseTriggerBounds(true, radius)
+		end
+		self:SetCollisionGroup(COLLISION_GROUP_PROJECTILE)
+	end
+	self:AddEFlags(EFL_DONTBLOCKLOS)
+	self:AddEFlags(EFL_DONTWALKON)
+	self:AddSolidFlags(FSOLID_NOT_STANDABLE)
+	self:SetUseType(SIMPLE_USE)
+	self:PlaySound("Startup")
+	self:Init()
 	
-	self:CustomOnInitialize()
+	-- !!!!!!!!!!!!!! DO NOT USE !!!!!!!!!!!!!! [Backwards Compatibility!]
+	if self.IdleSoundPitch1 then self.IdleSoundPitch = VJ.SET(self.IdleSoundPitch1, self.IdleSoundPitch2) end
+	if self.CustomOnInitialize then self:CustomOnInitialize() end
+	if self.CustomOnThink then self.OnThink = function() self:CustomOnThink() end end
+	if self.CustomOnPhysicsCollide then self.OnCollision = function(_, data, phys2) self:CustomOnPhysicsCollide(data, phys2) end end
+	if self.CustomOnCollideWithoutRemove then self.OnCollisionPersist = function(_, data, phys2) self:CustomOnCollideWithoutRemove(data, phys2) end end
+	if self.DeathEffects then self.OnDestroy = function(_, data, phys2) self:DeathEffects(data, phys2) end end
+	if self.CustomOnDoDamage then self.OnDealDamage = function(_, data, phys2, hitEnts) self:CustomOnDoDamage(data, phys2, hitEnts) end end
+	if self.CustomOnDoDamage_Direct then self.OnDealDamage = function(_, data, phys2, hitEnts) self:CustomOnDoDamage_Direct(data, phys2, hitEnts and hitEnts[1] or nil) end end
+	if self.DecalTbl_OnCollideDecals then self.CollisionDecal = self.DecalTbl_OnCollideDecals end
+	if self.DecalTbl_DeathDecals then self.CollisionDecal = self.DecalTbl_DeathDecals end
+	if self.RemoveOnHit then self.CollisionBehavior = PROJ_COLLISION_REMOVE end
+	if self.CollideCodeWithoutRemoving then self.CollisionBehavior = PROJ_COLLISION_PERSIST end
+	--
 end
 ---------------------------------------------------------------------------------------------------------------------------------------------
 function ENT:Think()
-	if self.Dead == true then VJ_STOPSOUND(self.CurrentIdleSound) return end
-	
+	if self.Dead then VJ.STOPSOUND(self.CurrentIdleSound) return end
 	//self:SetAngles(self:GetVelocity():GetNormal():Angle())
-	
-	self:CustomOnThink()
-	self:IdleSoundCode()
+	self:OnThink()
+	self:PlaySound("Idle")
 end
 ---------------------------------------------------------------------------------------------------------------------------------------------
 function ENT:OnTakeDamage(dmginfo)
-	self:CustomOnTakeDamage(dmginfo)
+	self:OnDamaged(dmginfo)
 end
 ---------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:DoDamageCode(data, phys)
+function ENT:DealDamage(data, phys)
 	local owner = self:GetOwner()
-	local hitEnt = NULL
-	local dmgPos = (data != nil and data.HitPos) or self:GetPos()
+	local ownerValid = IsValid(owner)
+	local dataEnt = data and data.HitEntity
+	local hitEnts = false -- Entities that have been damaged (direct or radius)
+	local dmgPos = (data and data.HitPos) or self:GetPos()
+	if IsValid(dataEnt) && ((dataEnt.IsVJBaseBullseye && dataEnt.VJ_IsBeingControlled) or dataEnt.VJ_IsControllingNPC) then return end -- Don't damage bulleyes used by the NPC controller OR entities that are controlling others (Usually players)
+	local selfData = self:GetTable()
 	
-	if self.DoesDirectDamage == true then
-		hitEnt = data.HitEntity
-		//if hitEnt:IsNPC() or hitEnt:IsPlayer() then
-		if IsValid(owner) then
-			if (VJ_IsProp(hitEnt)) or (hitEnt:IsNPC() && (hitEnt:Disposition(owner) == D_HT or hitEnt:Disposition(owner) == D_FR) && hitEnt:Health() > 0 && (hitEnt != owner) && (hitEnt:GetClass() != owner:GetClass())) or (hitEnt:IsPlayer() && GetConVar("ai_ignoreplayers"):GetInt() == 0 && hitEnt:Alive() && hitEnt:Health() > 0) then
-				self:CustomOnDoDamage_Direct(data, phys, hitEnt)
-				local damagecode = DamageInfo()
-				damagecode:SetDamage(self.DirectDamage)
-				damagecode:SetDamageType(self.DirectDamageType)
-				damagecode:SetAttacker(owner)
-				damagecode:SetInflictor(owner)
-				damagecode:SetDamagePosition(dmgPos)
-				hitEnt:TakeDamageInfo(damagecode, self)
-				VJ_DestroyCombineTurret(owner, hitEnt)
+	if selfData.DoesRadiusDamage then
+		local attackEnt = ownerValid and owner or self -- The entity that will be set as the attacker
+		-- If the projectile is picked up (Such as a grenade picked up by a human NPC), then the damage position is the parent's position
+		if selfData.VJ_ST_Grabbed then
+			local parent = self:GetParent()
+			if IsValid(parent) && parent:IsNPC() then
+				dmgPos = parent:GetPos()
+			end
+		end
+		hitEnts = VJ.ApplyRadiusDamage(attackEnt, self, dmgPos, selfData.RadiusDamageRadius, selfData.RadiusDamage, selfData.RadiusDamageType, ownerValid && !owner:IsPlayer(), selfData.RadiusDamageUseRealisticRadius, {DisableVisibilityCheck=selfData.RadiusDamageDisableVisibilityCheck, Force=selfData.RadiusDamageForce, UpForce=selfData.RadiusDamageForce_Up, DamageAttacker=owner:IsPlayer()})
+	end
+	
+	if selfData.DoesDirectDamage then
+		if ownerValid then
+			-- Accepts one of the 3 cases:
+			-- Entity is not NPC/player
+			-- Entity is NPC and not same class and (owner is a player OR not an ally NPC -- Players can still damage NPCs while NPCs can't damage other friendly NPCs)
+			-- Entity is player and alive and (owner is player OR (ignore players is off and no target is off) -- Players can still damage each other while NPCs can't when ignore players is on)
+			if IsValid(dataEnt) && ((!dataEnt:IsNPC() && !dataEnt:IsPlayer()) or (dataEnt:IsNPC() && dataEnt:GetClass() != owner:GetClass() && (owner:IsPlayer() or (owner:IsNPC() && owner:Disposition(dataEnt) != D_LI))) or (dataEnt:IsPlayer() && dataEnt:Alive() && (owner:IsPlayer() or (!VJ_CVAR_IGNOREPLAYERS && !dataEnt:IsFlagSet(FL_NOTARGET))))) then
+				if hitEnts then
+					hitEnts[#hitEnts + 1] = dataEnt
+				else
+					hitEnts = {dataEnt}
+				end
+				local dmgInfo = DamageInfo()
+				dmgInfo:SetDamage(selfData.DirectDamage)
+				dmgInfo:SetDamageType(selfData.DirectDamageType)
+				dmgInfo:SetAttacker(owner)
+				dmgInfo:SetInflictor(self)
+				dmgInfo:SetDamagePosition(dmgPos)
+				VJ.DamageSpecialEnts(owner, dataEnt, dmgInfo)
+				dataEnt:TakeDamageInfo(dmgInfo, self)
 			end
 		else
-			self:CustomOnDoDamage_Direct(data, phys, hitEnt)
-			local damagecode = DamageInfo()
-			damagecode:SetDamage(self.DirectDamage)
-			damagecode:SetDamageType(self.DirectDamageType)
-			damagecode:SetAttacker(self)
-			damagecode:SetInflictor(self)
-			damagecode:SetDamagePosition(dmgPos)
-			hitEnt:TakeDamageInfo(damagecode, self)
-			VJ_DestroyCombineTurret(self, hitEnt)
+			if hitEnts then
+				hitEnts[#hitEnts + 1] = dataEnt
+			else
+				hitEnts = {dataEnt}
+			end
+			local dmgInfo = DamageInfo()
+			dmgInfo:SetDamage(selfData.DirectDamage)
+			dmgInfo:SetDamageType(selfData.DirectDamageType)
+			dmgInfo:SetAttacker(self)
+			dmgInfo:SetInflictor(self)
+			dmgInfo:SetDamagePosition(dmgPos)
+			VJ.DamageSpecialEnts(self, dataEnt, dmgInfo)
+			dataEnt:TakeDamageInfo(dmgInfo, self)
 		end
 	end
 	
-	if self.DoesRadiusDamage == true then
-		local DoEntCheck = false
-		local attackEnt = owner
-		if IsValid(owner) then
-			DoEntCheck = !owner:IsPlayer()
-		else
-			attackEnt = self
-		end
-		if self.VJ_IsPickedUpDanger == true && IsValid(self:GetParent()) && self:GetParent():IsNPC() then dmgPos = self:GetParent():GetPos() end -- If the projectile is picked up (Such as a grenade picked up by human SNPC), then the damage position is the parent's position
-		hitEnt = util.VJ_SphereDamage(attackEnt, attackEnt, dmgPos, self.RadiusDamageRadius, self.RadiusDamage, self.RadiusDamageType, DoEntCheck, self.RadiusDamageUseRealisticRadius, {DisableVisibilityCheck=self.RadiusDamageDisableVisibilityCheck, Force=self.RadiusDamageForce, UpForce=self.RadiusDamageForce_Up, DamageAttacker=owner:IsPlayer()})
+	self:OnDealDamage(data, phys, hitEnts)
+end
+---------------------------------------------------------------------------------------------------------------------------------------------
+function ENT:StartTouch(ent)
+	//print("START TOUCH", ent)
+	-- Filter out entities that shouldn't be hit (such as clips or triggers)
+	if !ent:IsPlayer() && !ent:IsNPC() && !ent:IsNextBot() && !ent:IsFlagSet(FL_OBJECT) /*&& ent:GetSolid() != SOLID_VPHYSICS*/ then return end
+	if ent.IsVJBaseBullseye && ent.VJ_IsBeingControlled then return end
+	local owner = self:GetOwner()
+	-- Skip the following cases:
+	-- Owner is the ent
+	-- Owner is an NPC:
+		-- Owner is the same class as ent
+		-- Owner is friendly to ent
+		-- Ent is a parent of the owner
+		-- Ent is a player AND is dead OR ignore players is on OR has no target
+	if IsValid(owner) && owner == ent or (self.CollisionFilter && owner:IsNPC() && (owner:GetClass() == ent:GetClass() or owner:Disposition(ent) == D_LI or owner:GetParent() == ent or (ent:IsPlayer() && (!ent:Alive() or VJ_CVAR_IGNOREPLAYERS or ent:IsFlagSet(FL_NOTARGET))))) then
+		//print("START TOUCH - SKIPPPPP")
+		return
 	end
+	//print("PASS", ent)
 	
-	self:CustomOnDoDamage(data, phys, hitEnt)
+	-- Translate TraceResult --> CollisionData
+	local trace = self:GetTouchTrace()
+	local myPhys = self:GetPhysicsObject()
+	local myVel = myPhys:GetVelocity()
+	local myAngVel = myPhys:GetAngleVelocity()
+	local entPhys = ent:GetPhysicsObject()
+	local entVel;
+	local entAngVel;
+	if IsValid(entPhys) then
+		entVel = entPhys:GetVelocity()
+		entAngVel = entPhys:GetAngleVelocity()
+	else
+		entVel = ent:GetVelocity()
+		entAngVel = entVel
+	end
+	if trace.HitNormal == defVec then -- Touch functions tend to return an invalid normal, so calculate it using the velocity
+		trace.HitNormal = myVel:GetNormalized()
+	end
+	trace.PhysObject = myPhys
+	trace.HitEntity = ent
+	trace.HitObject = entPhys
+	trace.HitSpeed = (myVel - entVel):Length()
+	trace.Speed = myVel:Length()
+	trace.DeltaTime = 1
+	trace.OurSurfaceProps = trace.SurfaceProps
+	trace.OurOldVelocity = myVel
+	trace.OurOldAngularVelocity = myAngVel
+	trace.OurNewVelocity = myVel
+	trace.TheirSurfaceProps = trace.SurfaceProps
+	trace.TheirOldVelocity = entVel
+	trace.TheirOldAngularVelocity = entAngVel
+	trace.TheirNewVelocity = entVel
+	trace.HitPos = self:GetPos() -- Fake it until you make it
+	
+	self:PhysicsCollide(trace, myPhys)
 end
 ---------------------------------------------------------------------------------------------------------------------------------------------
 function ENT:PhysicsCollide(data, phys)
-	if self.Dead == true then return end
-	//self.Dead = true
-	if self:CustomOnPhysicsCollide(data, phys) != false then
-		if self.RemoveOnHit == true then
-			self.Dead = true
-			self:DoDamageCode(data, phys)
-			self:OnCollideSoundCode()
-			if self.PaintDecalOnDeath == true && VJ_PICK(self.DecalTbl_DeathDecals) != false && self.AlreadyPaintedDeathDecal == false then 
-				self.AlreadyPaintedDeathDecal = true 
-				util.Decal(VJ_PICK(self.DecalTbl_DeathDecals), data.HitPos + data.HitNormal, data.HitPos - data.HitNormal)
+	local selfData = self:GetTable()
+	if selfData.Dead then return end
+	
+	if !self:OnCollision(data, phys) then
+		local colBehavior = selfData.CollisionBehavior
+		if !colBehavior then return end
+		if colBehavior == PROJ_COLLISION_REMOVE then
+			selfData.Dead = true
+			self:DealDamage(data, phys)
+			self:PlaySound("OnCollide")
+			if !selfData.PaintedFinalDecal then
+				local decals = PICK(selfData.CollisionDecal)
+				if decals then
+					selfData.PaintedFinalDecal = true
+					util.Decal(decals, data.HitPos + data.HitNormal * -15, data.HitPos - data.HitNormal * -2)
+				end
 			end
-			if self.ShakeWorldOnDeath == true then util.ScreenShake(data.HitPos, self.ShakeWorldOnDeathAmplitude, self.ShakeWorldOnDeathFrequency, self.ShakeWorldOnDeathDuration, self.ShakeWorldOnDeathRadius) end
-			self:SetDeathVariablesTrue(data, phys, true)
-			if self.DelayedRemove > 0 then
-				self:SetNoDraw(true)
+			
+			-- Remove the entity
+			if selfData.ShakeWorldOnDeath then util.ScreenShake(data.HitPos, selfData.ShakeWorldOnDeathAmplitude or 16, selfData.ShakeWorldOnDeathFrequency or 200, selfData.ShakeWorldOnDeathDuration or 1, selfData.ShakeWorldOnDeathRadius or 3000) end -- !!!!!!!!!!!!!! DO NOT USE THIS VARIABLE !!!!!!!!!!!!!! [Backwards Compatibility!]
+			self:Destroy(data, phys)
+		elseif colBehavior == PROJ_COLLISION_PERSIST then
+			if CurTime() < selfData.NextPersistCollisionT then return end
+			self:DealDamage(data, phys)
+			self:PlaySound("OnCollide")
+			if !selfData.PaintedFinalDecal then
+				local decals = PICK(selfData.CollisionDecal)
+				if decals then
+					util.Decal(decals, data.HitPos + data.HitNormal * -15, data.HitPos - data.HitNormal * -2)
+				end
+			end
+			-- Avoids "Changing collision rules within a callback is likely to cause crashes!"
+			timer.Simple(0, function()
+				if IsValid(self) then
+					self:OnCollisionPersist(data, phys)
+				end
+			end)
+			selfData.NextPersistCollisionT = CurTime() + 1 -- Add a delay so we don't spam it!
+		end
+	end
+end
+---------------------------------------------------------------------------------------------------------------------------------------------
+function ENT:Destroy(data, phys)
+	phys = phys or self:GetPhysicsObject()
+	self.Dead = true
+	self:StopParticles()
+	VJ.STOPSOUND(self.CurrentIdleSound)
+	self:OnDestroy(data, phys)
+	
+	-- Handle removal
+	if self.RemoveDelay > 0 then
+		self:SetNoDraw(true)
+		-- Avoids "Changing collision rules within a callback is likely to cause crashes!"
+		timer.Simple(0, function()
+			if IsValid(self) then
 				self:SetMoveType(MOVETYPE_NONE)
+				self:SetSolid(SOLID_NONE)
 				self:AddSolidFlags(FSOLID_NOT_SOLID)
-				self:SetLocalVelocity(Vector())
-				SafeRemoveEntityDelayed(self, self.DelayedRemove)
-				self:OnRemove()
-			else
+			end
+		end)
+		phys:EnableMotion(false)
+		phys:SetVelocityInstantaneous(defVec)
+		timer.Simple(self.RemoveDelay, function()
+			if IsValid(self) then
 				self:Remove()
 			end
-		end
-		
-		if self.CollideCodeWithoutRemoving == true && CurTime() > self.NextCollideWithoutRemoveT then
-			self:DoDamageCode(data, phys)
-			self:OnCollideSoundCode()
-			if self.PaintDecalOnCollide == true && VJ_PICK(self.DecalTbl_OnCollideDecals) != false && self.AlreadyPaintedDeathDecal == false then
-				util.Decal(VJ_PICK(self.DecalTbl_OnCollideDecals), data.HitPos + data.HitNormal, data.HitPos - data.HitNormal)
-			end
-			self:CustomOnCollideWithoutRemove(data, phys)
-			self.NextCollideWithoutRemoveT = CurTime() + math.Rand(self.NextCollideWithoutRemove.a, self.NextCollideWithoutRemove.b)
-		end
+		end)
+		self:OnRemove()
+	else
+		self:Remove()
 	end
 end
 ---------------------------------------------------------------------------------------------------------------------------------------------
 function ENT:OnRemove()
 	self.Dead = true
-	VJ_STOPSOUND(self.CurrentIdleSound)
-	self:OnRemoveSoundCode()
+	VJ.STOPSOUND(self.CurrentIdleSound)
+	self:PlaySound("OnRemove")
 	self:CustomOnRemove()
 end
 ---------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:SetDeathVariablesTrue(data, phys, RunDeathEffects)
+function ENT:PlaySound(sdSet)
+	if !sdSet then return end
+	local selfData = self:GetTable()
+	if sdSet == "Startup" then
+		if selfData.HasStartupSounds && math.random(1, selfData.StartupSoundChance) == 1 then
+			VJ.EmitSound(self, selfData.SoundTbl_Startup, selfData.StartupSoundLevel, math.random(selfData.StartupSoundPitch.a, selfData.StartupSoundPitch.b))
+		end
+	elseif sdSet == "Idle" then
+		local curIdleSD = selfData.CurrentIdleSound
+		if selfData.HasIdleSounds && (!curIdleSD or (curIdleSD && !curIdleSD:IsPlaying())) && CurTime() > selfData.NextIdleSoundT then
+			if math.random(1, selfData.IdleSoundChance) == 1 then
+				VJ.STOPSOUND(selfData.CurrentIdleSound)
+				selfData.CurrentIdleSound = VJ.CreateSound(self, selfData.SoundTbl_Idle, selfData.IdleSoundLevel, math.random(selfData.IdleSoundPitch.a, selfData.IdleSoundPitch.b))
+			end
+			selfData.NextIdleSoundT = CurTime() + math.Rand(selfData.NextSoundTime_Idle.a , selfData.NextSoundTime_Idle.b)
+		end
+	elseif sdSet == "OnCollide" then
+		if selfData.HasOnCollideSounds && math.random(1, selfData.OnCollideSoundChance) == 1 then
+			VJ.EmitSound(self, selfData.SoundTbl_OnCollide, selfData.OnCollideSoundLevel, math.random(selfData.OnCollideSoundPitch.a, selfData.OnCollideSoundPitch.b))
+		end
+	elseif sdSet == "OnRemove" then
+		if selfData.HasOnRemoveSounds && math.random(1, selfData.OnRemoveSoundChance) == 1 then
+			VJ.EmitSound(self, selfData.SoundTbl_OnRemove, selfData.OnRemoveSoundLevel, math.random(selfData.OnRemoveSoundPitch.a, selfData.OnRemoveSoundPitch.b))
+		end
+	end
+end
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------ ///// OBSOLETE FUNCTIONS | Do not to use! \\\\\ ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+-- !!!!!!!!!!!!!! DO NOT USE THESE !!!!!!!!!!!!!! [Backwards Compatibility!]
+function ENT:OnCollideSoundCode() self:PlaySound("OnCollide") end
+function ENT:DoDamageCode(data, phys) self:DealDamage(data, phys) end
+function ENT:SetDeathVariablesTrue(data, phys, runOnDestroy)
 	self.Dead = true
 	self:StopParticles()
-	VJ_STOPSOUND(self.CurrentIdleSound)
-	if RunDeathEffects == true then self:DeathEffects(data, phys or self:GetPhysicsObject()) end
-end
----------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:StartupSoundCode()
-	if self.HasStartupSounds == false then return end
-	if CurTime() > self.NextIdleSoundT && math.random(1, self.StartupSoundChance) == 1 then
-		self.CurrentStartupSound = VJ_CreateSound(self, self.SoundTbl_Startup, self.StartupSoundLevel, math.random(self.StartupSoundPitch.a, self.StartupSoundPitch.b))
-	end
-end
----------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:IdleSoundCode()
-	if self.HasIdleSounds == false then return end
-	if CurTime() > self.NextIdleSoundT then
-		if math.random(1, self.IdleSoundChance) == 1 then
-			self.CurrentIdleSound = VJ_CreateSound(self, self.SoundTbl_Idle, self.IdleSoundLevel, math.random(self.IdleSoundPitch.a, self.IdleSoundPitch.b))
-		end
-		self.NextIdleSoundT = CurTime() + math.Rand(self.NextSoundTime_Idle.a ,self.NextSoundTime_Idle.b)
-	end
-end
---------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:OnCollideSoundCode()
-	if self.HasOnCollideSounds == false then return end
-	if math.random(1, self.OnCollideSoundChance) == 1 then
-		self.CurrentDeathSound = VJ_CreateSound(self, self.SoundTbl_OnCollide, self.OnCollideSoundLevel, math.random(self.OnCollideSoundPitch.a, self.OnCollideSoundPitch.b))
-	end
-end
---------------------------------------------------------------------------------------------------------------------------------------------
-function ENT:OnRemoveSoundCode()
-	if self.HasOnRemoveSounds == false then return end
-	if math.random(1, self.OnRemoveSoundChance) == 1 then
-		self.CurrentDeathSound = VJ_CreateSound(self, self.SoundTbl_OnRemove, self.OnRemoveSoundLevel, math.random(self.OnRemoveSoundPitch.a, self.OnRemoveSoundPitch.b))
-	end
+	VJ.STOPSOUND(self.CurrentIdleSound)
+	if runOnDestroy then self:OnDestroy(data, phys or self:GetPhysicsObject()) end
 end

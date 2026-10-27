@@ -13,6 +13,29 @@ net.Receive("PR_PatrolTypes", function()
 	hook.Run("PR_PatrolTypesUpdated")
 end)
 
+-- Пока открыто окно редактора (и полсекунды после) ЛКМ редактора не ставит спот: клик по кнопке
+-- окна («Выпустить сейчас» и др.) проваливался в оружие, и в точке прицела плодились споты.
+-- Сервер узнаёт об окне отсюда (PR_PatrolUI), сам клик оружия решает он
+local openFrames = 0
+
+local function SendUIState()
+	net.Start("PR_PatrolUI")
+		net.WriteBool(openFrames > 0)
+	net.SendToServer()
+end
+
+function PR_PatrolEditor.Guard(frame)
+	openFrames = openFrames + 1
+	SendUIState()
+
+	local onRemove = frame.OnRemove
+	frame.OnRemove = function(self, ...)
+		openFrames = math.max(openFrames - 1, 0)
+		SendUIState()
+		if onRemove then return onRemove(self, ...) end
+	end
+end
+
 -- Боты-экипажи техники патрулей — не игроки: прячем системные «вступает в игру», «покидает игру»
 -- и «меняет имя». Сервер заранее присылает имя бота, при уходе причина — «Экипаж патруля»
 local crewNames = {}
@@ -133,6 +156,7 @@ function PR_PatrolEditor.Pick(title, options, selected, multi, onDone)
 	for _, v in ipairs(selected or {}) do chosen[v] = true end
 
 	local frame, body = PR_UI.Popup(title, 680, 760)
+	PR_PatrolEditor.Guard(frame)
 
 	local search = vgui.Create("DTextEntry", body)
 	search:Dock(TOP)
@@ -676,6 +700,7 @@ function PR_PatrolEditor.OpenTypes()
 		hook.Remove("PR_PatrolTypesUpdated", "PR_PatrolTypesFrame")
 		hook.Remove("PR_PatrolTypeDone", "PR_PatrolTypesFrame")
 	end
+	PR_PatrolEditor.Guard(frame)
 end
 
 concommand.Add("pr_patrol_types", function()
