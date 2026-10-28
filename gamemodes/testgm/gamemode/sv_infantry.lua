@@ -261,10 +261,13 @@ local function Perceive(npc, b, t, now)
 	if d.visible then
 		d.meter = math.min(d.meter + dt / T, 1.5)
 		if d.state == "unseen" and d.meter >= 1 then
-			-- Держал этот угол — быстрая реакция
+			-- Как заметил: держал этот угол / знал, где враг (метка рядом) / сам — от этого реакция и
+			-- сведение прицела на новую цель
 			local c = BestContact(b)
-			local prepared = c and c.pos:Distance(tp) <= C.preparedDist and angle <= C.preparedAngle
-			d.state, d.reactAt = "react", now + (prepared and C.reactionPrepared or Rand(C.reaction))
+			local dk = NearKnown(b, tp)
+			d.spot = (c and c.pos:Distance(tp) <= C.preparedDist and angle <= C.preparedAngle) and "prepared"
+				or (dk and dk <= C.knownDist) and "known" or "self"
+			d.state, d.reactAt = "react", now + (d.spot == "prepared" and C.reactionPrepared or Rand(d.spot == "known" and C.reactionKnown or C.reaction))
 		elseif d.state == "lost" and d.meter >= 0.3 then
 			d.state, d.reactAt = "react", now + 0.1
 		end
@@ -522,7 +525,8 @@ function PR_Inf.SpreadMul(npc)
 	-- 0,5 с — T × aimMoveT). Первый прицельный выстрел точный, если успел свести
 	local A = AimProfile(npc, b)
 	local T = A.T * (now - (b.selfMovedAt or -10) < 0.5 and C.aimMoveT or 1)
-	local m = Lerp(math.Clamp(math.max(b.aimT or 0, 0) / T, 0, 1), A.start or 1, A.floor)
+	-- Сам заметил цель — до первого сведения начинает шире (aimSurpriseStart)
+	local m = Lerp(math.Clamp(math.max(b.aimT or 0, 0) / T, 0, 1), (A.start or 1) * (b.aimSurprise and C.aimSurpriseStart or 1), A.floor)
 	-- Отдача очереди: каждый следующий выстрел шире
 	if b.shot > 1 then m = m * math.min(C.spreadMax, 1 + C.spreadPerShot * (b.shot - 1)) end
 	-- Начало очереди: длина и пауза от дальности (далеко — одиночные, средняя — 2–3, близко — очередь
@@ -913,9 +917,15 @@ timer.Create("PR_InfThink", 0.1, 0, function()
 			b.moveSpeed = speed
 			if speed > C.aimStillSpeed then b.selfMovedAt = now end
 			if seen ~= b.aimTarget then
-				-- Новая цель: уже в бою — сразу сведён (первый прицельный выстрел точный), застигнут врасплох
-				-- в патруле — доводка с первым контактом
-				if seen and seen ~= b.aimLast then b.aimT = b.state ~= "patrol" and A.T or -C.aimFirstContact end
+				-- Новая цель — по тому, как заметил: держал угол — сразу сведён (первый прицельный выстрел
+				-- точный), знал, где враг, — наполовину, сам заметил — сначала бьёт шире и только потом сводит
+				-- (был в патруле и боя не ждал — ещё дольше)
+				if seen and seen ~= b.aimLast then
+					local spot = b.detect[seen] and b.detect[seen].spot
+					b.aimSurprise = spot ~= "prepared" and spot ~= "known"
+					b.aimT = spot == "prepared" and A.T or spot == "known" and A.T * C.aimKnownK
+						or -(C.aimSelfSpot + (b.state == "patrol" and C.aimFirstContact or 0))
+				end
 				if b.aimTarget then b.aimLast = b.aimTarget end
 				b.aimTarget = seen
 				if seen then b.aimSeenBefore = true end
@@ -925,6 +935,7 @@ timer.Create("PR_InfThink", 0.1, 0, function()
 			else
 				b.aimT = math.max(0, (b.aimT or 0) - C.aimLostDecay * A.T * dt)
 			end
+			if b.aimSurprise and (b.aimT or 0) >= A.T then b.aimSurprise = nil end
 			AgeContacts(npc, b, now, dt)
 			if now >= (b.decideAt or 0) then
 				b.decideAt = now + 0.2

@@ -7,8 +7,9 @@ if engine.ActiveGamemode() ~= "testgm" then return end
 local T = include("pr_selftest_lib.lua")
 local S, log, step, check = T.S, T.log, T.step, T.check
 
-local SCENE = 9    -- секунд на сцену
-local STEADY = 2   -- «установившаяся» доля попаданий — по выстрелам после этого (сведение уже прошло)
+local SCENE = 13   -- секунд на сцену (9 с давали разброс доли ±20 п. п. между прогонами)
+local STEADY = 3   -- «установившаяся» доля попаданий — по выстрелам после этого (сведение уже прошло)
+local EARLY = 1    -- «с ходу» — доля попаданий за столько секунд от первого выстрела
 
 local function Ground(x, y)
 	local tr = util.TraceLine({start = Vector(x, y, 2000), endpos = Vector(x, y, -3000), mask = MASK_PLAYERSOLID_BRUSHONLY})
@@ -24,11 +25,18 @@ hook.Add("EntityFireBullets", "PR_SelfTestAim", function(ent, data)
 	if not (IsValid(ent) and ent == S.n) then return end
 	local sc = S.cur
 	if not sc then return end
+	-- Очередь в голову (PR_Inf.HeadAim) — мимо «установившейся» доли: она про сведение по корпусу, а
+	-- серии в голову (бросок раз в 0,6 с) при паре десятков выстрелов за сцену дают шум ±20 п. п.
+	local head = ent.PR_Brain and ent.PR_Brain.headAim == true
+	local late = CurTime() - sc.t0 >= STEADY
+	local steady = late and not head
 	if ent.PR_AimShotFrame ~= FrameNumber() then
 		ent.PR_AimShotFrame = FrameNumber()
 		sc.shots = sc.shots + 1
-		if CurTime() - sc.t0 >= STEADY then sc.shotsS = sc.shotsS + 1 end
+		if steady then sc.shotsS = sc.shotsS + 1 end
+		if late then sc.shotsL = sc.shotsL + 1 end
 		sc.first = sc.first or (CurTime() - sc.t0)
+		if CurTime() - sc.t0 - sc.first <= EARLY then sc.shotsE = sc.shotsE + 1 end
 	end
 	local orig = data.Callback
 	data.Callback = function(att, tr, dmg)
@@ -42,7 +50,9 @@ hook.Add("EntityFireBullets", "PR_SelfTestAim", function(ent, data)
 		end
 		if tr.Entity == S.bot then
 			sc.hits = sc.hits + 1 / math.max(data.Num or 1, 1)
-			if CurTime() - sc.t0 >= STEADY then sc.hitsS = sc.hitsS + 1 / math.max(data.Num or 1, 1) end
+			if steady then sc.hitsS = sc.hitsS + 1 / math.max(data.Num or 1, 1) end
+			if late then sc.hitsL = sc.hitsL + 1 / math.max(data.Num or 1, 1) end
+			if sc.first and CurTime() - sc.t0 - sc.first <= EARLY then sc.hitsE = sc.hitsE + 1 / math.max(data.Num or 1, 1) end
 			sc.firstHit = sc.firstHit or (CurTime() - sc.t0)
 			if tr.HitGroup == HITGROUP_HEAD then sc.head = sc.head + 1 end
 			-- Время до смерти игрока (оценка): голова (35 HP у VIVO) — сразу, иначе урон набрал 440
@@ -73,7 +83,7 @@ local PROFILES = {
 	{name = "knight", profile = "knight", weapon = "weapon_vj_arccw_ur_ak", goal = {0.9, 0.7}},
 	{name = "boss", profile = "boss", weapon = "weapon_vj_arccw_ur_ak", goal = {0.9, 0.7}},
 	{name = "marksman", profile = "marksman", kind = "dmr", goal = {0.95, 0.85}},
-	{name = "sniper", profile = "sniper", kind = "sniper", goal = {0.95, 0.9}},   -- 5 выстрелов за сцену — шумно
+	{name = "sniper", profile = "sniper", kind = "sniper", goal = {0.9, 0.9}},   -- ~6 выстрелов за сцену: порог 80% — один промах можно
 }
 local DISTS = {1300, 2600, 3900, 5200}   -- 25 / 50 / 75 / 100 м
 S.results = {}
@@ -96,7 +106,8 @@ step(1, function()
 end)
 
 -- Сцена: боец профиля P на дистанции d; opts.walk — цель идёт вбок с этой скоростью, opts.flicker —
--- цель видна 1,5 с / скрыта 1 с по кругу; opts.key — имя результата
+-- цель видна 1,5 с / скрыта 1 с по кругу; opts.known — боец до появления знает, где цель (метка по
+-- рации), иначе замечает сам; opts.key — имя результата
 local function Scene(P, d, opts)
 	opts = opts or {}
 	step(1, function()
@@ -110,12 +121,13 @@ local function Scene(P, d, opts)
 		PR_Quietly(function() n:Spawn() n:Activate() end)
 		n.PR_Role = ""
 		S.n = n
+		if opts.known and n.PR_Brain then PR_Inf.Learn(n, S.base + Vector(0, d, 36), 100, "radio", S.bot) end
 		S.bot:SetPos(S.base + Vector(0, d, 0))
 		S.bot:RemoveFlags(FL_NOTARGET)
 		Look(Angle(0, -90, 0))
 		S.botWalk = opts.walk
 		if opts.walk then S.bot:SetWalkSpeed(opts.walk) S.bot:SetRunSpeed(opts.walk) S.bot:SetMaxSpeed(opts.walk) end
-		S.cur = {name = opts.key or P.name, d = d, shots = 0, hits = 0, shotsS = 0, hitsS = 0, head = 0, dmg = 0, t0 = CurTime(), weapon = weapon, offs = {}}
+		S.cur = {name = opts.key or P.name, d = d, shots = 0, hits = 0, shotsS = 0, hitsS = 0, shotsE = 0, hitsE = 0, shotsL = 0, hitsL = 0, head = 0, dmg = 0, t0 = CurTime(), weapon = weapon, offs = {}}
 		S.aimFrom = nil
 		if opts.flicker then
 			local t0 = CurTime()
@@ -138,9 +150,11 @@ local function Scene(P, d, opts)
 		local b = IsValid(n) and n.PR_Brain or {}
 		local moved = IsValid(n) and n:GetPos():Distance(S.base) or -1
 		sc.pct = sc.shots > 0 and sc.hits / sc.shots or 0
-		sc.steady = sc.shotsS > 0 and sc.hitsS / sc.shotsS or 0
-		log(string.format("AIM %-8s d=%d shots=%d hits=%.0f pct=%.0f%% steady=%.0f%% head=%d first=%s firstHit=%s ttk=%s moved=%.0f aimT=%.1f weapon=%s",
-			sc.name, sc.d, sc.shots, sc.hits, sc.pct * 100, sc.steady * 100, sc.head, sc.first and string.format("%.1f", sc.first) or "-",
+		-- Мало выстрелов по корпусу (снайпер: 5 за сцену, половина в голову) — по всем после STEADY
+		if sc.shotsS >= 5 then sc.steady = sc.hitsS / sc.shotsS else sc.steady = sc.shotsL > 0 and sc.hitsL / sc.shotsL or 0 end
+		sc.early = sc.shotsE > 0 and sc.hitsE / sc.shotsE or 0
+		log(string.format("AIM %-8s d=%d shots=%d hits=%.0f pct=%.0f%% steady=%.0f%% early=%.0f%% head=%d first=%s firstHit=%s ttk=%s moved=%.0f aimT=%.1f weapon=%s",
+			sc.name, sc.d, sc.shots, sc.hits, sc.pct * 100, sc.steady * 100, sc.early * 100, sc.head, sc.first and string.format("%.1f", sc.first) or "-",
 			sc.firstHit and string.format("%.1f", sc.firstHit) or "-", sc.ttk and string.format("%.1f", sc.ttk) or "-", moved, b.aimT or 0, sc.weapon))
 		-- Промахи: среднее смещение (перекос прицела) и разброс по высоте и вбок, что задело вместо цели
 		local n, mz, mx, az, ax, what = 0, 0, 0, 0, 0, {}
@@ -173,6 +187,8 @@ T.section("extra")
 Scene(PROFILES[3], 2600, {walk = 130, key = "knightWalk"})
 Scene(PROFILES[1], 2600, {walk = 130, key = "regularWalk"})
 Scene(PROFILES[3], 2600, {flicker = true, key = "knightFlicker"})
+-- Knight знал, где цель (метка по рации), — против «сам заметил» (сетка выше)
+Scene(PROFILES[3], 2600, {known = true, key = "knightKnown"})
 
 T.section("grid")
 step(1, function()
@@ -186,15 +202,22 @@ step(1, function()
 				r and r.steady >= P.goal[i] - 0.1, r and math.Round(r.steady * 100))
 		end
 	end
+	-- Игрок (2026-10-28): «слишком круто, чуть уменьшим точность и реакцию, когда бот сам увидел игрока» —
+	-- сам заметивший стреляет не мгновенно и с ходу мажет чаще; знавший, где враг, — быстрее и точнее
 	local r = R.knight2600
-	check("knight fires within 1.2 s at 50 m", r and r.first and r.first <= 1.2, r and r.first)
+	check("knight fires within 1.7 s at 50 m", r and r.first and r.first <= 1.7, r and r.first)
+	check("self-spotted knight: early hits 65% or less at 50 m", r and r.shotsE > 0 and r.early <= 0.65, r and math.Round(r.early * 100))
+	local k = R.knightKnown2600
+	check("knight that knew where the target is fires sooner", k and r and k.first and r.first and k.first < r.first, k and r and string.format("%s / %s", tostring(k.first), tostring(r.first)))
+	check("knight that knew where the target is hits more early on (+10 pp)", k and r and k.early >= r.early + 0.1, k and r and string.format("%.0f / %.0f", k.early * 100, r.early * 100))
 	local w, f = R.knightWalk2600, R.knightFlicker2600
 	if not w then return end
 	check("knight hits a walking target 25%+ at 50 m", w and w.pct >= 0.25, w and math.Round(w.pct * 100))
-	-- Мигание видимости не сбрасывает сведение: доля не ниже 70% от непрерывной
-	check("knight keeps aim through visibility flicker (70%+ of steady)", f and r and f.pct >= 0.7 * r.pct, f and r and string.format("%.0f / %.0f", f.pct * 100, r.pct * 100))
+	-- Мигание видимости не сбрасывает сведение: установившаяся доля не ниже 70% от непрерывной (первые
+	-- секунды не в счёт — сам заметивший сводит позже, а при мигании ещё и с перерывами)
+	check("knight keeps aim through visibility flicker (70%+ of steady)", f and r and f.steady >= 0.7 * r.steady, f and r and string.format("%.0f / %.0f", f.steady * 100, r.steady * 100))
 	r = R.regular2600
-	check("regular fires within 1.3 s at 50 m", r and r.first and r.first <= 1.3, r and r.first)
+	check("regular fires within 1.8 s at 50 m", r and r.first and r.first <= 1.8, r and r.first)
 	if IsValid(S.bot) then S.bot:Kick("selftest") end
 	hook.Remove("EntityFireBullets", "PR_SelfTestAim")
 	hook.Remove("StartCommand", "PR_SelfTestAim")
