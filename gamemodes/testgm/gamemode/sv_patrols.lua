@@ -8,6 +8,7 @@
 -- правятся в игре тем же редактором (cl_patrols.lua), стартовые берутся из config/patrols.lua.
 
 include("config/patrols.lua")
+include("config/arccw_migration.lua")
 
 util.AddNetworkString("PR_PatrolSpots")
 util.AddNetworkString("PR_PatrolSetZone")
@@ -128,6 +129,30 @@ local function LoadTypes()
 				if not existing[key] then PR_DB.SavePatrolType(key, data) end
 			end
 			PR_DB.SetMeta(TYPES_META, "1")
+		end)
+	end
+
+	-- Переход с CW 2.0 на ArcCW: оружие бойцов (NPC-копии weapon_vj_cw_*) и добыча (cw_*) — по
+	-- таблице config/arccw_migration.lua; чего в ней нет — убираем (боец получит ствол под роль)
+	if PR_DB.GetMeta("patrol_types_arccw_v1") ~= "1" then
+		local function Map(list, prefix)
+			local out = {}
+			for _, w in ipairs(istable(list) and list or {}) do
+				local cw = string.match(w, "^" .. prefix .. "(cw_.+)$") or string.match(w, "^" .. prefix .. "(khr_.+)$")
+				if not cw then out[#out + 1] = w
+				elseif PR_ARCCW_FROM_CW[cw] then out[#out + 1] = prefix .. PR_ARCCW_FROM_CW[cw] end
+			end
+			return out
+		end
+		PR_DB.Transaction(function()
+			for key, data in pairs(PR_DB.GetPatrolTypes()) do
+				for _, def in ipairs(data.leader and {data.leader, unpack(data.followers or {})} or (data.followers or {})) do
+					def.weapons = Map(def.weapons, "weapon_vj_")
+					if def.drop then def.drop = Map(def.drop, "") end
+				end
+				PR_DB.SavePatrolType(key, data)
+			end
+			PR_DB.SetMeta("patrol_types_arccw_v1", "1")
 		end)
 	end
 
@@ -663,8 +688,13 @@ local function SpawnMember(patrol, def, pos, role)
 	local npc = ents.Create(class)
 	if not IsValid(npc) then return end
 
-	local weapon = Pick(def.weapons)
-	-- Боец патруля без заданного оружия — NPC-копия ствола CW под его роль (sh_npc_cw_weapons.lua)
+	-- Только стволы, что есть в игре (снятый аддон — не повод выпустить бойца без оружия)
+	local pool = {}
+	for _, w in ipairs(istable(def.weapons) and def.weapons or {def.weapons}) do
+		if PR_WeaponExists(w) then pool[#pool + 1] = w end
+	end
+	local weapon = Pick(pool)
+	-- Боец патруля без заданного оружия — NPC-копия ствола ArcCW под его роль (sh_npc_weapons.lua)
 	if not weapon and class == "npc_pr_soldier" and PR_NPCW and PR_NPCW.ROLE_KINDS then
 		weapon = Pick(PR_NPCW.ForKind(PR_NPCW.ROLE_KINDS[def.role or ""] or PR_NPCW.ROLE_KINDS[""]))
 	end

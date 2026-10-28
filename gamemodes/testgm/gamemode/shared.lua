@@ -176,6 +176,5 @@ function PR_NetReadTableZ()
 end
 
 include("config/minimap.lua")
-include("sh_cw_compat.lua")
 include("config/infantry.lua")
-include("sh_npc_cw_weapons.lua")
+include("sh_npc_weapons.lua")

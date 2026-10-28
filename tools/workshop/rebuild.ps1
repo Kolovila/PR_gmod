@@ -1,6 +1,6 @@
-﻿# Пересобрать оружейные аддоны addons\ws_* из Workshop (их тяжёлого контента нет в git):
+﻿# Пересобрать аддоны addons\ws_* из Workshop (их тяжёлого контента нет в git): оружие ArcCW и паки NPC —
 # скачать (steamcmd), разобрать, отобрать без дублей и конфликтов, распаковать в addons\.
-#   .\tools\workshop\rebuild.ps1                 # всё по collection_ids.txt
+#   .\tools\workshop\rebuild.ps1                 # всё по arccw_ids.txt и npc_ids.txt
 #   .\tools\workshop\rebuild.ps1 -SkipDownload   # уже скачано — только отбор и распаковка
 # Нужны: D:\steamcmd\steamcmd.exe (Valve), Python 3, прокси Hiddify 127.0.0.1:12334 для Steam API.
 param([switch]$SkipDownload, [string]$Work = "$env:TEMP\pr_workshop")
@@ -13,12 +13,15 @@ $Subs = 'D:\SteamLibrary\steamapps\workshop\content\4000'   # подписки �
 $Cmd  = 'D:\steamcmd\steamapps\workshop\content\4000'
 New-Item -ItemType Directory -Force $Work | Out-Null
 
-$ids = Get-Content "$Here\collection_ids.txt" | Where-Object { $_ -match '^\d+$' }
+$ids = Get-Content "$Here\arccw_ids.txt" | Where-Object { $_ -match '^\d+$' }
 
-# 1. Сведения Workshop (названия, даты, подписчики) — для отбора
+# 1. Сведения Workshop (названия, даты) — для отбора
 $body = "itemcount=$($ids.Count)&" + (($ids | ForEach-Object -Begin { $i = 0 } -Process { "publishedfileids[$i]=$_"; $i++ }) -join '&')
 Set-Content -Path "$Work\req.txt" -Value $body -Encoding ascii -NoNewline
-curl.exe -s -x http://127.0.0.1:12334 --max-time 60 --data "@$Work\req.txt" -o "$Work\det.json" https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/
+curl.exe -s --max-time 60 --data "@$Work\req.txt" -o "$Work\det.json" https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/
+if (-not (Test-Path "$Work\det.json")) {
+    curl.exe -s -x http://127.0.0.1:12334 --max-time 60 --data "@$Work\req.txt" -o "$Work\det.json" https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/
+}
 if (-not (Test-Path "$Work\det.json")) { 'NO_STEAM_API (прокси Hiddify запущен?)'; exit 1 }
 
 # 2. Скачать то, чего нет ни в подписках, ни у steamcmd
@@ -29,21 +32,17 @@ if (-not $SkipDownload) {
     Get-Content "$Work\fetch.log" -Tail 2
 }
 
-# 3. Файлы самой игры (что уже есть без аддонов), стволы магазина (их не выкидываем)
+# 3. Файлы самой игры (что уже есть без аддонов)
 $vpks = @(Get-ChildItem "$GMod\garrysmod\*_dir.vpk", "$GMod\sourceengine\*_dir.vpk" | ForEach-Object FullName)
 python -I "$Here\vpk_list.py" "$Work\base_files.txt" @vpks
-$shop = Select-String -Path "$R\gamemodes\testgm\gamemode\config\shop_defaults.lua" -Pattern '"((?:cw|khr)_[a-z0-9_]+)"' -AllMatches |
-    ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value }
-$db = python -I -c "import sqlite3; c=sqlite3.connect('file:$($GMod.Replace('\','/'))/garrysmod/sv.db?mode=ro', uri=True); print('\n'.join(r[0] for r in c.execute('select class from pr_shop_weapons')))"
-Set-Content "$Work\shop_classes.txt" (@($shop) + @($db) | Sort-Object -Unique)
 
-# 4. Разбор, отбор, распаковка
-python -I "$Here\cw_index.py" "$Here\collection_ids.txt" "$Work\index.json" $Subs $Cmd | Out-Null
-python -I "$Here\cw_select.py" "$Work\index.json" "$Work\base_files.txt" "$Work\det.json" "$Work\shop_classes.txt" "$Work\selection.json"
-python -I "$Here\cw_extract.py" "$Work\selection.json" "$Work\index.json" "$R\addons" | Select-Object -Last 3
+# 4. ArcCW: разбор, отбор без дублей, распаковка в addons\ws_arccw
+python -I "$Here\cw_index.py" "$Here\arccw_ids.txt" "$Work\index.json" $Subs $Cmd | Out-Null
+python -I "$Here\arccw_select.py" "$Work\index.json" "$Work\base_files.txt" "$Work\det.json" "$Work\selection.json"
+python -I "$Here\cw_extract.py" "$Work\selection.json" "$Work\index.json" "$R\addons" --folder=ws_arccw "--manifest=$Here\manifest_arccw.json" | Select-Object -Last 3
 
 # 5. Паки NPC и плеермоделей (npc_ids.txt) -> addons\ws_npcs; после оружия: файлы, которые уже есть
-#    в других папках addons (VJ-Base, ws_weapons), не дублируются
+#    в других папках addons (VJ-Base, ws_arccw), не дублируются
 $npc = Get-Content "$Here\npc_ids.txt" | Where-Object { $_ -match '^\d+$' }
 $body = "itemcount=$($npc.Count)&" + (($npc | ForEach-Object -Begin { $i = 0 } -Process { "publishedfileids[$i]=$_"; $i++ }) -join '&')
 Set-Content -Path "$Work\npc_req.txt" -Value $body -Encoding ascii -NoNewline
@@ -58,4 +57,4 @@ python -I "$Here\cw_index.py" "$Here\npc_ids.txt" "$Work\npc_index.json" $Subs $
 # текстуры и звуки, без их Lua; NPC из них — наш класс бойца
 python -I "$Here\npc_select.py" "$Work\npc_index.json" "$Work\npc_det.json" "$R\addons" "$Work\npc_selection.json" "--models-only=$Here\npc_models_only_ids.txt"
 python -I "$Here\cw_extract.py" "$Work\npc_selection.json" "$Work\npc_index.json" "$R\addons" --folder=ws_npcs "--manifest=$Here\manifest_npcs.json" | Select-Object -Last 3
-'Дальше: tools\deploy.ps1 (в игру), run_selftest.ps1 -Suite weapons и -Suite npcs'
+'Дальше: tools\deploy.ps1 (в игру), run_selftest.ps1 -Suite weapons, -Suite npcw и -Suite npcs'

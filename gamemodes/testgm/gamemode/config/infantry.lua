@@ -72,12 +72,14 @@ PR_INF = {
 	searchWait = {0.75, 3.75},
 
 	-- Движение
+	-- Маршрут без продвижения к цели столько секунд — снять (застрял)
+	stuckTime = 4,
 	moveStep = 450,
 
-	-- Урон NPC-копий стволов CW: урон CW × это (как у прежних EFT-стволов NPC: АК-74 33 -> ~7)
+	-- Урон NPC-копий стволов ArcCW: урон ArcCW вблизи × это (у бойцов нет брони игрока: АК ~33 -> ~7)
 	npcDamageScale = 0.2,
 	-- Ручные гранаты: класс (первый, что есть в игре), дальность броска
-	grenadeClasses = {"cw_kk_ins2_projectile_frag", "npc_grenade_frag"},
+	grenadeClasses = {"arccw_thr_frag", "npc_grenade_frag"},
 	grenadeRange = {400, 1600},
 }
 

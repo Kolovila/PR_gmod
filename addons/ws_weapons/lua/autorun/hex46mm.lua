@@ -1,1 +1,0 @@
-CustomizableWeaponry:registerAmmo("HK 4.6×30MM", "HK 4.6×30MM Rounds", 4, 60)

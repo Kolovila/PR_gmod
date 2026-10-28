@@ -1,2 +1,0 @@
-CustomizableWeaponry:addFireSound("ARON_M72_FIRE", "my_weapons/bo_m72_law/m72_law_fire.mp3", 1, 160, CHAN_STATIC)
-CustomizableWeaponry:addFireSound("ARON_M72_FIRE2", "my_weapons/bo_m72_law/m72_law_fire.mp3", 1, 160, CHAN_STATIC)

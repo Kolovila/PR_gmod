@@ -1,6 +1,7 @@
--- Оружейные аддоны из Workshop (addons/ws_*, tools/workshop): каждый ствол на базе CW 2.0 —
--- есть ли модели и звук выстрела, выдаётся ли боту и берётся ли в руки. run_selftest.ps1 -Suite weapons
--- Строки WEAPON_BAD <класс> <что> — в журнал; ошибки Lua самих стволов раннер покажет из консоли
+-- Оружие ArcCW (addons/ws_arccw, tools/workshop): каждый ствол — есть ли модели и звук выстрела,
+-- выдаётся ли боту и берётся ли в руки; все товары стартовых списков магазина есть в игре.
+-- run_selftest.ps1 -Suite weapons. Строки WEAPON_BAD <класс> <что> — в журнал; ошибки Lua самих
+-- стволов раннер покажет из консоли
 if engine.ActiveGamemode() ~= "testgm" then return end
 
 util.AddNetworkString("PR_SELFTEST_SHOT")
@@ -9,16 +10,12 @@ util.AddNetworkString("PR_SELFTEST_CLOSE")
 local T = include("pr_selftest_lib.lua")
 local S, log, step = T.S, T.log, T.step
 
-local BASES = {"cw_base", "mw3_wpn_base"}
-
-local function IsCW(class)
-	for _, b in ipairs(BASES) do
-		if class ~= b and weapons.IsBasedOn(class, b) then return true end
-	end
-	return false
+local function IsArc(class)
+	return weapons.IsBasedOn(class, "arccw_base") and not string.find(class, "base", 1, true)
 end
 
-local function SoundFile(name)
+local function SoundOk(name)
+	if istable(name) then name = name[1] end
 	if not isstring(name) or name == "" then return nil end
 	local props = sound.GetProperties(name)
 	local snd = props and props.sound or name
@@ -36,29 +33,54 @@ step(0, function()
 	S.list = {}
 	for _, w in ipairs(weapons.GetList()) do
 		local c = w.ClassName
-		if c and IsCW(c) and not string.find(c, "base", 1, true) and (w.Spawnable or w.AdminSpawnable) then
-			table.insert(S.list, c)
-		end
+		if c and IsArc(c) and (w.Spawnable or w.AdminSpawnable) then table.insert(S.list, c) end
 	end
 	table.sort(S.list)
-	log("CW weapons spawnable: " .. #S.list)
-	T.check("600+ CW weapons from the Workshop packs", #S.list >= 600, #S.list)
+	log("ArcCW weapons spawnable: " .. #S.list)
+	T.check("200+ ArcCW weapons from the Workshop packs", #S.list >= 200, #S.list)
+	T.check("no CW 2.0 weapons left", weapons.GetStored("cw_base") == nil)
 
 	local noVM, noWM, noSnd = {}, {}, {}
 	for _, c in ipairs(S.list) do
 		local w = weapons.Get(c)
-		local vm, wm = w.ViewModel or "", w.WorldModel or ""
+		local vm = w.ViewModel or ""
+		local wm = w.MirrorVMWM and (w.MirrorWorldModel or vm) or (w.WorldModel or "")
 		if vm == "" or not file.Exists(vm, "GAME") then table.insert(noVM, c) log("WEAPON_BAD " .. c .. " viewmodel " .. vm) end
 		if wm ~= "" and not file.Exists(wm, "GAME") then table.insert(noWM, c) log("WEAPON_BAD " .. c .. " worldmodel " .. wm) end
-		local fire = w.FireSound
-		if fire then
-			local ok, path = SoundFile(fire)
-			if ok == false then table.insert(noSnd, c) log("WEAPON_BAD " .. c .. " firesound " .. tostring(fire) .. " -> " .. tostring(path)) end
+		if not weapons.IsBasedOn(c, "arccw_base_nade") and not weapons.IsBasedOn(c, "arccw_base_melee") then
+			local ok, path = SoundOk(w.ShootSound)
+			if ok == false then table.insert(noSnd, c) log("WEAPON_BAD " .. c .. " shootsound " .. tostring(path)) end
 		end
 	end
-	T.check("every CW weapon has its view model", #noVM == 0, #noVM .. ": " .. table.concat(noVM, " ", 1, math.min(#noVM, 12)))
-	T.check("every CW weapon has its world model", #noWM <= 5, #noWM .. ": " .. table.concat(noWM, " ", 1, math.min(#noWM, 12)))
-	T.check("every CW weapon has its fire sound", #noSnd <= 10, #noSnd .. ": " .. table.concat(noSnd, " ", 1, math.min(#noSnd, 12)))
+	T.check("every ArcCW weapon has its view model", #noVM == 0, #noVM .. ": " .. table.concat(noVM, " ", 1, math.min(#noVM, 12)))
+	T.check("every ArcCW weapon has its world model", #noWM <= 3, #noWM .. ": " .. table.concat(noWM, " ", 1, math.min(#noWM, 12)))
+	T.check("every ArcCW weapon has its fire sound", #noSnd <= 5, #noSnd .. ": " .. table.concat(noSnd, " ", 1, math.min(#noSnd, 12)))
+
+	-- Стартовые списки магазина: каждый товар есть в игре
+	local missing = {}
+	for _, types in pairs(PR_SHOP_DEFAULTS.Weapons) do
+		for _, chain in pairs(types) do
+			for _, item in ipairs(chain) do
+				if not PR_WeaponExists(item[1]) then missing[#missing + 1] = item[1] end
+			end
+		end
+	end
+	for _, items in pairs(PR_SHOP_DEFAULTS.Equipment) do
+		for _, item in ipairs(items) do
+			if not (PR_WeaponExists(item[1]) or scripted_ents.GetStored(item[1]) or string.StartWith(item[1], "item_")) then
+				missing[#missing + 1] = item[1]
+			end
+		end
+	end
+	for _, m in ipairs(missing) do log("WEAPON_BAD shop item missing " .. m) end
+	T.check("every shop default weapon and equipment exists", #missing == 0, #missing .. ": " .. table.concat(missing, " ", 1, math.min(#missing, 12)))
+	local cw = 0
+	for _, entries in pairs(PR_WS_List or {}) do
+		for _, e in ipairs(entries) do
+			if isstring(e.ClassName) and string.StartWith(e.ClassName, "cw_") then cw = cw + 1 end
+		end
+	end
+	T.check("shop has no CW 2.0 items after the migration", cw == 0, cw)
 
 	-- Взять в руки: бот получает ствол, переключается на него
 	S.bot = player.CreateNextBot("wtest")
@@ -91,22 +113,14 @@ local function Held()
 	if not (IsValid(active) and active:GetClass() == c) then
 		table.insert(S.notHeld, c)
 		log("WEAPON_BAD " .. c .. " not held (" .. tostring(IsValid(S.currentWep)) .. ")")
-	elseif weapons.IsBasedOn(c, "cw_base") and not isnumber(active.EffectiveRange) then
-		-- Initialize упал на полпути (у патрона нет баллистики CW — sh_cw_compat.lua)
-		S.noRange = S.noRange or {}
-		table.insert(S.noRange, c)
-		log("WEAPON_BAD " .. c .. " no effective range (ammo " .. tostring(active.Primary and active.Primary.Ammo) .. ")")
 	end
 end
 
--- Шаги на каждый ствол строятся после того, как список известен
 step(0.5, function()
 	local function Loop()
 		Held()
 		if Next() then
-			T.check("every CW weapon can be given and held", #S.notHeld <= 5, #S.notHeld .. ": " .. table.concat(S.notHeld, " ", 1, math.min(#S.notHeld, 15)))
-			local noRange = S.noRange or {}
-			T.check("every CW weapon initializes its ballistics", #noRange == 0, #noRange .. ": " .. table.concat(noRange, " ", 1, math.min(#noRange, 15)))
+			T.check("every ArcCW weapon can be given and held", #S.notHeld <= 3, #S.notHeld .. ": " .. table.concat(S.notHeld, " ", 1, math.min(#S.notHeld, 15)))
 			if IsValid(S.bot) then S.bot:Kick("selftest") end
 			T.done()
 			return

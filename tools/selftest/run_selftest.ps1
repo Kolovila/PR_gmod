@@ -60,10 +60,11 @@ $Suites = @{
     record   = @('pr_record_sv.lua', '')   # player flies a helicopter at a target; F6 record, F7 save and quit (data/pr_selftest/flight_*.csv)
     vanish   = @('pr_vanish_sv.lua', '')   # patrol «Техника» on spot 5: who removes its vehicles (VANISH lines)
     mapinfo  = @('pr_mapinfo_sv.lua', '')   # fog, draw distance, navmesh of the map (MAPINFO lines)
-    weapons  = @('pr_selftest_weapons_sv.lua', '')   # every CW weapon of addons\ws_weapons: models, fire sound, can be held (WEAPON_BAD lines)
+    weapons  = @('pr_selftest_weapons_sv.lua', '')   # every ArcCW weapon of addons\ws_arccw: models, fire sound, can be held; shop defaults exist (WEAPON_BAD lines)
     infantry = @('pr_selftest_infantry_sv.lua', '')  # infantry layer: honest sight, hearing, radio, suppression, spread, gaits, patrol of soldiers
-    npcw     = @('pr_selftest_npcw_sv.lua', '')      # NPC copies of CW weapons, RPG and hand grenades, screenshots npcw_*
+    npcw     = @('pr_selftest_npcw_sv.lua', '')      # NPC copies of ArcCW weapons, RPG, 40 mm and hand grenades, screenshots npcw_*
     roles    = @('pr_selftest_roles_sv.lua', '')     # infantry roles and squad: sniper, assault, grenadier, ebitel, sneak, boss, retreat
+    wmdebug  = @('pr_wmdebug_sv.lua', '')   # ArcCW guns in soldiers' hands close up: offset from the hand, model, bodygroups, wm_* shots
     npcs     = @('pr_selftest_npcs_sv.lua', '')      # every VJ human NPC of the spawn menu: alive, model, weapon in hands (NPC_BAD lines)
     navgen   = @('pr_navgen_sv.lua', '')   # build the map's navmesh (maps/<map>.nav in the test copy), up to 90 min
     navzone  = @('pr_navzone_sv.lua', '')  # navmesh only around the fighting zones (incremental, limited range), NAVZONE lines
@@ -122,7 +123,7 @@ robocopy "$R\gamemodes\testgm" "$GM\gamemodes\testgm" /MIR /NFL /NDL /NJH /NJS /
 foreach ($a in 'VJ-Base', 'GUI-MAP-Minimap-for-GMOD', 'eft_weapons') {
     robocopy "$R\addons\$a" "$GM\addons\$a" /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
 }
-# Оружейные аддоны из Workshop (addons\ws_weapons, ~25 ГБ): в копию игры — ссылки-соединения на папки
+# Аддоны из Workshop (addons\ws_arccw, ws_npcs, ~15 ГБ): в копию игры — ссылки-соединения на папки
 # репозитория (мгновенно и без места); в основную установку — как deploy.ps1, зеркалом
 $ws = @(Get-ChildItem "$R\addons" -Directory -Filter 'ws_*' | ForEach-Object Name)
 foreach ($old in Get-ChildItem "$GM\addons" -Directory -Filter 'ws_*' | Where-Object { $ws -notcontains $_.Name }) {

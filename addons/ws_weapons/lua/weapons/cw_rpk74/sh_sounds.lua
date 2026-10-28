@@ -1,6 +1,0 @@
-CustomizableWeaponry:addFireSound("CW_RPK74_FIRE", "weapons/cw_rpk74/rpk.wav", 1, 100, CHAN_STATIC)
-CustomizableWeaponry:addFireSound("CW_RPK74FIRE_SUPPRESSED", "weapons/cw_rpk74/rpk74_sup.wav", 1, 75, CHAN_STATIC)
-CustomizableWeaponry:addReloadSound("CW_RPK74MAGOUT", "weapons/cw_rpk74/magout.wav")
-CustomizableWeaponry:addReloadSound("CW_RPK74MAGIN", "weapons/cw_rpk74/magin.wav")
-CustomizableWeaponry:addReloadSound("CW_RPK74MAGFINISH", "weapons/cw_rpk74/magfinish.wav")
-CustomizableWeaponry:addReloadSound("CW_RPK74BOLTRELEASE", "weapons/cw_rpk74/boltpull.wav")

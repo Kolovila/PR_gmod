@@ -126,7 +126,13 @@ step(0, function()
 	check("legacy players.txt emptied and backed up", not file.Exists("pr_gamemode/players.txt", "DATA") and file.Exists("pr_gamemode/json_backup/players.txt", "DATA"))
 
 	local usa, ssnk = PR_WS_List["USA"] or {}, PR_WS_List["SSNK"] or {}
-	check("weapon list imported (USA)", usa[1] and usa[1]["ClassName"] == "cw_ar15" and usa[1]["Price"] == 5000 and istable(usa[1]["NeedToUnlock"]), usa[1] and usa[1]["ClassName"])
+	-- Переход на ArcCW: товары CW убраны, AR-15 игрока (цена 5000) — теперь AR-15 из ArcCW с той же ценой
+	check("weapon list imported (USA)", usa[1] and usa[1]["ClassName"] == "arccw_kali_ar15" and usa[1]["Price"] == 5000 and istable(usa[1]["NeedToUnlock"]), usa[1] and usa[1]["ClassName"])
+	local cwLeft = 0
+	for _, entries in pairs(PR_WS_List) do
+		for _, e in ipairs(entries) do if string.StartWith(e.ClassName or "", "cw_") then cwLeft = cwLeft + 1 end end
+	end
+	check("shop migration: no CW 2.0 items left", cwLeft == 0 and PR_DB.GetMeta("shop_arccw_v1") == "1", cwLeft)
 	check("weapon list imported (SSNK)", ssnk[1] and ssnk[1]["ClassName"] == "arc9_eft_aks74u")
 
 	local jopass = PR_DB.GetPoint("Jopass")
@@ -151,12 +157,13 @@ step(0, function()
 	local function findIn(list, field, value)
 		for _, e in ipairs(list or {}) do if e[field] == value then return e end end
 	end
-	local akm = findIn(PR_WS_List["SSNK"], "ClassName", "cw_kk_ins2_akm")
-	check("seed: SSNK AKM", akm and akm.Type == "ar" and akm.Tier == 2 and istable(akm.NeedToUnlock) and akm.NeedToUnlock[1] == "cw_kk_ins2_sks", akm and util.TableToJSON(akm))
-	local ar15 = findIn(PR_WS_List["USA"], "ClassName", "cw_ar15")
-	check("seed: user's AR-15 untouched", ar15 and ar15.Price == 5000 and ar15.Exp == 15, ar15 and util.TableToJSON(ar15))
-	local m16 = findIn(PR_WS_List["USA"], "ClassName", "cw_kk_ins2_nam_m16a1")
-	check("seed: M16A1 unlocks after AR-15", m16 and m16.NeedToUnlock and m16.NeedToUnlock[1] == "cw_ar15")
+	local akm = findIn(PR_WS_List["SSNK"], "ClassName", "arccw_cod4e_ak47")
+	check("seed: SSNK AK-47", akm and akm.Type == "ar" and akm.Tier == 2 and istable(akm.NeedToUnlock) and akm.NeedToUnlock[1] == "arccw_uc_sks", akm and util.TableToJSON(akm))
+	local ar15 = findIn(PR_WS_List["USA"], "ClassName", "arccw_kali_ar15")
+	check("seed: user's AR-15 price carried over to ArcCW", ar15 and ar15.Price == 5000 and ar15.Exp == 15, ar15 and util.TableToJSON(ar15))
+	local m16 = findIn(PR_WS_List["USA"], "ClassName", "arccw_bo1_m16")
+	check("seed: M16A1 unlocks after AR-15", m16 and m16.NeedToUnlock and m16.NeedToUnlock[1] == "arccw_kali_ar15")
+	check("seed: ammo box instead of CW ammo kit", findIn(PR_Equip_List, "ClassName", "pr_ammo_kit") ~= nil and findIn(PR_Equip_List, "ClassName", "cw_ammo_kit_regular") == nil)
 	check("seed: equipment medkit", findIn(PR_Equip_List, "ClassName", "weapon_medkit") ~= nil)
 	check("seed: equipment DShK", findIn(PR_Equip_List, "ClassName", "gred_emp_dshk") ~= nil)
 	check("seed: SSNK T-90", findIn(PR_Vehicle_List["SSNK"], "ClassName", "sim_fphys_tank4") ~= nil)
@@ -171,7 +178,7 @@ step(0, function()
 	local scavClasses = {}
 	for _, it in ipairs(scavWeapons) do scavClasses[it.entry.ClassName] = it.faction end
 	log("SCAV weapons: " .. #scavWeapons)
-	check("SCAV gets SSNK and USA weapons", scavClasses["cw_kk_ins2_akm"] == "SSNK" and scavClasses["cw_ar15"] == "USA")
+	check("SCAV gets SSNK and USA weapons", scavClasses["arccw_cod4e_ak47"] == "SSNK" and scavClasses["arccw_kali_ar15"] == "USA")
 	check("SCAV weapon count = all unique", #scavWeapons >= #(PR_WS_List["SSNK"] or {}) + #(PR_WS_List["USA"] or {}) - 1)
 	check("SCAV vehicles: Tiger yes", findIn(PR_Vehicle_List["SCAV"], "ClassName", "sim_fphys_tank") ~= nil)
 	check("SCAV vehicles: no T-90", findIn(PR_Vehicle_List["SCAV"], "ClassName", "sim_fphys_tank4") == nil)
@@ -259,21 +266,21 @@ step(1, function()
 	local list = PR_DB.LoadShopList("weapon")
 	local kept = {}
 	for _, e in ipairs(list["SSNK"] or {}) do
-		if e.ClassName ~= "cw_kk_ins2_akm" then kept[#kept + 1] = e end
+		if e.ClassName ~= "arccw_cod4e_ak47" then kept[#kept + 1] = e end
 	end
 	list["SSNK"] = kept
 	PR_DB.SaveShopList("weapon", list)
 
-	local function akmInDb() return findIn(PR_DB.LoadShopList("weapon")["SSNK"], "ClassName", "cw_kk_ins2_akm") end
+	local function akmInDb() return findIn(PR_DB.LoadShopList("weapon")["SSNK"], "ClassName", "arccw_cod4e_ak47") end
 
 	concommand.Run(S.b1, "pr_shop_reseed", {}, "")
 	check("reseed: ignored for non-admin", akmInDb() == nil and PR_DB.GetMeta("shop_defaults_v2") == "1")
 
 	concommand.Run(S.host, "pr_shop_reseed", {}, "")
-	local akm = findIn(PR_WS_List["SSNK"], "ClassName", "cw_kk_ins2_akm")
+	local akm = findIn(PR_WS_List["SSNK"], "ClassName", "arccw_cod4e_ak47")
 	check("reseed: removed starter item is back", akm ~= nil and akmInDb() ~= nil)
-	check("reseed: unlock chain rebuilt", akm and akm.NeedToUnlock and akm.NeedToUnlock[1] == "cw_kk_ins2_sks", akm and util.TableToJSON(akm))
-	local ar15 = findIn(PR_WS_List["USA"], "ClassName", "cw_ar15")
+	check("reseed: unlock chain rebuilt", akm and akm.NeedToUnlock and akm.NeedToUnlock[1] == "arccw_uc_sks", akm and util.TableToJSON(akm))
+	local ar15 = findIn(PR_WS_List["USA"], "ClassName", "arccw_kali_ar15")
 	check("reseed: user's AR-15 untouched", ar15 and ar15.Price == 5000 and ar15.Exp == 15, ar15 and util.TableToJSON(ar15))
 	check("reseed: meta set again", PR_DB.GetMeta("shop_defaults_v2") == "1")
 end)
@@ -791,7 +798,7 @@ step(2, function()
 	check("reshala kill pays 3000", S.host:GetNWInt("PR_money") == S.moneyPatrol + 3000, S.host:GetNWInt("PR_money") - S.moneyPatrol)
 
 	local tt = false
-	for _, w in ipairs(ents.FindByClass("cw_kk_ins2_nam_tt33")) do
+	for _, w in ipairs(ents.FindByClass("arccw_waw_tt33")) do
 		if S.leaderPos and w:GetPos():Distance(S.leaderPos) < 300 and not IsValid(w:GetOwner()) then tt = true end
 	end
 	check("reshala drops his TT", tt)

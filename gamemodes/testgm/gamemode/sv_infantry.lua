@@ -349,7 +349,7 @@ local function ShotRange(wep)
 	for _, p in ipairs(C.shotByAmmo) do
 		if string.find(ammo, p[1], 1, true) then return p[2] end
 	end
-	local hold = string.lower(tostring(wep.HoldType or wep.NormalHoldType or ""))
+	local hold = string.lower(tostring(wep.HoldtypeActive or wep.HoldType or (wep.GetHoldType and wep:GetHoldType()) or ""))
 	if hold == "pistol" or hold == "revolver" then return C.shotPistol end
 	if hold == "rpg" then return C.shotLauncher end
 	return C.shotDefault
@@ -357,7 +357,8 @@ end
 
 local function Suppressed(wep)
 	if not IsValid(wep) then return false end
-	if wep.dt and wep.dt.Suppressed then return true end
+	-- ArcCW: глушитель — обвес с Silencer
+	if wep.GetBuff_Override and wep:GetBuff_Override("Silencer") then return true end
 	return wep.Suppressed == true or wep.IsSuppressed == true
 end
 
@@ -555,7 +556,8 @@ function PR_Inf.ThrowGrenade(npc, pos)
 	local phys = g:GetPhysicsObject()
 	if IsValid(phys) then phys:SetVelocity(vel) phys:AddAngleVelocity(VectorRand() * 300) end
 	local fuse = t + math.Rand(0.3, 0.8)
-	if g.Fuse then g:Fuse(fuse)
+	-- Граната ArcCW рвётся через FuseTime после появления; у HL2 — таймер
+	if g.FuseTime ~= nil then g.FuseTime = fuse
 	elseif cls == "npc_grenade_frag" then g:Fire("SetTimer", tostring(fuse)) end
 	npc:PlayAnim("vjges_gesture_item_throw", false, 0, false)
 	if npc.PlaySoundSystem then npc:PlaySoundSystem("GrenadeAttack") end
@@ -564,7 +566,7 @@ function PR_Inf.ThrowGrenade(npc, pos)
 	return g, fuse
 end
 
--- Выстрел из гранатомёта (sh_npc_cw_weapons.lua): громко, выдаёт стрелка
+-- Выстрел из гранатомёта (sh_npc_weapons.lua): громко, выдаёт стрелка
 function PR_Inf.OnLauncherFired(npc, from, to)
 	PR_Inf.Hear(from, C.shotLauncher, "shot", npc)
 	local b = Brain(npc)
@@ -668,8 +670,20 @@ local function StepGoto(npc, b)
 		npc:PR_Stop()
 		return true
 	end
+	-- Застрял (движок не ведёт: нет пути, упёрся) — маршрут снимаем, точку на время в «плохие»:
+	-- иначе роль ждёт конца маршрута вечно (гранатомётчик видел цель 13 с и не стрелял)
+	local now = CurTime()
+	local left = pos:Distance(g.goal)
+	if not g.bestLeft or left < g.bestLeft - 30 then g.bestLeft, g.progressAt = left, now end
+	if now - (g.progressAt or g.at or now) > C.stuckTime then
+		b.route = nil
+		npc:PR_Stop()
+		b.stuckAt = now
+		if PR_Inf.MarkBadSpot then PR_Inf.MarkBadSpot(npc, g.goal) end
+		return true
+	end
 	if flat:Length() > C.moveStep then target = pos + flat:GetNormalized() * C.moveStep end
-	if not npc:IsMoving() or CurTime() - (npc.PR_MoveAt or 0) > 2 then npc:PR_Move(target, g.gait, g.face) end
+	if not npc:IsMoving() or now - (npc.PR_MoveAt or 0) > 2 then npc:PR_Move(target, g.gait, g.face) end
 end
 
 ----------------------------------------------------------------------------------------------------

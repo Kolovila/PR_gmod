@@ -533,12 +533,19 @@ PR_Inf.Roles.grenadier = function(npc, b, now)
 		if not b.route then Backoff(npc, b, tpos, 700, "run") end
 		return true
 	end
-	if b.route then return true end
 
 	local okSeen = seen and ((b.stillSince and now - b.stillSince >= cfg.stillTime) or (seen:IsPlayer() and seen:Crouching()))
 	local okHidden = not seen and c and now - c.t <= cfg.rpgAge and c.r <= cfg.rpgRadius and (Indoor(c.pos) or BehindCover(npc, c))
 	b.rockets = b.rockets or cfg.rockets
-	if launcher and (okSeen or okHidden) and d <= cfg.rpgMax and b.rockets > 0 and now >= (b.rpgNext or 0) then
+	local canShoot = launcher and (okSeen or okHidden) and d <= cfg.rpgMax and b.rockets > 0 and now >= (b.rpgNext or 0)
+	-- Идёт на позицию — дойти; но цель стоит на виду в дальности выстрела — остановиться и стрелять
+	-- (только не со смены позиции после своего выстрела: та и нужна, чтобы не ответили)
+	if b.route then
+		if not (canShoot and okSeen and not b.relocating) then return true end
+		Stop(npc, b)
+	end
+	b.relocating = nil
+	if canShoot then
 		if not b.kneelUntil then
 			b.kneelUntil = now + cfg.kneel
 			npc.PR_Crouch = true
@@ -561,7 +568,7 @@ PR_Inf.Roles.grenadier = function(npc, b, now)
 			-- Выстрел выдал — на другую позицию
 			local p = PR_Inf.FindPosition(npc, cpos, {dist = cfg.dist, sectorDir = SideDir(npc, cpos), sectorHalf = 70,
 				needLOS = true, minMove = cfg.relocate, maxTravel = cfg.relocate * 2})
-			if p then GoPos(npc, b, p, "run", cpos) end
+			if p then GoPos(npc, b, p, "run", cpos) b.relocating = true end
 		end
 		return true
 	end

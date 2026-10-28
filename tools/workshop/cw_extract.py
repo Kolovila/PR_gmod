@@ -1,11 +1,11 @@
-"""Распаковать отобранные файлы аддонов в одну папку addons/ws_weapons режима.
+"""Распаковать отобранные файлы аддонов в одну папку addons/<--folder> режима (ws_arccw, ws_npcs).
 
 Одна папка, а не по папке на аддон: каждая папка в addons — отдельный путь поиска, и с сотней
 путей GMod грузил карту 6 минут вместо 45 секунд. Каждый файл в отборе и так ровно из одного
 аддона (cw_select.py), откуда он — видно в tools/workshop/manifest.json.
 Файлы, которых нет в отборе, удаляются; чужой Lua с нашей правкой («-- PR:») не перезаписывается.
 
-usage: python -I cw_extract.py <selection.json> <index.json> <addons_dir> [--dry] [--folder=ws_weapons] [--manifest=<path>]
+usage: python -I cw_extract.py <selection.json> <index.json> <addons_dir> [--dry] [--folder=ws_arccw] [--manifest=<path>]
 """
 import json
 import lzma
@@ -20,8 +20,8 @@ idx = json.load(open(sys.argv[2], encoding="utf-8"))
 root = sys.argv[3]
 dry = "--dry" in sys.argv
 opts = dict(a[2:].split("=", 1) for a in sys.argv[4:] if a.startswith("--") and "=" in a)
-FOLDER = opts.get("folder", "ws_weapons")
-MANIFEST = opts.get("manifest", os.path.join(root, "..", "tools", "workshop", "manifest.json"))
+FOLDER = opts.get("folder", "ws_arccw")
+MANIFEST = opts.get("manifest", os.path.join(root, "..", "tools", "workshop", "manifest_arccw.json"))
 
 
 def slug(text):

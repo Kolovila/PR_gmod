@@ -96,6 +96,8 @@ step(0.5, function()
 			T.done()
 			return
 		end
+		-- Прогресс: набор идёт ~13 мин и пишет только сбои — без этой строки похоже на зависание
+		if S.i % 50 == 0 then log(string.format("NPC progress %d/%d", S.i, #S.list)) end
 		local npc = Spawn(entry)
 		timer.Simple(1.5, function()
 			Check(entry, npc)

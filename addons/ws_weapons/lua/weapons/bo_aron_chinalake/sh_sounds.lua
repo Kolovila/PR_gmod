@@ -1,2 +1,0 @@
-CustomizableWeaponry:addFireSound("BO_ARON_CHINALAKE_FIRE", "my_weapons/bo_chinalake/chinalake_fire.mp3", 1, 160, CHAN_STATIC)
-CustomizableWeaponry:addFireSound("BO_ARON_CHINALAKE_SILENCER", "my_weapons/bo_chinalake/chinalake_fire.mp3", 1, 160, CHAN_STATIC)

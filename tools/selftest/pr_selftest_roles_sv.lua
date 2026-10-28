@@ -52,8 +52,8 @@ hook.Add("EntityFireBullets", "PR_SelfTestRoles", function(ent)
 end)
 hook.Add("OnEntityCreated", "PR_SelfTestRoles", function(ent)
 	timer.Simple(0, function()
-		if IsValid(ent) and ent:GetClass() == "cw_kk_ins2_projectile_rpg" then S.rocketAt = CurTime() end
-		if IsValid(ent) and ent:GetClass() == "cw_40mm_explosive" then S.gl40 = (S.gl40 or 0) + 1 end
+		if IsValid(ent) and ent:GetClass() == "arccw_ucex_rocket" then S.rocketAt = CurTime() end
+		if IsValid(ent) and ent:GetClass() == "arccw_uc_40mm_he" then S.gl40 = (S.gl40 or 0) + 1 end
 	end)
 end)
 
@@ -80,7 +80,7 @@ step(1, function()
 	bot.VJ_NPC_Class = nil
 	bot:GodEnable()
 	bot:StripWeapons()
-	bot:Give("cw_kk_ins2_ak74")
+	bot:Give("arccw_ur_ak")
 
 	-- 1. Снайпер: цель в открытую на 5500
 	S.sn = Soldier(S.base, 90, "sniper", Pick({"sniper"}))
@@ -111,7 +111,7 @@ step(0, function()
 	Clear()
 
 	-- 2. Штурмовик: цель на 2600
-	S.as = Soldier(S.base, 90, "assault", "weapon_vj_cw_kk_ins2_ak74")
+	S.as = Soldier(S.base, 90, "assault", "weapon_vj_arccw_ur_ak")
 	S.bot:SetPos(S.base + Vector(0, 2600, 0))
 	S.d0 = 2600
 end)
@@ -131,7 +131,7 @@ step(20, function()
 	Clear()
 
 	-- 3. Гранатомётчик: стоящая цель на 2500
-	S.gr = Soldier(S.base, 90, "grenadier", "weapon_vj_cw_kk_ins2_rpg")
+	S.gr = Soldier(S.base, 90, "grenadier", "weapon_vj_arccw_uc_rpg7")
 	S.bot:SetPos(S.base + Vector(0, 2500, 0))
 	S.rocketAt = nil
 	S.t0 = CurTime()
@@ -151,11 +151,11 @@ end)
 
 step(1.5, function()
 	local w = S.gr:GetActiveWeapon()
-	check("grenadier out of rockets takes a backup gun", IsValid(w) and w.PR_Projectile == nil and string.StartWith(w:GetClass(), "weapon_vj_cw_"), IsValid(w) and w:GetClass())
+	check("grenadier out of rockets takes a backup gun", IsValid(w) and w.PR_Projectile == nil and string.StartWith(w:GetClass(), "weapon_vj_arccw_"), IsValid(w) and w:GetClass())
 	Clear()
 
 	-- 4. «Ебитель»: цель на 2000
-	S.eb = Soldier(S.base, 90, "ebitel", "weapon_vj_cw_kk_ins2_m590")
+	S.eb = Soldier(S.base, 90, "ebitel", "weapon_vj_arccw_ud_870")
 	S.bot:SetPos(S.base + Vector(0, 2000, 0))
 end)
 
@@ -166,7 +166,7 @@ step(18, function()
 	Clear()
 
 	-- 5. Тихоня: цель стоит к нему спиной на 1200 — молчит и подходит
-	S.sk = Soldier(S.base, 90, "sneak", "weapon_vj_cw_kk_ins2_mp5k")
+	S.sk = Soldier(S.base, 90, "sneak", "weapon_vj_arccw_ur_mp5")
 	S.bot:SetPos(S.base + Vector(0, 1200, 0))
 	Look(Angle(0, 90, 0))
 	S.t0 = CurTime()
@@ -192,7 +192,7 @@ step(2, function()
 	check("sneak fires once it is surely spotted", Shots(S.sk, S.t1) > 0, Shots(S.sk, S.t1))
 	Clear()
 	-- Отдельно: в тихоню попали, а цель на него не смотрит — отвечает
-	S.sk2 = Soldier(S.base, 90, "sneak", "weapon_vj_cw_kk_ins2_mp5k")
+	S.sk2 = Soldier(S.base, 90, "sneak", "weapon_vj_arccw_ur_mp5")
 	S.bot:SetPos(S.base + Vector(300, 1100, 0))
 	Look(Angle(0, 0, 0))
 end)
@@ -214,10 +214,10 @@ step(4, function()
 	-- 6. Отряд: босс, двое охраны, двое штурмовиков, марксман
 	local key = PR_Patrol.SaveType("selftest_squad", {
 		name = "Тест отряда", weight = 0, chance = 1, maxAlive = 1, formation = "wedge",
-		leader = {name = "Босс", class = {"npc_pr_soldier"}, models = {"models/player/eft/bosses/reshala.mdl"}, weapons = {"weapon_vj_cw_kk_ins2_ak74"}, health = 600, reward = {money = 1, exp = 0}},
+		leader = {name = "Босс", class = {"npc_pr_soldier"}, models = {"models/player/eft/bosses/reshala.mdl"}, weapons = {"weapon_vj_arccw_ur_ak"}, health = 600, reward = {money = 1, exp = 0}},
 		followers = {
-			{name = "Охрана", class = {"npc_pr_soldier"}, role = "", count = 2, weapons = {"weapon_vj_cw_kk_ins2_ak74"}, health = 200, reward = {money = 1, exp = 0}},
-			{name = "Штурм", class = {"npc_pr_soldier"}, role = "assault", count = 2, weapons = {"weapon_vj_cw_kk_ins2_ak74"}, health = 200, reward = {money = 1, exp = 0}},
+			{name = "Охрана", class = {"npc_pr_soldier"}, role = "", count = 2, weapons = {"weapon_vj_arccw_ur_ak"}, health = 200, reward = {money = 1, exp = 0}},
+			{name = "Штурм", class = {"npc_pr_soldier"}, role = "assault", count = 2, weapons = {"weapon_vj_arccw_ur_ak"}, health = 200, reward = {money = 1, exp = 0}},
 			{name = "Марксман", class = {"npc_pr_soldier"}, role = "marksman", count = 1, weapons = {Pick({"dmr"})}, health = 200, reward = {money = 1, exp = 0}},
 		}
 	})
@@ -290,8 +290,8 @@ step(12, function()
 	S.typeKey2 = PR_Patrol.SaveType("selftest_goons", {
 		name = "Тест без главного", weight = 0, chance = 1, maxAlive = 1, formation = "wedge",
 		followers = {
-			{name = "Knight", class = {"npc_pr_soldier"}, role = "ebitel", count = 1, models = {"models/eft/bosses/knight_pm.mdl"}, weapons = {"weapon_vj_cw_kk_ins2_ak74"}, health = 200, reward = {money = 1, exp = 0}},
-			{name = "Big Pipe", class = {"npc_pr_soldier"}, role = "grenadier", count = 1, models = {"models/eft/bosses/big_pipe_pm.mdl"}, weapons = {"weapon_vj_cw_kk_ins2_gp25"}, health = 200, reward = {money = 1, exp = 0}},
+			{name = "Knight", class = {"npc_pr_soldier"}, role = "ebitel", count = 1, models = {"models/eft/bosses/knight_pm.mdl"}, weapons = {"weapon_vj_arccw_ur_ak"}, health = 200, reward = {money = 1, exp = 0}},
+			{name = "Big Pipe", class = {"npc_pr_soldier"}, role = "grenadier", count = 1, models = {"models/eft/bosses/big_pipe_pm.mdl"}, weapons = {"weapon_vj_arccw_ud_m79"}, health = 200, reward = {money = 1, exp = 0}},
 			{name = "Birdeye", class = {"npc_pr_soldier"}, role = "marksman", count = 1, models = {"models/eft/bosses/birdeye_pm.mdl"}, weapons = {Pick({"dmr"})}, health = 200, reward = {money = 1, exp = 0}},
 		}
 	})

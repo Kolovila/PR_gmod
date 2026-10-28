@@ -190,8 +190,68 @@ end
 -- Отметка в pr_meta, что стартовые товары уже добавлены. Новая версия списка — новый ключ
 local SEED_META_KEY = "shop_defaults_v2"
 
+-- Переход с CW 2.0 на ArcCW (config/arccw_migration.lua): товары CW в базе — из стартовых списков,
+-- их стволов в игре больше нет. Один раз убираем их, и стартовые списки (уже на ArcCW) садятся
+-- заново. Цену и опыт, которые админ поменял у ствола CW, переносим на его замену из таблицы.
+-- Свои товары админа (не CW) не трогаются
+local ARCCW_META_KEY = "shop_arccw_v1"
+
+local function IsCW(class)
+    return isstring(class) and (string.StartWith(class, "cw_") or string.StartWith(class, "khr_"))
+end
+
+-- Вернёт {[фракция] = {[класс ArcCW] = {Price, Exp}}} — правки админа для переноса после посева
+local function DropCWItems(D)
+    if PR_DB.GetMeta(ARCCW_META_KEY) == "1" then return nil end
+    -- PR_ARCCW_FROM_CW — config/arccw_migration.lua (его подключает sv_patrols.lua)
+    local removed, custom = 0, {}
+    local weapons = PR_DB.LoadShopList("weapon")
+    for frac, entries in pairs(weapons) do
+        for i = #entries, 1, -1 do
+            local e = entries[i]
+            if IsCW(e.ClassName) then
+                local tier = tonumber(e.Tier) or 1
+                local price = D.TierPrice[tier] and math.Round(D.TierPrice[tier] * (D.TypePriceMul[e.Type] or 1) / 10) * 10
+                local to = PR_ARCCW_FROM_CW and PR_ARCCW_FROM_CW[e.ClassName]
+                if to and (tonumber(e.Price) ~= price or tonumber(e.Exp) ~= D.TierExp[tier]) then
+                    custom[frac] = custom[frac] or {}
+                    custom[frac][to] = {Price = e.Price, Exp = e.Exp}
+                end
+                table.remove(entries, i)
+                removed = removed + 1
+            end
+        end
+    end
+    local equip = PR_DB.LoadShopList("equip")
+    for i = #equip, 1, -1 do
+        if IsCW(equip[i].ClassName) then table.remove(equip, i) removed = removed + 1 end
+    end
+    PR_DB.Transaction(function()
+        PR_DB.SaveShopList("weapon", weapons)
+        PR_DB.SaveShopList("equip", equip)
+        PR_DB.SetMeta(ARCCW_META_KEY, "1")
+        PR_DB.SetMeta(SEED_META_KEY, "0")
+    end)
+    MsgN("[PR] магазин: убрано товаров CW 2.0 — " .. removed .. " (переход на ArcCW)")
+    return custom
+end
+
+local function ApplyCustom(custom)
+    if not custom or not next(custom) then return end
+    local weapons = PR_DB.LoadShopList("weapon")
+    for frac, entries in pairs(weapons) do
+        for _, e in ipairs(entries) do
+            local c = custom[frac] and custom[frac][e.ClassName]
+            if c then e.Price, e.Exp = c.Price, c.Exp end
+        end
+    end
+    PR_DB.SaveShopList("weapon", weapons)
+    _G.PR_WS_List = PR_DB.LoadShopList("weapon")
+end
+
 -- Запускается после загрузки всех аддонов, когда оружие и техника уже зарегистрированы
 function PR_SeedShopDefaults()
+    local custom = DropCWItems(PR_SHOP_DEFAULTS)
     if PR_DB.GetMeta(SEED_META_KEY) == "1" then return end
 
     local counts = {}
@@ -211,6 +271,7 @@ function PR_SeedShopDefaults()
 
     MsgN(string.format("[PR] стартовые товары добавлены: оружие %d, снаряжение %d, техника %d, одежда %d",
         counts.weapons, counts.equipment, counts.vehicles, counts.cloth))
+    ApplyCustom(custom)
 end
 
 hook.Add("InitPostEntity", "PR_SeedShopDefaults", PR_SeedShopDefaults)

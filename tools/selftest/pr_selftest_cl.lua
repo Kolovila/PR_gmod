@@ -144,7 +144,7 @@ net.Receive("PR_SELFTEST_PTYPES_SCROLL", function()
 end)
 
 net.Receive("PR_SELFTEST_EDITOR", function()
-	PR_Shop.OpenEditor("weapon", nil, {Category = "ar", Faction = "SSNK", Name = "Тестовый ствол", ClassName = "cw_kk_ins2_akm"})
+	PR_Shop.OpenEditor("weapon", nil, {Category = "ar", Faction = "SSNK", Name = "Тестовый ствол", ClassName = "arccw_ur_ak"})
 	log("editor opened")
 end)
 

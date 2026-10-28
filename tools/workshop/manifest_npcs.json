@@ -3,28 +3,28 @@
   "id": "1196565715",
   "title": "Ins2 Security Forces 3 Pack Playermodels & NPCs",
   "slug": "ins2_security_forces_3_pack_playermodels",
-  "bytes": 14093558,
+  "bytes": 25280904,
   "weapons": []
  },
  {
   "id": "1202342807",
   "title": "Ins2 Insurgent Forces 3 Pack Playermodels & NPCs",
   "slug": "ins2_insurgent_forces_3_pack_playermodel",
-  "bytes": 13048989,
+  "bytes": 53601253,
   "weapons": []
  },
  {
   "id": "1207119041",
   "title": "Ins2 VIPs 2 Pack Playermodels & NPCs",
   "slug": "ins2_vips_2_pack_playermodels_npcs",
-  "bytes": 10354473,
+  "bytes": 125285491,
   "weapons": []
  },
  {
   "id": "2389491188",
   "title": "[VJ] Sentry's Military SNPCs",
   "slug": "sentry_s_military_snpcs",
-  "bytes": 1253562022,
+  "bytes": 1259671706,
   "weapons": [
    "weapon_vj_senbmspumpshotarmy",
    "weapon_vj_senbmssmgarmy",
@@ -43,7 +43,7 @@
   "id": "2398758318",
   "title": "[VJ] Sentry's Insurgent SNPCs",
   "slug": "sentry_s_insurgent_snpcs",
-  "bytes": 1141211027,
+  "bytes": 1145376532,
   "weapons": [
    "weapon_vj_senterassault",
    "weapon_vj_sentercarbine",
@@ -214,7 +214,7 @@
   "id": "3303933513",
   "title": "[VJ] Sentry's Russian Military SNPCs",
   "slug": "sentry_s_russian_military_snpcs",
-  "bytes": 878028662,
+  "bytes": 941525011,
   "weapons": [
    "weapon_vj_senruakarmy",
    "weapon_vj_senruaksmgarmy",
@@ -294,7 +294,7 @@
   "id": "3684161210",
   "title": "[VJ] Sentry's Middle East Military SNPCs",
   "slug": "sentry_s_middle_east_military_snpcs",
-  "bytes": 710462073,
+  "bytes": 670780165,
   "weapons": [
    "weapon_vj_senarabassault",
    "weapon_vj_senarabcarbinearmy",

@@ -17,172 +17,169 @@ PR_SHOP_DEFAULTS.TypePriceMul = {pistol = 0.5, smg = 0.8, shotgun = 0.8, ar = 1,
 PR_SHOP_DEFAULTS.Weapons = {
     SSNK = {
         pistol = {
-            {"cw_kk_ins2_makarov", "ПМ"},
-            {"cw_kk_ins2_tokarev", "ТТ-33"},
-            {"cw_g4p_mp412_rex", "МР-412 «Рекс»"},
-            {"cw_pl14", "ПЛ-14"}
+            {"arccw_ur_pm", "ПМ"},
+            {"arccw_waw_tt33", "ТТ-33"},
+            {"arccw_mw3e_mp412", "МР-412 «Рекс»"}
         },
         smg = {
-            {"cw_kk_ins2_nam_ppsh", "ППШ-41"},
-            {"cw_kerd", "ПП-91 «Кедр»"},
-            {"cw_ots_kiparis", "ОЦ-02 «Кипарис»"},
-            {"cw_pp19", "ПП-19 «Бизон»"},
-            {"cw_kk_ins2_vityaz", "ПП-19-01 «Витязь»"}
+            {"arccw_bo3_ppsh41", "ППШ-41"},
+            {"arccw_bo1_kiparis", "ОЦ-02 «Кипарис»"},
+            {"arccw_mw2e_pp2000", "ПП-2000"},
+            {"arccw_bizon", "ПП-19 «Бизон»"},
+            {"arccw_mw3e_pp90m1", "ПП-90М1"}
         },
         shotgun = {
-            {"cw_kk_ins2_toz66", "ИЖ-43"},
-            {"cw_kk_ins2_toz", "ТОЗ-194"},
-            {"cw_ks23", "КС-23"},
-            {"cw_saiga12k_official", "Сайга-12К"}
+            {"arccw_ur_db", "ИЖ-58"},
+            {"arccw_bo1_ks23", "КС-23"},
+            {"arccw_bo2_s12", "Сайга-12К"}
         },
         ar = {
-            {"cw_kk_ins2_sks", "СКС"},
-            {"cw_kk_ins2_akm", "АКМ"},
-            {"cw_kk_ins2_aks74u", "АКС-74У"},
-            {"cw_kk_ins2_ak74", "АК-74"},
-            {"cw_khr_ins2_ak12", "АК-12"},
-            {"cw_g4p_an94", "АН-94 «Абакан»"}
+            {"arccw_uc_sks", "СКС"},
+            {"arccw_cod4e_ak47", "АК-47"},
+            {"arccw_mw3e_ak74u", "АКС-74У"},
+            {"arccw_ur_ak", "АКМ (модульный: АК-74, РПК, «Витязь»)"},
+            {"arccw_bo2_an94", "АН-94 «Абакан»"}
         },
         sniper = {
-            {"cw_kk_ins2_mosin", "Мосинка"},
-            {"cw_kk_ins2_nam_svt40", "СВТ-40"},
-            {"cw_kk_ins2_svd", "СВД"},
-            {"cw_vss", "ВСС «Винторез»"},
-            {"cw_sv98", "СВ-98"}
+            {"arccw_waw_mosin", "Мосинка"},
+            {"arccw_waw_svt40", "СВТ-40"},
+            {"arccw_uc_svd", "СВД"},
+            {"arccw_bo2_svu", "СВУ-АС"},
+            {"arccw_waw_ptrs41", "ПТРС-41"}
         },
         machinegun = {
-            {"cw_kk_ins2_rpk", "РПК"},
-            {"cw_kk_ins2_rpk12", "РПК-16"},
-            {"cw_pkm", "ПКМ"},
-            {"cw_kk_ins2_pkp", "ПКП «Печенег»"}
+            {"arccw_waw_dp28", "ДП-27"},
+            {"arccw_bo2_rpd", "РПД"},
+            {"arccw_bo1_rpk", "РПК-74"},
+            {"arccw_uc_pkm", "ПКМ"}
         }
     },
-
     USA = {
         pistol = {
-            {"cw_kk_ins2_m1911", "M1911"},
-            {"cw_kk_ins2_m9", "Beretta M9"},
-            {"cw_kk_ins2_m45", "M45 MEUSOC"},
-            {"cw_kk_ins2_nam_python", "Colt Python"}
+            {"arccw_ur_m1911", "M1911"},
+            {"arccw_cod4e_m9", "Beretta M9"},
+            {"arccw_bo1_python", "Colt Python"},
+            {"arccw_ur_329", "S&W 329PD"}
         },
         smg = {
-            {"cw_kk_ins2_doi_m3a1", "M3A1 Grease Gun"},
-            {"cw_kk_ins2_doi_thom_m1a1", "Thompson M1A1"},
-            {"cw_khr_ins2_mac10", "MAC-10"},
-            {"cw_kk_ins2_vector", "KRISS Vector"},
-            {"cw_kac_pdw", "KAC PDW"}
+            {"arccw_waw_thompson", "Thompson M1A1"},
+            {"arccw_bo2_thompson", "Thompson M1927"},
+            {"arccw_bo1_mac11", "MAC-11"},
+            {"arccw_bo2_vector", "KRISS Vector"}
         },
         shotgun = {
-            {"cw_kk_ins2_doi_ithaca", "Ithaca M37"},
-            {"cw_kk_ins2_cstm_m500", "Mossberg 500"},
-            {"cw_kk_ins2_m590", "Mossberg 590"},
-            {"cw_kk_ins2_cstm_ksg", "KSG"},
-            {"cw_aa12", "AA-12"}
+            {"arccw_bo1_ithaca", "Ithaca 37"},
+            {"arccw_waw_trenchgun", "M1897 Trench Gun"},
+            {"arccw_ud_870", "Remington 870"},
+            {"arccw_bo2_ksg", "Kel-Tec KSG"},
+            {"arccw_mw3e_aa12", "AA-12"}
         },
         ar = {
-            {"cw_ar15", "AR-15"},
-            {"cw_kk_ins2_nam_m16a1", "M16A1"},
-            {"cw_kk_ins2_m16a4", "M16A4"},
-            {"cw_kk_ins2_m4a1", "M4A1"},
-            {"cw_kk_ins2_mk18", "Mk18"},
-            {"cw_acr", "ACR"}
+            {"arccw_kali_ar15", "AR-15"},
+            {"arccw_bo1_m16", "M16A1"},
+            {"arccw_ud_m16", "M16A2 (модульный: M4, CQBR)"},
+            {"arccw_cod4e_m4m16", "M16A4"},
+            {"arccw_mw3e_m4a1", "M4A1"},
+            {"arccw_mw3e_acr", "Remington ACR"}
         },
         sniper = {
-            {"cw_kk_ins2_doi_spring", "M1903 Springfield"},
-            {"cw_kk_ins2_m40a1", "M40A1"},
-            {"cw_kk_ins2_m14", "M14 EBR"},
-            {"cw_m24", "M24"},
-            {"cw_mw3_50cal", "Barrett M82"}
+            {"arccw_waw_springfield", "M1903 Springfield"},
+            {"arccw_waw_garand", "M1 Garand"},
+            {"arccw_uc_m14", "M14"},
+            {"arccw_cod4e_r700", "Remington 700"},
+            {"arccw_cod4e_m40a3", "M40A3"},
+            {"arccw_ua_m82", "Barrett M82"}
         },
         machinegun = {
-            {"cw_kk_ins2_doi_bar", "M1918 BAR"},
-            {"cw_kk_ins2_m249", "M249"},
-            {"cw_kk_ins2_nam_m60", "M60"},
-            {"cw_kk_ins2_m240", "M240"}
+            {"arccw_waw_bar", "M1918 BAR"},
+            {"arccw_waw_m1919", "M1919A4"},
+            {"arccw_ua_m60", "M60"},
+            {"arccw_ua_m249", "M249"},
+            {"arccw_bo2_mk48", "Mk 48"}
         }
     },
-
     GBC = {
         pistol = {
-            {"cw_kk_ins2_doi_p38", "Walther P38"},
-            {"cw_kk_ins2_hkuspbestgun", "HK USP"},
-            {"cw_kk_ins2_arse_g17", "Glock 17"},
-            {"cw_mk23", "HK MK23"}
+            {"arccw_waw_p38", "Walther P38"},
+            {"arccw_bo3_c96", "Mauser C96"},
+            {"arccw_ud_glock", "Glock 17"},
+            {"arccw_mw3e_p99", "Walther P99"},
+            {"arccw_uc_usp", "HK USP"},
+            {"arccw_bo2_fiveseven", "FN Five-seveN"}
         },
         smg = {
-            {"cw_kk_ins2_doi_mp40", "MP40"},
-            {"cw_kk_ins2_sterling", "Sterling L2A3"},
-            {"cw_kk_ins2_cstm_mp5a4", "HK MP5A4"},
-            {"cw_kk_ins2_ump45", "HK UMP .45"},
-            {"cw_kk_ins2_cstm_mp7", "HK MP7"}
+            {"arccw_bo3_mp40", "MP40"},
+            {"arccw_bo1_sten", "Sten Mk II"},
+            {"arccw_ur_mp5", "HK MP5"},
+            {"arccw_mw3e_ump45", "HK UMP-45"},
+            {"arccw_bo2_mp7", "HK MP7"},
+            {"arccw_mw3e_p90", "FN P90"}
         },
         shotgun = {
-            {"cw_browning5", "Browning Auto-5"},
-            {"cw_kk_ins2_arse_m1014", "Benelli M4"},
-            {"cw_kk_ins2_cstm_spas12", "SPAS-12"},
-            {"cw_m3super90", "Benelli M3"}
+            {"arccw_bo1_olympia", "Beretta 682"},
+            {"arccw_ur_spas12", "SPAS-12"},
+            {"arccw_shorty", "Benelli M3"},
+            {"arccw_ud_m1014", "Benelli M4"}
         },
         ar = {
-            {"cw_kk_ins2_doi_stg44", "StG 44"},
-            {"cw_kk_ins2_fnfal", "FN FAL"},
-            {"cw_kk_ins2_cstm_famas", "FAMAS"},
-            {"cw_kk_ins2_cstm_g36c", "HK G36C"},
-            {"cw_kk_ins2_arse_l85", "L85"},
-            {"cw_kk_hk416", "HK416"}
+            {"arccw_bo3_stg44", "StG 44"},
+            {"arccw_bo1_fal", "FN FAL"},
+            {"arccw_ur_g3", "HK G3"},
+            {"arccw_mw2e_famas", "FAMAS"},
+            {"arccw_cod4e_g36c", "HK G36C"},
+            {"arccw_myt_uc_scar", "FN SCAR-H"}
         },
         sniper = {
-            {"cw_kk_ins2_doi_k98k", "Kar98k"},
-            {"cw_kk_ins2_doi_g43", "Gewehr 43"},
-            {"cw_l115", "L115A3"},
-            {"cw_blops_psg1", "PSG-1"},
-            {"cw_wa2000", "Walther WA 2000"}
+            {"arccw_waw_k98k", "Kar98k"},
+            {"arccw_waw_g43", "Gewehr 43"},
+            {"arccw_bo1_l96", "L96A1"},
+            {"arccw_bo1_wa2000", "Walther WA 2000"},
+            {"arccw_awm", "AWM"}
         },
         machinegun = {
-            {"cw_kk_ins2_doi_bren", "Bren"},
-            {"cw_kk_ins2_doi_mg34", "MG 34"},
-            {"cw_kk_ins2_doi_mg42", "MG 42"},
-            {"cw_hk_21", "HK21"}
+            {"arccw_bo2_mg08", "MG 08/15"},
+            {"arccw_waw_fg42", "FG 42"},
+            {"arccw_waw_mg42", "MG 42"},
+            {"arccw_bo1_hk21", "HK21"},
+            {"arccw_mw3e_l86", "L86A2 LSW"}
         }
     },
-
     WN = {
         pistol = {
-            {"cw_kk_ins2_nam_nambu", "Nambu"},
-            {"cw_qsz92", "QSZ-92"},
-            {"cw_khr_ins2_cz75", "CZ 75"},
-            {"cw_deagle", "Desert Eagle"}
+            {"arccw_waw_nambu", "Nambu Type 14"},
+            {"arccw_bo1_cz75", "CZ 75"},
+            {"arccw_ragingbull", "Taurus Raging Bull"},
+            {"arccw_ur_deagle", "Desert Eagle"}
         },
         smg = {
-            {"cw_kk_ins2_doi_owen_mk1", "Owen Mk1"},
-            {"cw_kk_ins2_nam_vz61", "Vz. 61 Skorpion"},
-            {"cw_kk_ins2_pm9", "Minebea PM-9"},
-            {"cw_kk_ins2_cstm_uzi", "Uzi"},
-            {"cw_scorpin_evo3", "CZ Scorpion Evo 3"}
+            {"arccw_bo1_skorpion", "Vz. 61 Skorpion"},
+            {"arccw_bo1_pm63", "PM-63 RAK"},
+            {"arccw_ud_uzi", "Uzi"},
+            {"arccw_mw3e_pm9", "Minebea PM-9"},
+            {"arccw_bo2_scorpion", "CZ Scorpion Evo 3"}
         },
         shotgun = {
-            {"cw_weapon_bf4_qbs09", "QBS-09"},
-            {"cw_kk_ins2_br99", "BR-99"},
-            {"cw_uts15", "UTS-15"},
-            {"cw_dao12", "Striker-12"}
+            {"arccw_mw3e_striker", "Striker-12"},
+            {"arccw_myt_uc_neostead", "NeoStead 2000"},
+            {"arccw_mw3e_usas12", "USAS-12"}
         },
         ar = {
-            {"cw_kk_ins2_nam_vz58", "Vz. 58"},
-            {"cw_kk_ins2_galil", "Galil"},
-            {"cw_qbz95", "QBZ-95"},
-            {"cw_kk_ins2_k2", "Daewoo K2"},
-            {"cw_tr09_tar21", "Tavor TAR-21"},
-            {"cw_kk_ins2_cz805", "CZ 805 BREN"}
+            {"arccw_bo1_galil", "Galil"},
+            {"arccw_cde_ak5", "Ak 5"},
+            {"arccw_sg552", "SIG SG 552"},
+            {"arccw_bo2_type95", "QBZ-95"},
+            {"arccw_bo2_mtar", "Tavor X95"},
+            {"arccw_bo2_sig556", "SIG 556"}
         },
         sniper = {
-            {"khr_simsks", "Type 56"},
-            {"cw_khr_ins2_svd", "NDM-86"},
-            {"cw_jng90", "MKEK JNG-90"},
-            {"cw_trg42", "Sako TRG-42"}
+            {"arccw_waw_arisaka", "Arisaka Type 99"},
+            {"arccw_sg550", "SIG SG 550"},
+            {"arccw_myt_uc_gm6", "GM6 Lynx"}
         },
         machinegun = {
-            {"cw_rpd", "РПД"},
-            {"cw_kk_ins2_rpk", "РПК"},
-            {"cw_pkm", "ПКМ"}
+            {"arccw_waw_type99", "Type 99"},
+            {"arccw_bo2_qbb", "QJB-95"},
+            {"arccw_bo2_rpd", "РПД"}
         }
     }
 }
@@ -190,27 +187,24 @@ PR_SHOP_DEFAULTS.Weapons = {
 -- Снаряжение (общее для всех): категория -> {{класс, название, цена}, ...}
 PR_SHOP_DEFAULTS.Equipment = {
     grenade_lethal = {
-        {"cw_kk_ins2_nam_nade_rgd5", "РГД-5", 800},
-        {"cw_kk_ins2_nade_f1", "Ф-1", 900},
-        {"cw_kk_ins2_nade_m67", "M67", 900},
-        {"cw_kk_ins2_nade_molotov", "Коктейль Молотова", 600}
+        {"arccw_nade_frag", "Осколочная граната", 900},
+        {"arccw_nade_impact", "Ударная граната", 900},
+        {"arccw_nade_semtex", "Семтекс (липкая)", 1100},
+        {"arccw_nade_incendiary", "Термитная граната", 800}
     },
     grenade_unlethal = {
-        {"cw_kk_ins2_nam_nade_rdg1", "РДГ-1 (дым)", 300},
-        {"cw_kk_ins2_nade_m18", "M18 (дым)", 300},
-        {"cw_kk_ins2_nade_m84", "M84 (светошумовая)", 500}
+        {"arccw_nade_smoke", "Дымовая граната", 300},
+        {"arccw_nade_flash", "Светошумовая граната", 500},
+        {"arccw_nade_gas", "Газовая граната", 600}
     },
     explosion = {
-        {"cw_kk_ins2_nade_ied", "СВУ на радиоуправлении", 3000},
-        {"cw_kk_ins2_nade_c4", "C4 на радиоуправлении", 4500},
+        {"arccw_nade_claymore", "Мина «Клеймор»", 3500},
         {"weapon_simmines", "Противотанковые мины", 6000}
     },
     melee_weapon = {
-        {"cw_kk_ins2_nam_mel_ak", "Штык-нож АК", 200},
-        {"cw_kk_ins2_mel_bayonet", "Штык морпеха", 200},
-        {"cw_kk_ins2_mel_gurkha", "Кукри", 400},
-        {"cw_kk_ins2_ao5_mel_mach", "Мачете", 400},
-        {"cw_kk_ins2_doi_mel_shovel_us", "Сапёрная лопата", 300}
+        {"arccw_melee_knife", "Нож", 200},
+        {"arccw_bo1_shiv", "Заточка", 200},
+        {"arccw_bo1_sog_knife", "Нож S.O.G.", 400}
     },
     stims = {
         {"weapon_ibuprofen", "Ибупрофен", 400},
@@ -238,24 +232,26 @@ PR_SHOP_DEFAULTS.Equipment = {
         {"gred_emp_m777", "155-мм гаубица M777", 50000}
     },
     binoculars = {
-        {"cw_kk_ins2_doi_bino_us", "Бинокль", 300},
         {"gred_emp_binoculars", "Бинокль корректировщика", 800}
     },
     rocket_launchers = {
-        {"cw_kk_ins2_nam_m72", "M72 LAW", 4000},
-        {"cw_kk_ins2_rpg", "РПГ-7", 7000},
-        {"cw_kk_ins2_at4", "AT4", 7000}
+        {"arccw_ud_m79", "M79 (40 мм)", 3500},
+        {"arccw_bo1_law", "M72 LAW", 4000},
+        {"arccw_uc_rpg26", "РПГ-26", 5000},
+        {"arccw_bo1_chinalake", "China Lake (40 мм)", 6000},
+        {"arccw_uc_rpg7", "РПГ-7", 7000},
+        {"arccw_uc_at4", "AT4", 7000},
+        {"arccw_bo2_m32", "Milkor M32 (40 мм)", 9000}
     },
     signal_device = {
-        {"cw_kk_ins2_nade_kk2", "Сигнальный факел", 200},
-        {"cw_kk_ins2_p2a1", "Сигнальный пистолет HK P2A1", 600}
+        {"arccw_nade_flare", "Сигнальный факел", 200}
     },
     armor_and_else = {
         {"item_battery", "Бронепластина (+15 брони)", 800},
-        {"cw_ammo_kit_small", "Подсумок с патронами", 300},
-        {"cw_ammo_kit_regular", "Сумка с патронами", 700},
-        {"cw_ammo_crate_small", "Малый ящик патронов", 1500},
-        {"cw_ammo_crate_regular", "Ящик патронов", 3000},
+        {"pr_ammo_kit_small", "Подсумок с патронами", 300},
+        {"pr_ammo_kit", "Сумка с патронами", 700},
+        {"pr_ammo_crate_small", "Малый ящик патронов", 1500},
+        {"pr_ammo_crate", "Ящик патронов", 3000},
         {"weapon_simrepair", "Ремкомплект техники", 1500}
     }
 }

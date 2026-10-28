@@ -1,1 +1,0 @@
-CustomizableWeaponry:registerAmmo("4.6×30MM", "4.6×30MM Rounds", 4.6, 30)

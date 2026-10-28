@@ -68,6 +68,10 @@ FIELDS = {
     "ClipSize": re.compile(r"SWEP\.Primary\.ClipSize\s*=\s*(\d+)"),
     "Shots": re.compile(r"SWEP\.Shots\s*=\s*(\d+)"),
     "Caliber": re.compile(r"SWEP\.(?:Primary\.Ammo|Ammo)\s*=\s*" + STR),
+    # ArcCW: настоящее имя (PrintName там часто выдуманное), стойка, снаряд гранатомёта
+    "TrueName": re.compile(r"SWEP\.TrueName\s*=\s*" + STR),
+    "HoldtypeActive": re.compile(r"SWEP\.HoldtypeActive\s*=\s*" + STR),
+    "ShootEntity": re.compile(r"SWEP\.ShootEntity\s*=\s*" + STR),
 }
 
 

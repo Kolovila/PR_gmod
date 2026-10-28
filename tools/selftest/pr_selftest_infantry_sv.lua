@@ -126,8 +126,8 @@ step(1, function()
 	bot.VJ_NPC_Class = nil
 	bot:GodEnable()
 	bot:StripWeapons()
-	bot:Give("cw_kk_ins2_ak74")
-	bot:SelectWeapon("cw_kk_ins2_ak74")
+	bot:Give("arccw_ur_ak")
+	bot:SelectWeapon("arccw_ur_ak")
 	-- За стеной: боец в городе, цель — в точке, закрытой домами
 	S.town = T.FIXED_BASES[1]
 	n:SetPos(S.town)
