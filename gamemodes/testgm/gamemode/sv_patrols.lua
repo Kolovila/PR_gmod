@@ -865,6 +865,8 @@ local MOVE_STEP = 450
 local function MoveTo(npc, pos, run)
 	local from = npc:GetPos()
 	local flat = Vector(pos.x - from.x, pos.y - from.y, 0)
+	-- Нога чёрная или сломана — не бегает и в патруле (sv_body.lua)
+	if run and PR_Body and not PR_Body.CanRun(npc) then run = false end
 
 	if flat:Length() > MOVE_STEP then
 		local mid = from + flat:GetNormalized() * MOVE_STEP

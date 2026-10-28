@@ -237,7 +237,9 @@ PR_INF_SQUAD = {
 	spacingTown = 150, spacingDesert = 520,
 	guardDist = {150, 300}, guardDistDesert = {300, 500},
 	bossBehind = {1500, 3000}, bossRetreatAt = 1500, bossRetreatAgain = 30,
-	retreatLoss = 0.5, retreatBossHp = 0.4, rallyTown = {2000, 4000}, rallyDesert = {4000, 6000},
+	-- retreatBossHp — доля целости головы и груди босса (PR_Body.Vital, sv_body.lua: 0,5 — Решала после
+	-- двух попаданий АК в грудь); limpCoverTravel — хромой при отходе ищет укрытие не дальше этого
+	retreatLoss = 0.5, retreatBossHp = 0.5, limpCoverTravel = 400, rallyTown = {2000, 4000}, rallyDesert = {4000, 6000},
 	retreatMinContact = 8, retreatHits = 2, retreatHitWindow = 10, retreatLeg = {3, 5}, retreatLegFire = {2, 3}, retreatCover = {5, 8},
 	-- Свой на линии огня (коридор blockedWidth) дольше blockedAfter — шаг вбок sidestep; коридор линий
 	-- огня стрелков, который не пересекает рывок «Ебителя», — laneWidth

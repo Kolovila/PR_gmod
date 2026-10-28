@@ -229,6 +229,8 @@ function PR_Inf.DetectTime(npc, t, eye, tp, dist, parts, angle, now)
 	if elev > 0 then T = T * (1 + 1.5 * math.min(elev, 60) / 60) elseif elev < -30 then T = T * 0.75 end
 	if dist > C.fogEnd * 0.7 then T = T * 2 end
 	T = T * (b.state == "patrol" and C.detectPatrolMul or C.detectFightMul)
+	-- Лечится — смотрит на руки (sv_body.lua)
+	if b.treat and PR_BODY then T = T * PR_BODY.treat.detectMul end
 	if now - (b.firedBy[t] or 0) < 3 then T = T * 0.5 end
 	local ene = npc:GetEnemy()
 	if IsValid(ene) and ene ~= t and npc.EnemyData and npc.EnemyData.Visible then T = T * 1.5 end
@@ -265,7 +267,7 @@ local function Perceive(npc, b, t, now)
 			-- сведение прицела на новую цель
 			local c = BestContact(b)
 			local dk = NearKnown(b, tp)
-			d.spot = (c and c.pos:Distance(tp) <= C.preparedDist and angle <= C.preparedAngle) and "prepared"
+			d.spot = (not b.treat and c and c.pos:Distance(tp) <= C.preparedDist and angle <= C.preparedAngle) and "prepared"
 				or (dk and dk <= C.knownDist) and "known" or "self"
 			d.state, d.reactAt = "react", now + (d.spot == "prepared" and C.reactionPrepared or Rand(d.spot == "known" and C.reactionKnown or C.reaction))
 		elseif d.state == "lost" and d.meter >= 0.3 then
@@ -573,6 +575,8 @@ function PR_Inf.SpreadMul(npc)
 	if now < b.knockUntil then m = m * C.knockMul end
 	if b.accMul then m = m * b.accMul end
 	if b.rageUntil and now < b.rageUntil then m = m * 1.25 end
+	-- Ранения: чёрная или сломанная рука, боль (sv_body.lua)
+	if PR_Body then m = m * PR_Body.AimMul(npc) end
 	return m
 end
 
@@ -939,8 +943,11 @@ timer.Create("PR_InfThink", 0.1, 0, function()
 			AgeContacts(npc, b, now, dt)
 			if now >= (b.decideAt or 0) then
 				b.decideAt = now + 0.2
-				local role = PR_Inf.Roles and PR_Inf.Roles[npc.PR_Role or ""]
-				if not (role and role(npc, b, now)) then Decide(npc, b, now) end
+				-- Ранен и безопасно — лечится (sv_body.lua), роль и решение ждут
+				if not (PR_Body and PR_Body.Treat(npc, b, now)) then
+					local role = PR_Inf.Roles and PR_Inf.Roles[npc.PR_Role or ""]
+					if not (role and role(npc, b, now)) then Decide(npc, b, now) end
+				end
 			end
 			StepGoto(npc, b)
 		end)
@@ -958,7 +965,7 @@ PR_Inf.U = {
 -- Боец патруля занят боем / поиском — патруль его не водит (sv_patrols.lua: InCombat)
 function PR_Inf.Busy(npc)
 	local b = Brain(npc)
-	return b and b.state ~= "patrol" or false
+	return b and (b.state ~= "patrol" or b.treat ~= nil) or false
 end
 
 ----------------------------------------------------------------------------------------------------

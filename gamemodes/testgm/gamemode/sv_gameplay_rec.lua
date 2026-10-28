@@ -16,7 +16,7 @@
 local CVAR = CreateConVar("pr_gameplay_rec", "1", FCVAR_ARCHIVE, "Писать бой патрулей (техника и пехота) в data/pr_gamemode/gameplay")
 local DIR = "pr_gamemode/gameplay"
 local MAX_FILES = 30
-local COLUMNS = "time,who,class,x,y,z,speed,heading,pitch,hp,state,target,fire1,fire2,weapon,shots,hits,dmg,aim,why,los,hg"
+local COLUMNS = "time,who,class,x,y,z,speed,heading,pitch,hp,state,target,fire1,fire2,weapon,shots,hits,dmg,aim,why,los,hg,body"
 
 local fileName
 
@@ -35,7 +35,7 @@ local function Row(who, class, ent, hp, state, target, fire1, fire2, weapon, ext
 	local pos, vel, ang = ent:GetPos(), ent:GetVelocity(), ent:GetAngles()
 	return string.format("%.1f,%s,%s,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%s,%s",
 		CurTime(), who, class, pos.x, pos.y, pos.z, ent.PR_RecSpeed or vel:Length(), ang.y, ang.p, tostring(hp or ""),
-		state or "", target or "", fire1 and 1 or 0, fire2 and 1 or 0, weapon or "", extra or ",,,,,,")
+		state or "", target or "", fire1 and 1 or 0, fire2 and 1 or 0, weapon or "", extra or ",,,,,,,")
 end
 
 -- Выстрелы бойцов и игроков (дробь — один выстрел) и попадания — для разбора меткости
@@ -49,6 +49,8 @@ local HG = {[HITGROUP_HEAD] = "h", [HITGROUP_CHEST] = "c", [HITGROUP_STOMACH] = 
 	[HITGROUP_RIGHTARM] = "a", [HITGROUP_LEFTLEG] = "l", [HITGROUP_RIGHTLEG] = "l"}
 hook.Add("PostEntityTakeDamage", "PR_RecHits", function(ent, dmg, took)
 	if not (took and IsValid(ent)) then return end
+	-- Добивание от кровотечения и смерть по телу (sv_body.lua, sv_vivo_compat.lua) — не попадание
+	if ent.PR_BodyKill then return end
 	local a = dmg:GetAttacker()
 	if not IsValid(a) or a == ent then return end
 	if ent:IsPlayer() and a.PR_Brain then
@@ -129,7 +131,9 @@ timer.Create("PR_GameplayRec", 0.5, 0, function()
 			while IsValid(body:GetParent()) do body = body:GetParent() end
 		end
 		local wep = ply:GetActiveWeapon()
-		local extra = string.format("%d,%d,%d,,,,", ply.PR_RecShots or 0, ply.PR_RecHits or 0, ply.PR_RecDmg or 0)
+		-- body — части тела VIVO по ядру sv_body.lua («H35 T85 … LL0!», «!» кровотечение, «x» перелом)
+		local extra = string.format("%d,%d,%d,,,,,%s", ply.PR_RecShots or 0, ply.PR_RecHits or 0, ply.PR_RecDmg or 0,
+			PR_Body and PR_Body.DescribePlayer(ply) or "")
 		ply.PR_RecShots, ply.PR_RecHits, ply.PR_RecDmg = 0, 0, 0
 		out[#out + 1] = Row("player:" .. Name(ply), IsValid(seat) and body:GetClass() or "foot", body,
 			ply:Alive() and ply:Health() or 0, ply:Alive() and "alive" or "dead", "",
@@ -158,8 +162,8 @@ timer.Create("PR_GameplayRec", 0.5, 0, function()
 			local p = npc:GetPos()
 			npc.PR_RecSpeed = npc.PR_RecPos and math.Round(p:Distance(npc.PR_RecPos) / 0.5) or 0
 			npc.PR_RecPos = p
-			local extra = string.format("%d,%d,%d,%.1f,%s,%s,%s", npc.PR_RecShots or 0, npc.PR_RecHits or 0, npc.PR_RecDmg or 0, b.aimT or 0,
-				SilentWhy(npc, b, seen), TrueLOS(npc), npc.PR_RecHG or "")
+			local extra = string.format("%d,%d,%d,%.1f,%s,%s,%s,%s", npc.PR_RecShots or 0, npc.PR_RecHits or 0, npc.PR_RecDmg or 0, b.aimT or 0,
+				SilentWhy(npc, b, seen), TrueLOS(npc), npc.PR_RecHG or "", PR_Body and PR_Body.Describe(npc) or "")
 			npc.PR_RecShots, npc.PR_RecHits, npc.PR_RecDmg, npc.PR_RecHG = 0, 0, 0, nil
 			out[#out + 1] = Row("inf:" .. ((npc.PR_Role or "") ~= "" and npc.PR_Role or "regular"), who, npc, npc:Health(), state,
 				(string.gsub(target, ",", " ")), now - (b.lastFireAt or -10) < 0.5, seen ~= nil, IsValid(wep) and wep:GetClass() or "", extra)

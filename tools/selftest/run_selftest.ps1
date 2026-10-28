@@ -65,6 +65,7 @@ $Suites = @{
     npcw     = @('pr_selftest_npcw_sv.lua', '')      # NPC copies of ArcCW weapons, RPG, 40 mm and hand grenades, screenshots npcw_*
     aimdiag  = @('pr_selftest_aim_sv.lua', 'diag')   # quick: knight and regular at 50/75 m with miss offsets (AIMOFF lines)
     aim      = @('pr_selftest_aim_sv.lua', 'grid extra')       # infantry accuracy: each aim profile at a standing target 1000-4000, AIM lines
+    body     = @('pr_selftest_body_sv.lua', '')      # Tarkov health by body parts (sv_body.lua): core rules, soldiers (bleed, limp, aim, treatment), player VIVO
     roles    = @('pr_selftest_roles_sv.lua', '')     # infantry roles and squad: sniper, assault, grenadier, ebitel, sneak, boss, retreat
     wmdebug  = @('pr_wmdebug_sv.lua', '')   # ArcCW guns in soldiers' hands close up: offset from the hand, model, bodygroups, wm_* shots
     npcs     = @('pr_selftest_npcs_sv.lua', '')      # every VJ human NPC of the spawn menu: alive, model, weapon in hands (NPC_BAD lines)

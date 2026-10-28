@@ -62,6 +62,8 @@ function ENT:OnDangerDetected() return true end
 
 function ENT:Init()
 	if PR_Inf then PR_Inf.Register(self) end
+	-- Тарковское здоровье по частям тела (gamemode/sv_body.lua)
+	if PR_Body then PR_Body.InitNPC(self) end
 end
 
 ----------------------------------------------------------------------------------------------------
@@ -69,6 +71,8 @@ end
 -- (VJ сам ставит анимацию с оружием наизготовку и жмёт огонь), face — смотреть в точку, а не на врага
 ----------------------------------------------------------------------------------------------------
 function ENT:PR_Move(pos, gait, face)
+	-- Нога чёрная или сломана — не бегает (sv_body.lua)
+	if gait == "run" and PR_Body and not PR_Body.CanRun(self) then gait = "walk" end
 	self:SetLastPosition(pos)
 	local s = vj_ai_schedule.New("PR_MOVE")
 	s:EngTask("TASK_GET_PATH_TO_LASTPOSITION", 0)
@@ -186,8 +190,14 @@ function ENT:ResetEnemy(checkAllies, checkVis)
 	return self.BaseClass.ResetEnemy(self, false, false)
 end
 
+-- Урон по частям тела (sv_body.lua): до вычета VJ — сколько HP снять, после — здоровье ровно по телу
 function ENT:OnDamaged(dmginfo, hitgroup, status)
-	if status == "PreDamage" and PR_Inf then PR_Inf.OnDamaged(self, dmginfo) end
+	if status == "PreDamage" then
+		if PR_Body then PR_Body.OnNPCDamaged(self, dmginfo) end
+		if PR_Inf then PR_Inf.OnDamaged(self, dmginfo) end
+	elseif status == "PostDamage" and PR_Body then
+		PR_Body.PostNPCDamaged(self)
+	end
 end
 
 -- Огонь запрещён ролью (тихоня без повода, гранатомётчик ждёт) или переносом огня / подавлением.

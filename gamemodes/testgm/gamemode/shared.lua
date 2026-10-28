@@ -178,3 +178,4 @@ end
 include("config/minimap.lua")
 include("config/infantry.lua")
 include("sh_npc_weapons.lua")
+include("sh_vivo_limp.lua")

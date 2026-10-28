@@ -417,6 +417,18 @@ local function Orders(npc, b, now)
 			Stop(npc, b)
 			b.faceRestartAt = now
 		end
+		-- Хромой (нога чёрная или сломана, sv_body.lua) до точки сбора шагом не дойдёт — в ближайшее
+		-- укрытие от угрозы, там «дошёл»
+		if not o.limpCover and PR_Body and not PR_Body.CanRun(npc) and d > 200 and face then
+			o.limpCover = true
+			local me, fd = npc:GetPos(), npc:GetPos():Distance(face)
+			local p = PR_Inf.FindPosition(npc, face, {dist = {300, fd + 200, fd + 1200}, sectorDir = FlatDir(face, me), sectorHalf = 90,
+				wantHidden = true, maxTravel = SQ.limpCoverTravel})
+			o.pos = p or me
+			if not p then o.arrived = true end
+			if b.route then Stop(npc, b) end
+			d = me:Distance(o.pos)
+		end
 		if not b.route and d > 200 then GoPos(npc, b, o.pos, "run", face) b.legUntil = now + Rand(SQ.retreatLeg) end
 		npc.PR_Crouch = d <= 200 and not seen
 		if not seen and not b.route and face then npc.PR_Face, npc.PR_AimAt = face, face + CHEST end
@@ -557,7 +569,7 @@ PR_Inf.Roles.assault = function(npc, b, now)
 		local want = b.maneuver and Rand(cfg.press) or cfg.dist[2]
 		if b.route and now > (b.boundUntil or 0) then Stop(npc, b) end
 		if not b.route and d > want + 250 and now >= (b.nextBound or 0) and PR_Inf.CanMove(npc)
-			and now - (b.lastFireAt or 0) < 1.5 then
+			and now - (b.lastFireAt or 0) < 1.5 and not (PR_Body and not PR_Body.CanRun(npc)) then
 			-- Бросок стартует, пока сам или напарник ведёт огонь; укрытие в конусе ±45° к цели
 			-- Манёвр — во фланг: сектор повёрнут на 70° от линии «враг — отряд», иначе шёл по линии огня
 			-- своей базы и выключал её перенос огня
@@ -751,7 +763,10 @@ local function LostRecently(npc, b, now)
 	for _, h in ipairs(b.hits or {}) do
 		if now - h.t < 3 then sum = sum + h.dmg end
 	end
-	return sum / math.max(npc:GetMaxHealth(), 1)
+	-- Доля от головы и груди (тарковское тело: у Knight всего 1120, а грудь 220 — от суммы отход не
+	-- наступал никогда)
+	local body = npc.PR_Body
+	return sum / math.max(body and (body.max.Thorax + body.max.Head) or npc:GetMaxHealth(), 1)
 end
 
 -- Линии огня своих стрелков (марксман, снайпер, гранатомётчик) — рывок «Ебителя» их не пересекает
@@ -790,14 +805,6 @@ PR_Inf.Roles.ebitel = function(npc, b, now)
 		end
 		return true
 	end
-	if b.healUntil and now < b.healUntil then
-		npc.PR_Crouch = true
-		if now >= (b.healTick or 0) then
-			b.healTick = now + 1
-			npc:SetHealth(math.min(npc:GetMaxHealth(), npc:Health() + npc:GetMaxHealth() * 0.03))
-		end
-		return true
-	end
 	local E = seen and seen:GetPos() or c.pos
 	if LostRecently(npc, b, now) > cfg.backoffHit then
 		b.hits = {}
@@ -808,11 +815,12 @@ PR_Inf.Roles.ebitel = function(npc, b, now)
 		b.flankSign = math.random() < 0.5 and (b.flankSign or 1) * -1 or (b.flankSign or 1)
 		return true
 	end
-	if npc:Health() / math.max(npc:GetMaxHealth(), 1) < cfg.healBelow and not b.healed then
+	-- Голова или грудь плохи — отходит один раз; лечится общим лечением (sv_body.lua: Treat), когда
+	-- безопасно (своё «3% в секунду на корточках» лечило Knight на 500–840 HP и не прерывалось)
+	if (PR_Body and PR_Body.Vital(npc) or npc:Health() / math.max(npc:GetMaxHealth(), 1)) < cfg.healBelow and not b.healed then
 		b.healed = true
 		Stop(npc, b)
-		Backoff(npc, b, E, 600, "run")
-		b.healUntil = now + Rand(cfg.healTime)
+		Backoff(npc, b, E, 600, PR_Body and not PR_Body.CanRun(npc) and "walk" or "run")
 		return true
 	end
 
@@ -1003,6 +1011,8 @@ function PR_Inf.CanMove(npc)
 	if moving >= math.max(1, math.floor(#ms / 2)) then return false end
 	local partner = npc.PR_Partner
 	if IsValid(partner) and partner.PR_Brain and partner.PR_Brain.bounding then return false end
+	-- Напарник лечится — прикрывает его, не бежит
+	if IsValid(partner) and partner.PR_Brain and partner.PR_Brain.treat then return false end
 	return true
 end
 
@@ -1107,7 +1117,9 @@ local function SquadTick(patrol, now)
 	if sq.bossDeadAt and not sq.newLeader and now - sq.bossDeadAt > SQ.newLeaderAfter then
 		local best
 		for _, m in ipairs(ms) do
-			if (m.PR_Role == "assault" or not best) and (not best or m:Health() > best:Health()) then best = m end
+			-- Самый целый по голове и груди (PR_Body.Vital), штурмовик первым
+			local v = PR_Body and PR_Body.Vital or function(e) return e:Health() end
+			if (m.PR_Role == "assault" or not best) and (not best or v(m) > v(best)) then best = m end
 		end
 		sq.newLeader, patrol.leader = best, best
 		if #ms / sq.initial < SQ.leaveBelow then sq.leave = true end
@@ -1179,7 +1191,8 @@ local function SquadTick(patrol, now)
 
 	-- Отход: потеряна половина или босс плох; не больше двух циклов
 	local share = #ms / sq.initial
-	local bossLow = IsValid(boss) and Alive(boss) and boss:Health() / math.max(boss:GetMaxHealth(), 1) < SQ.retreatBossHp
+	-- Босс плох — по голове и груди (тарковское тело: у Решалы грудь 145 из 752)
+	local bossLow = IsValid(boss) and Alive(boss) and (PR_Body and PR_Body.Vital(boss) or boss:Health() / math.max(boss:GetMaxHealth(), 1)) < SQ.retreatBossHp
 	-- Отряд с «Ебителем» не отступает (Goons в EFT давят до конца), одиночка — тоже (воюет по роли).
 	-- Не раньше retreatMinContact с начала боя (сначала — ответный огонь и укрытие) и только если враг
 	-- сильнее: retreatHits+ попаданий по отряду за retreatHitWindow или нас не больше известных врагов
