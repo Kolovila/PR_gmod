@@ -28,7 +28,7 @@ end
 local function Row(who, class, ent, hp, state, target, fire1, fire2, weapon)
 	local pos, vel, ang = ent:GetPos(), ent:GetVelocity(), ent:GetAngles()
 	return string.format("%.1f,%s,%s,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%s",
-		CurTime(), who, class, pos.x, pos.y, pos.z, vel:Length(), ang.y, ang.p, tostring(hp or ""),
+		CurTime(), who, class, pos.x, pos.y, pos.z, ent.PR_RecSpeed or vel:Length(), ang.y, ang.p, tostring(hp or ""),
 		state or "", target or "", fire1 and 1 or 0, fire2 and 1 or 0, weapon or "")
 end
 
@@ -88,6 +88,10 @@ timer.Create("PR_GameplayRec", 0.5, 0, function()
 				.. "/sq:" .. (patrol and patrol.squad and patrol.squad.phase or "-")
 			local who = string.gsub(tostring(def.name or "") .. "@" .. tostring(patrol and patrol.cfg and patrol.cfg.name or ""), ",", " ")
 			local wep = npc:GetActiveWeapon()
+			-- У NPC GetVelocity даёт 0 — скорость считаем по смещению за полсекунды
+			local p = npc:GetPos()
+			npc.PR_RecSpeed = npc.PR_RecPos and math.Round(p:Distance(npc.PR_RecPos) / 0.5) or 0
+			npc.PR_RecPos = p
 			out[#out + 1] = Row("inf:" .. ((npc.PR_Role or "") ~= "" and npc.PR_Role or "regular"), who, npc, npc:Health(), state,
 				(string.gsub(target, ",", " ")), now - (b.lastFireAt or -10) < 0.5, seen ~= nil, IsValid(wep) and wep:GetClass() or "")
 		end

@@ -466,7 +466,8 @@ function PR_Inf.OnDamaged(npc, dmg)
 	local b = Brain(npc)
 	if not b then return end
 	local now = CurTime()
-	b.knockUntil = now + Rand(C.hitKnock)
+	b.knockUntil = now + Rand(b.isBoss and C.hitKnockBoss or C.hitKnock)
+	b.aimT = (b.aimT or 0) - C.aimHitPenalty
 	b.hits = b.hits or {}
 	table.insert(b.hits, {t = now, dmg = dmg:GetDamage()})
 	b.hitAt = now
@@ -493,6 +494,18 @@ local function ResetTime(wep)
 	return C.burstReset.rifle
 end
 
+-- Профиль сведения прицела: босс, охрана, бойцы ролей, марксман, снайпер, обычный
+local function AimProfile(npc, b)
+	local P = C.aim
+	if b.isBoss then return P.boss end
+	if b.isGuard then return P.guard end
+	local role = npc.PR_Role or ""
+	if role == "sniper" then return P.sniper end
+	if role == "marksman" then return P.marksman end
+	if role ~= "" then return P.fighter end
+	return P.regular
+end
+
 function PR_Inf.SpreadMul(npc)
 	local b = Brain(npc)
 	if not b then return 1 end
@@ -503,24 +516,49 @@ function PR_Inf.SpreadMul(npc)
 	b.shot = b.shot + 1
 	b.shotsHere = (b.shotsHere or 0) + 1
 	b.lastFireAt = now
-	local m = b.shot == 1 and C.spreadFirst or math.min(C.spreadMax, 1 + C.spreadPerShot * (b.shot - 1))
+	-- Сведение прицела: от 1 до «пола» профиля за время T непрерывной видимости цели (своё движение
+	-- за последние 0,5 с — T ×1,5). Первый прицельный выстрел точный, если успел свести
+	local A = AimProfile(npc, b)
+	local T = A.T * (now - (b.selfMovedAt or -10) < 0.5 and 1.5 or 1)
+	local m = Lerp(math.Clamp(math.max(b.aimT or 0, 0) / T, 0, 1), 1, A.floor)
+	-- Отдача очереди: каждый следующий выстрел шире
+	if b.shot > 1 then m = m * math.min(C.spreadMax, 1 + C.spreadPerShot * (b.shot - 1)) end
+	-- Начало очереди: длина и пауза от дальности (далеко — одиночные, средняя — 2–3, близко — очередь
+	-- роли); роль не может стрелять чаще своей паузы
+	if b.shot == 1 then
+		local e = npc:GetEnemy()
+		local d = IsValid(e) and npc:GetPos():Distance(e:GetPos()) or 1500
+		local burst, pause = b.burst or C.burst, b.burstPause or C.burstPause
+		local band, bandPause
+		if d > C.burstFar then band, bandPause = {1, 1}, C.burstPauseFar
+		elseif d > (b.burstNear or C.burstNear) then band, bandPause = C.burstMid, C.burstPauseMid end
+		if band then
+			burst = {math.min(burst[1], band[1]), math.min(burst[2], band[2])}
+			pause = {math.max(pause[1], bandPause[1]), math.max(pause[2], bandPause[2])}
+		end
+		b.burstN = math.random(burst[1], burst[2])
+		b.curPause = pause
+	end
 	-- Конец очереди: пауза (VJ перезаписывает время следующего выстрела сразу после этого — ставим на кадр позже)
 	if b.shot >= b.burstN then
 		b.shot = 0
-		local burst = b.burst or C.burst
-		b.burstN = math.random(burst[1], burst[2])
-		local pause = b.burstPause or C.burstPause
+		local pause = b.curPause or b.burstPause or C.burstPause
+		local k = now < (b.suppPauseUntil or 0) and 2 or 1
 		timer.Simple(0, function()
-			if IsValid(wep) then wep.NPC_NextPrimaryFireT = CurTime() + Rand(pause) end
+			if IsValid(wep) then wep.NPC_NextPrimaryFireT = CurTime() + Rand(pause) * k end
 		end)
 	end
-	if npc:IsMoving() then
-		m = m * (npc.PR_Gait == "run" and C.spreadRun or C.spreadWalk)
+	-- Своё движение — по скорости, а не по «есть маршрут» (застрявший с маршрутом считался бегущим)
+	local v = b.moveSpeed or 0
+	if v > C.aimRunSpeed then
+		m = m * (b.runSpread or C.spreadRun)
+	elseif v > C.aimStillSpeed then
+		m = m * C.spreadWalk
 	elseif npc.PR_Crouch then
 		m = m * C.spreadCrouch
 	end
-	m = m * (1 + b.supp)
-	if now < b.knockUntil then m = m * 2 end
+	m = m * (1 + C.suppressSpread * b.supp)
+	if now < b.knockUntil then m = m * C.knockMul end
 	if b.accMul then m = m * b.accMul end
 	if b.rageUntil and now < b.rageUntil then m = m * 1.25 end
 	return m
@@ -831,7 +869,23 @@ timer.Create("PR_InfThink", 0.1, 0, function()
 				if not IsValid(t) then b.detect[t] = nil end
 			end
 			b.supp = math.max(0, b.supp - C.suppressDecay * dt)
-			if b.supp > C.suppressHeavy and now > (b.holdFireUntil or 0) + 4 then b.holdFireUntil = now + math.Rand(2, 4) end
+			-- Тяжёлое подавление: не замолкает (первый ответ на контакт — ответный огонь), а приседает и
+			-- стреляет реже: паузы между очередями ×2 на 2–4 с
+			if b.supp > C.suppressHeavy and now > (b.suppPauseUntil or 0) + 4 then b.suppPauseUntil = now + math.Rand(2, 4) end
+			-- Сведение прицела (как SAIN): пока цель на виду, а сам стоит, прицел сходится; бег сбрасывает,
+			-- шаг сводит вдвое медленнее
+			local seen = BestVisible(npc, b)
+			local speed = VJ.GetMoveVelocity(npc):Length2D()
+			b.moveSpeed = speed
+			if speed > C.aimStillSpeed then b.selfMovedAt = now end
+			if seen ~= b.aimTarget then
+				b.aimTarget = seen
+				b.aimT = (seen and not b.aimSeenBefore) and -C.aimFirstContact or 0
+				if seen then b.aimSeenBefore = true end
+			elseif seen then
+				if speed > C.aimRunSpeed then b.aimT = 0
+				else b.aimT = math.min((b.aimT or 0) + dt * (speed > C.aimStillSpeed and 0.5 or 1), 5) end
+			end
 			AgeContacts(npc, b, now, dt)
 			if now >= (b.decideAt or 0) then
 				b.decideAt = now + 0.2

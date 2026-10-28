@@ -697,6 +697,15 @@ local function SpawnMember(patrol, def, pos, role)
 	for _, w in ipairs(istable(def.weapons) and def.weapons or {def.weapons}) do
 		if PR_WeaponExists(w) then pool[#pool + 1] = w end
 	end
+	-- Гранатомётчику — гранатомёт, если он есть среди стволов группы (Big Pipe выпадал с MP7)
+	if def.role == "grenadier" and PR_NPCW and PR_NPCW.List then
+		local launchers = {}
+		for _, w in ipairs(pool) do
+			local info = PR_NPCW.List[w]
+			if info and info.kind == "launcher" then launchers[#launchers + 1] = w end
+		end
+		if #launchers > 0 then pool = launchers end
+	end
 	local weapon = Pick(pool)
 	-- Боец патруля без заданного оружия — NPC-копия ствола ArcCW под его роль (sh_npc_weapons.lua)
 	if not weapon and class == "npc_pr_soldier" and PR_NPCW and PR_NPCW.ROLE_KINDS then

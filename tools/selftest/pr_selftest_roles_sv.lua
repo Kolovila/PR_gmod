@@ -127,7 +127,20 @@ step(20, function()
 	end
 	log(string.format("assault: distance %.0f (from 2600), shots %d, longest burst %d", d, #shots, best))
 	check("assault closes in by bounds", d < S.d0 - 400, math.Round(d))
-	check("assault fires long bursts (6+)", best >= 6, best)
+	-- Дальше 1600 — прицельные 2–3 (очередь от дальности), ближе — длинные очереди роли
+	check("assault fires short aimed bursts beyond 1600 (2-3)", #shots > 0 and best <= 3, best)
+	n:SetPos(S.base + Vector(0, 1400, 0))
+	S.asShots0 = #shots
+end)
+
+step(10, function()
+	local shots, best, run = S.as.PR_TestShots or {}, 0, 1
+	for i = (S.asShots0 or 0) + 2, #shots do
+		if shots[i] - shots[i - 1] < 0.3 then run = run + 1 else run = 1 end
+		best = math.max(best, run)
+	end
+	log(string.format("assault close: shots %d, longest burst %d", #shots - (S.asShots0 or 0), best))
+	check("assault fires long bursts (6+) at 1200", best >= 6, best)
 	Clear()
 
 	-- 3. Гранатомётчик: стоящая цель на 2500

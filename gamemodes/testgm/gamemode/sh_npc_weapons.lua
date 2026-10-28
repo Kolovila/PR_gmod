@@ -222,7 +222,8 @@ local function Build()
 					NPC_CustomSpread = 1,
 					Reload_TimeUntilAmmoIsSet = 1.6,
 					Primary = {
-						Damage = math.max(1, math.Round((tonumber(full.Damage) or 30) * scale)),
+						-- Среднее вблизи и вдали: у VJ урон не падает с дальностью
+						Damage = math.max(1, math.Round(((tonumber(full.Damage) or 30) + (tonumber(full.DamageMin) or tonumber(full.Damage) or 30)) / 2 * scale)),
 						NumberOfShots = math.max(1, tonumber(full.Num) or 1),
 						ClipSize = launcher and 1 or clip,
 						Ammo = full.Primary and full.Primary.Ammo or "SMG1",

@@ -252,11 +252,23 @@ step(0.3, function()
 	-- 8. Разброс очереди
 	Reset(S.n1)
 	b.lastShot = 0
+	b.burstNear = 1e9 -- ближняя полоса: очередь роли (4–6), а не одиночные по дальности
+	b.aimT, b.moveSpeed, b.selfMovedAt = 2, 0, -10
 	local first = PR_Inf.SpreadMul(S.n1)
 	local second = PR_Inf.SpreadMul(S.n1)
 	local third = PR_Inf.SpreadMul(S.n1)
 	log(string.format("spread mul: %.2f %.2f %.2f", first, second, third))
 	check("first shot is the most accurate, the burst spreads", first < second and second < third, string.format("%.2f %.2f %.2f", first, second, third))
+	-- Сведение прицела: только что увидел цель — разброс ×1; держит её 2 с стоя — у «пола» профиля
+	b.lastShot = 0
+	b.aimT = 0
+	local raw = PR_Inf.SpreadMul(S.n1)
+	b.lastShot = 0
+	b.aimT = 2
+	local aimed = PR_Inf.SpreadMul(S.n1)
+	log(string.format("aim: fresh %.2f, aimed %.2f", raw, aimed))
+	check("aim converges while the target stays in sight", aimed < raw * 0.5, string.format("%.2f -> %.2f", raw, aimed))
+	b.burstNear = nil
 
 	-- 9. Походки — на свежем бойце (до первого ещё долетают отложенные звуки выстрелов)
 	Place(S.bot, S.base + Vector(0, -9000, 0))

@@ -215,7 +215,8 @@ local function Apply(npc, b, cfg)
 	b.cfgFor = npc.PR_Role
 	b.burst, b.burstPause, b.accMul = cfg.burst, cfg.pause, cfg.acc
 	b.burstN = math.random(cfg.burst[1], cfg.burst[2])
-	npc.Weapon_MaxDistance = cfg.dist[3] + 500
+	-- Дальность огня — по стволу (npc_pr_soldier:OnWeaponChange), роль решает, куда идти
+	b.burstNear = cfg.burstNear
 end
 
 -- Видит врага: он — цель VJ, свои узнают по голосу и рации
@@ -334,13 +335,22 @@ local function Orders(npc, b, now)
 	b.state = "fight"
 	npc.PR_Fire = true
 	local d = npc:GetPos():Distance(o.pos)
+	-- Застрял по пути к точке приказа (StepGoto снял маршрут) — точка приказа там, где стоит: иначе
+	-- тот же путь в ту же недостижимую точку по кругу (босс 31 с «бежал» на месте)
+	if b.stuckAt and now - b.stuckAt < 1 and d > 150 and o.kind ~= "guardbody" then
+		o.pos = npc:GetPos()
+		d = 0
+	end
 	if o.kind == "retreat" then
-		if not b.route and d > 200 then GoPos(npc, b, o.pos, seen and "walk" or "run", seen and seen:GetPos() or nil) end
+		-- Бегом; враг на виду — лицом к нему и стреляя. Шагом (≈ 46 ю/с лицом назад) до точки сбора в
+		-- 2000–6000 не дойти: отход в тесте прошёл 45 ю за 12 с
+		if not b.route and d > 200 then GoPos(npc, b, o.pos, "run", seen and seen:GetPos() or nil) end
 		npc.PR_Crouch = d <= 200
 		return true
 	elseif o.kind == "guard" or o.kind == "boss" then
 		if not b.route and d > 150 then GoPos(npc, b, o.pos, "run", o.face) end
-		npc.PR_Crouch = d <= 150 and (b.supp > C.suppressHide or o.kind == "boss")
+		-- Босс на «держать» стоит и стреляет из укрытия; под плотным огнём приседает за него
+		npc.PR_Crouch = d <= 150 and (b.supp > C.suppressHide or (o.kind == "boss" and not o.hold))
 		if not seen and o.face then npc.PR_Face, npc.PR_AimAt = o.face, o.face + CHEST end
 		return true
 	elseif o.kind == "guardbody" then
@@ -378,8 +388,12 @@ local function Shooter(npc, b, now, cfg, isSniper)
 			if not b.route then Backoff(npc, b, seen:GetPos(), 400, "walk") end
 		elseif d < cfg.tooClose then
 			if not b.route then s.want = "retreat" end
-		elseif b.route and not s.moving then
-			Stop(npc, b)
+		else
+			-- Видит цель на рабочей дистанции — стоп и огонь отсюда, позицию не ищет (бежал к «своим» 4500
+			-- у игрока на виду и получал в спину). Позицию меняет, когда цель скроется или по нему попадают
+			if b.route then Stop(npc, b) end
+			s.moving = false
+			if not s.pos or s.pos:Distance(me) > 150 then s.pos = me b.shotsHere = 0 end
 		end
 		npc.PR_Crouch = now - (b.lastFireAt or 0) < 0.8 and b.supp > 0.3
 		if s.want ~= "retreat" then return true end
@@ -462,13 +476,17 @@ PR_Inf.Roles.assault = function(npc, b, now)
 		if not b.route and d > want + 250 and now >= (b.nextBound or 0) and PR_Inf.CanMove(npc)
 			and now - (b.lastFireAt or 0) < 1.5 then
 			-- Бросок стартует, пока сам или напарник ведёт огонь; укрытие в конусе ±45° к цели
+			-- Манёвр — во фланг: сектор повёрнут на 70° от линии «враг — отряд», иначе шёл по линии огня
+			-- своей базы и выключал её перенос огня
+			local sector, half = FlatDir(E, me), 45
+			if b.maneuver then sector, half = Rotate(FlatDir(E, Center(npc)), 70 * (b.flankSign or 1)), 25 end
 			local p = PR_Inf.FindPosition(npc, E, {dist = {math.max(cfg.dist[1], want * 0.8), want, math.max(want + 100, d - 150)},
-				sectorDir = FlatDir(E, me), sectorHalf = 45, needLOS = true, maxTravel = cfg.boundMax, heightW = 0.3})
+				sectorDir = sector, sectorHalf = half, needLOS = true, maxTravel = cfg.boundMax, heightW = 0.3})
 			if p then
 				GoPos(npc, b, p, "run", nil)
 				b.bounding = true
 				b.boundUntil = now + Rand(cfg.bound)
-				b.nextBound = now + Rand(cfg.bound) + math.Rand(1.5, 3)
+				b.nextBound = now + Rand(cfg.bound) + Rand(cfg.holdBetween)
 			end
 		end
 		if not b.route then b.bounding = false end
@@ -541,8 +559,13 @@ PR_Inf.Roles.grenadier = function(npc, b, now)
 	-- Идёт на позицию — дойти; но цель стоит на виду в дальности выстрела — остановиться и стрелять
 	-- (только не со смены позиции после своего выстрела: та и нужна, чтобы не ответили)
 	if b.route then
-		if not (canShoot and okSeen and not b.relocating) then return true end
-		Stop(npc, b)
+		if seen and not launcher then
+			Stop(npc, b) -- запасной ствол: видит — стоп и огонь, как стрелок (бежал с MP7 у игрока на виду)
+		elseif not (canShoot and okSeen and not b.relocating) then
+			return true
+		else
+			Stop(npc, b)
+		end
 	end
 	b.relocating = nil
 	if canShoot then
@@ -662,15 +685,30 @@ PR_Inf.Roles.ebitel = function(npc, b, now)
 		Engage(npc, b, seen, now)
 		local d = me:Distance(E)
 		npc.PR_Crouch = false
+		b.runSpread = d <= cfg.dist[2] and cfg.closeRunSpread or nil
 		if d > cfg.dist[2] then
-			if b.route and now > (b.boundUntil or 0) then Stop(npc, b) b.stopUntil = now + Rand(cfg.stopShot) end
-			if not b.route and now >= (b.stopUntil or 0) then
+			if b.route and now > (b.boundUntil or 0) then
+				Stop(npc, b)
+				b.stopAt = now
+				b.stopUntil = now + Rand(d > 1000 and cfg.stopShotFar or cfg.stopShot)
+			end
+			-- Рывок — только после очереди с новой точки (за 0,4–0,8 с остановки не успевал прицелиться)
+			local fired = (b.lastFireAt or 0) > (b.stopAt or 0) or now - (b.stopAt or 0) > 6
+			-- Рывок — в «окно»: цель не стреляла 1,5 с, перезаряжается или не смотрит на него; ждать окна —
+			-- не дольше 6 с (давит всё равно)
+			local window = now - (seen.PR_ShotAt or 0) >= cfg.windowQuiet
+				or (b.heardReloadAt and now - b.heardReloadAt < 2)
+				or not LooksAt(seen, npc, 30)
+				or now - (b.stopAt or 0) > 6
+			if not b.route and now >= (b.stopUntil or 0) and fired and window and PR_Inf.CanMove(npc) then
+				b.bounding = true
 				b.flankSign = b.flankSign or (math.random() < 0.5 and 1 or -1)
 				local p = PR_Inf.FindPosition(npc, E, {dist = {300, 600, math.max(700, d - 200)}, sectorDir = Rotate(FlatDir(E, me), 20 * b.flankSign),
 					sectorHalf = 40, needLOS = false, maxTravel = 700})
 				GoPos(npc, b, p or (me + FlatDir(me, E) * 500), "run", nil)
 				b.boundUntil = now + 3
 			end
+			if not b.route then b.bounding = false end
 		else
 			-- Вплотную: бегом на него со стрельбой
 			if not b.route or (b.posGoal and b.posGoal:Distance(E) > 150) then GoPos(npc, b, E, "run", nil) end
@@ -852,12 +890,24 @@ local function SetupSquad(patrol, ms)
 		local a, b = followers[i], followers[i + 1]
 		if IsValid(b) then a.PR_Partner, b.PR_Partner = b, a end
 	end
-	-- Охрана босса: первые двое «обычных» или штурмовиков (нет босса — нет и охраны)
+	-- Охрана босса: первые двое «обычных» или штурмовиков (нет босса — нет и охраны). Остальные
+	-- «обычные» в отряде с боссом давят как штурмовики (как у Решалы в EFT: двое при нём, остальные
+	-- обходят и давят)
 	sq.guards = {}
 	for _, m in ipairs(sq.boss and followers or {}) do
-		if #sq.guards < 2 and (m.PR_Role == nil or m.PR_Role == "" or m.PR_Role == "assault") then sq.guards[#sq.guards + 1] = m end
+		if #sq.guards < 2 and (m.PR_Role == nil or m.PR_Role == "" or m.PR_Role == "assault") then
+			sq.guards[#sq.guards + 1] = m
+		elseif m.PR_Role == nil or m.PR_Role == "" then
+			m.PR_Role = "assault"
+		end
 	end
 	if #followers >= 4 then sq.rear = followers[#followers] end
+	-- Флаги для сведения прицела (PR_Inf.SpreadMul): босс сводит быстрее и точнее, охрана — как бойцы
+	if sq.boss then
+		sq.boss.PR_Brain.isBoss = true
+		sq.boss.PR_Brain.accMul = SQ.bossAccMul
+	end
+	for _, g in ipairs(sq.guards) do g.PR_Brain.isGuard = true end
 	return sq
 end
 
@@ -876,6 +926,7 @@ local function SquadTick(patrol, now)
 	local ms = Members(patrol)
 	if #ms == 0 then return end
 	local sq = patrol.squad or SetupSquad(patrol, ms)
+	for _, m in ipairs(ms) do m.PR_Brain.holdFireShift = false end
 	local E, seenEnt = SquadEnemy(ms)
 	local boss = sq.boss
 
@@ -968,7 +1019,12 @@ local function SquadTick(patrol, now)
 	-- Отход: потеряна половина или босс плох; не больше двух циклов
 	local share = #ms / sq.initial
 	local bossLow = IsValid(boss) and Alive(boss) and boss:Health() / math.max(boss:GetMaxHealth(), 1) < SQ.retreatBossHp
-	if sq.phase == "combat" and (share <= SQ.retreatLoss or bossLow) and sq.cycles < SQ.cycles then
+	-- Отряд с «Ебителем» не отступает (Goons в EFT давят до конца)
+	local noRetreat = false
+	for _, m in ipairs(ms) do
+		if m.PR_Role == "ebitel" then noRetreat = true break end
+	end
+	if not noRetreat and sq.phase == "combat" and (share <= SQ.retreatLoss or bossLow) and sq.cycles < SQ.cycles then
 		sq.phase = "retreat"
 		sq.cycles = sq.cycles + 1
 		sq.rally = Rally(patrol, ms, E)
@@ -1022,15 +1078,35 @@ local function SquadTick(patrol, now)
 				if m ~= boss and not table.HasValue(sq.guards, m) then front = front + m:GetPos() n = n + 1 end
 			end
 			front = n > 0 and front / n or boss:GetPos()
-			local goal = Ground(front - FlatDir(front, E) * Rand(SQ.bossBehind)) or boss:GetPos()
-			if not bb.order or bb.order.kind ~= "boss" or bb.order.pos:Distance(goal) > 600 then bb.order = {kind = "boss", pos = goal, face = E} end
-			local gd = Urban(boss:GetPos()) and SQ.guardDist or SQ.guardDistDesert
-			for i, g in ipairs(sq.guards) do
-				if Alive(g) then
-					local side = (i == 1) and 1 or -1
-					local gp = Ground(goal + FlatDir(goal, E) * Rand(gd) + Rotate(FlatDir(goal, E), 90 * side) * 120) or goal
-					local gb = g.PR_Brain
-					if not gb.order or gb.order.kind ~= "guard" or gb.order.pos:Distance(gp) > 250 then gb.order = {kind = "guard", pos = gp, face = E} end
+			-- Расстояние «позади» и места охраны — одни на весь бой (раньше Rand каждые 0,5 с: приказ
+			-- менялся почти каждый тик, босс и охрана всё время бежали). Переназначаем, только если враг
+			-- или фронт сдвинулись дальше SQ.reorderMove. Босс видит врага с 2000+ — он и есть вторая
+			-- линия: стоит и стреляет
+			sq.bossBehindD = sq.bossBehindD or Rand(SQ.bossBehind)
+			local moved = not sq.orderE or sq.orderE:Distance(E) > SQ.reorderMove or sq.orderFront:Distance(front) > SQ.reorderMove
+			local seesFar = U.BestVisible(boss, bb) and dB >= SQ.bossHoldSeen
+			if seesFar and not (bb.order and bb.order.kind == "boss" and bb.order.hold) then
+				-- Укрытие рядом (стоя видно врага, присев — нет), иначе — где стоит
+				local p = PR_Inf.FindPosition(boss, E, {dist = {math.max(dB - 400, 600), dB, dB + 400}, sectorDir = FlatDir(E, boss:GetPos()),
+					sectorHalf = 60, needLOS = true, maxTravel = SQ.bossCoverTravel})
+				bb.order = {kind = "boss", pos = p or boss:GetPos(), face = E, hold = true}
+				moved = true
+			elseif moved and not seesFar then
+				local goal = Ground(front - FlatDir(front, E) * sq.bossBehindD) or boss:GetPos()
+				bb.order = {kind = "boss", pos = goal, face = E}
+			end
+			if moved then
+				sq.orderE, sq.orderFront = E, front
+				local goal = bb.order and bb.order.pos or boss:GetPos()
+				local gd = Urban(boss:GetPos()) and SQ.guardDist or SQ.guardDistDesert
+				sq.guardD = sq.guardD or {}
+				for i, g in ipairs(sq.guards) do
+					if Alive(g) then
+						local side = (i == 1) and 1 or -1
+						sq.guardD[i] = sq.guardD[i] or Rand(gd)
+						local gp = Ground(goal + FlatDir(goal, E) * sq.guardD[i] + Rotate(FlatDir(goal, E), 90 * side) * 120) or goal
+						g.PR_Brain.order = {kind = "guard", pos = gp, face = E}
+					end
 				end
 			end
 		end
@@ -1052,12 +1128,18 @@ local function SquadTick(patrol, now)
 	end
 
 	-- Тыловой: смотрит назад, пока враг не ближе 1500 с тыла
+	-- В бою — только в большом отряде (от SQ.rearMinSquad); по нему стреляют или он видит врага —
+	-- приказ снимается и не возвращается 10 с (ловил пули, отвернувшись назад по приказу)
 	if IsValid(sq.rear) and Alive(sq.rear) then
 		local b = sq.rear.PR_Brain
 		local back = sq.rear:GetPos() - FlatDir(sq.rear:GetPos(), E) * 500
-		if sq.rear:GetPos():Distance(E) > 1500 and not U.BestVisible(sq.rear, b) then
-			b.order = {kind = "guard", pos = sq.rear:GetPos(), face = back}
-		elseif b.order and b.order.kind == "guard" and b.order.face == back then
+		local underFire = now - (b.hitAt or 0) < 5 or b.supp > 0.25 or U.BestVisible(sq.rear, b)
+		if underFire then b.rearOffUntil = now + 10 end
+		local want = (sq.phase ~= "combat" or #ms >= SQ.rearMinSquad) and now >= (b.rearOffUntil or 0)
+			and sq.rear:GetPos():Distance(E) > 1500
+		if want then
+			if not (b.order and b.order.rear) then b.order = {kind = "guard", pos = sq.rear:GetPos(), face = back, rear = true} end
+		elseif b.order and b.order.rear then
 			b.order = nil
 		end
 	end

@@ -158,8 +158,12 @@ end
 
 -- Разброс: первый выстрел после паузы точный, очередь расползается, движение, присед,
 -- подавление и сбитый попаданием прицел (числа — config/infantry.lua)
+-- База как у VJ (дальность, движение цели), но без его штрафа «после урона» до ×2,5: сбитый прицел
+-- считает слой (сведение, удар попадания) — иначе множители перемножались до ×10 у тех, кого обстреливают
 function ENT:GetAimSpread(target, goalPos, modifier)
-	local base = self.BaseClass.GetAimSpread(self, target, goalPos, modifier)
+	local base = math.min(self:GetPos():DistToSqr(goalPos) * 1e-7, 0.05)
+	if IsValid(target) then base = base + math.min(VJ.GetMoveVelocity(target):LengthSqr() * 1e-7, 0.05) end
+	base = base * (self.Weapon_Accuracy or 1) * modifier
 	return base * (PR_Inf and PR_Inf.SpreadMul(self) or 1)
 end
 
@@ -179,6 +183,35 @@ end
 function ENT:OnWeaponCanFire()
 	if self.PR_Fire == false then return false end
 	if PR_Inf and PR_Inf.HoldFire(self) then return false end
+end
+
+-- Чужой ствол VJ (не NPC-копия ArcCW, у тех урон уже как у оригинала) — урон поднимаем: у старого
+-- пака EFT 5–12 за пулю против тарковского здоровья игрока (VIVO). Копия таблицы — только у этого ствола
+-- и дальность огня по виду ствола (дробовик 1200, ПП 3500, автомат 7000, DMR/снайперка 9000), а не по роли
+function ENT:OnWeaponChange(newWeapon, oldWeapon, invSwitch)
+	if not IsValid(newWeapon) then return end
+	local C = PR_INF or {}
+	local info = PR_NPCW and PR_NPCW.List[newWeapon:GetClass()]
+	local legacy = C.legacyWeapons and C.legacyWeapons[newWeapon:GetClass()]
+	local kind = info and info.kind or legacy and legacy.kind
+	if not kind then
+		local hold = string.lower(tostring(newWeapon.HoldType or ""))
+		kind = (tonumber(newWeapon.Primary and newWeapon.Primary.NumberOfShots) or 1) > 1 and "shotgun"
+			or (hold == "pistol" or hold == "revolver") and "pistol" or "rifle"
+	end
+	self.Weapon_MaxDistance = (C.weaponRange and C.weaponRange[kind]) or 7000
+	if not newWeapon.IsVJBaseWeapon or newWeapon.PR_Src or newWeapon.PR_DamageFixed then return end
+	newWeapon.PR_DamageFixed = true
+	newWeapon.Primary = table.Copy(newWeapon.Primary)
+	if legacy then
+		newWeapon.Primary.Damage = legacy.damage
+		newWeapon.NPC_CustomSpread = legacy.spread
+	else
+		local pellets = (tonumber(newWeapon.Primary.NumberOfShots) or 1) > 1
+		local mul = pellets and (C.npcLegacyPelletMul or 1.5) or (C.npcLegacyDamageMul or 3)
+		newWeapon.Primary.Damage = math.Round((tonumber(newWeapon.Primary.Damage) or 5) * mul)
+	end
+	newWeapon.Primary.PlayerDamage = "Same"
 end
 
 -- Труп синим не становится: цвет плеермодели — клиенту через NW2 (cl: PR_SoldierCorpseColor)
