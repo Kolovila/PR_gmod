@@ -160,6 +160,21 @@ function PR_IsWeaponUnlocked(entry, purchased)
 end
 
 -- Мини-карта: снимки карт и их границы (нужны клиенту, cl_minimap.lua)
+-- Большие таблицы по сети (варианты патрулей): JSON + сжатие. net.WriteTable упирается в 64 КБ
+-- на сообщение, а групп в патруле теперь сколько угодно
+function PR_NetWriteTableZ(t)
+	local data = util.Compress(util.TableToJSON(t or {})) or ""
+	net.WriteUInt(#data, 32)
+	net.WriteData(data, #data)
+end
+
+function PR_NetReadTableZ()
+	local n = net.ReadUInt(32)
+	if n == 0 or n > 4 * 1024 * 1024 then return nil end
+	local raw = util.Decompress(net.ReadData(n), 16 * 1024 * 1024)
+	return raw and util.JSONToTable(raw) or nil
+end
+
 include("config/minimap.lua")
 include("sh_cw_compat.lua")
 include("config/infantry.lua")

@@ -826,24 +826,31 @@ local function SquadEnemy(ms)
 	return best
 end
 
+-- Босс — только главный, заданный в варианте патруля (не «первый попавшийся», когда главного нет),
+-- и только с ролью «Обычный»: главному с ролью (Knight-«Ебитель» у Goons) командует роль
+local function BossOf(patrol)
+	local L = patrol.leader
+	if IsValid(L) and L.PR_PatrolRole == "leader" and (L.PR_Role or "") == "" then return L end
+end
+
 local function SetupSquad(patrol, ms)
 	local sq = {initial = #ms, cycles = 0, phase = "patrol"}
 	patrol.squad = sq
+	sq.boss = BossOf(patrol)
 	local followers = {}
 	for _, m in ipairs(ms) do
-		if m ~= patrol.leader then followers[#followers + 1] = m end
+		if m ~= sq.boss then followers[#followers + 1] = m end
 	end
 	for i = 1, #followers, 2 do
 		local a, b = followers[i], followers[i + 1]
 		if IsValid(b) then a.PR_Partner, b.PR_Partner = b, a end
 	end
-	-- Охрана босса: первые двое «обычных» или штурмовиков
+	-- Охрана босса: первые двое «обычных» или штурмовиков (нет босса — нет и охраны)
 	sq.guards = {}
-	for _, m in ipairs(followers) do
+	for _, m in ipairs(sq.boss and followers or {}) do
 		if #sq.guards < 2 and (m.PR_Role == nil or m.PR_Role == "" or m.PR_Role == "assault") then sq.guards[#sq.guards + 1] = m end
 	end
 	if #followers >= 4 then sq.rear = followers[#followers] end
-	sq.boss = patrol.leader
 	return sq
 end
 

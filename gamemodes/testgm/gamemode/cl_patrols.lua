@@ -9,7 +9,7 @@ local S = PR_UI.S
 local C = PR_UI.Colors
 
 net.Receive("PR_PatrolTypes", function()
-	PR_PatrolEditor.Types = net.ReadTable() or {}
+	PR_PatrolEditor.Types = PR_NetReadTableZ() or {}
 	hook.Run("PR_PatrolTypesUpdated")
 end)
 
@@ -548,15 +548,18 @@ function PR_PatrolEditor.OpenTypes()
 
 	local BuildForm
 
-	Select = function(key)
+	Select = function(key, keep)
 		state.key = key
 		state.edit = ForEditing(key and PR_PatrolEditor.Types[key] or NewTemplate())
 		FillList()
-		BuildForm()
+		BuildForm(keep)
 	end
 	PR_PatrolEditor.SelectType = Select
 
-	BuildForm = function()
+	-- keep: пересборка той же формы (добавили / убрали группу, главного, технику) — прокрутка
+	-- остаётся, где была; раньше окно каждый раз прыгало наверх
+	BuildForm = function(keep)
+		local prevY = keep and IsValid(state.scroll) and state.scroll:GetVBar():GetScroll() or 0
 		content:Clear()
 		local edit = state.edit
 		if not edit then return end
@@ -571,7 +574,7 @@ function PR_PatrolEditor.OpenTypes()
 		local save = PR_UI.Button(bar, "Сохранить", function()
 			net.Start("PR_PatrolSaveType")
 				net.WriteString(state.key or "")
-				net.WriteTable(state.edit)
+				PR_NetWriteTableZ(state.edit)
 			net.SendToServer()
 		end, {height = 52, font = "big", color = C.accent, hoverColor = C.accentDark})
 		save:Dock(LEFT)
@@ -607,6 +610,7 @@ function PR_PatrolEditor.OpenTypes()
 		local scroll = vgui.Create("DScrollPanel", content)
 		scroll:Dock(FILL)
 		scroll:GetCanvas():DockPadding(0, 0, S(12), S(12))
+		state.scroll = scroll
 
 		-- Общее
 		Header(scroll, "Общее")
@@ -632,7 +636,7 @@ function PR_PatrolEditor.OpenTypes()
 				state.savedLeader = edit.leader
 				edit.leader = nil
 			end
-			BuildForm()
+			BuildForm(true)
 		end)
 
 		if edit.leader then
@@ -653,23 +657,26 @@ function PR_PatrolEditor.OpenTypes()
 		for i, group in ipairs(edit.followers) do
 			Header(scroll, function() return "Свита: " .. (group.name ~= "" and group.name or ("группа " .. i)) end, function()
 				table.remove(edit.followers, i)
-				BuildForm()
+				BuildForm(true)
 			end)
 			TextField(scroll, "Название группы", function() return group.name end, function(v) group.name = v end)
 			PickField(scroll, "NPC", function() return group.class end, function(v) group.class = v end, npcOptions, true, labels)
 			Choice(scroll, "Роль", RoleChoices(), function() return group.role or "" end, function(v) group.role = v end)
 			PickField(scroll, "Модели (Боец патруля)", function() return group.models end, function(v) group.models = v end, modelOptions, true, labels)
-			TextField(scroll, "Сколько", function() return group.count end, function(v) group.count = v end, {numeric = true, hint = "от 1 до 10"})
+			TextField(scroll, "Сколько", function() return group.count end, function(v) group.count = v end, {numeric = true, hint = "от 1 до 100; всего в патруле — до 200"})
 			PickField(scroll, "Оружие", function() return group.weapons end, function(v) group.weapons = v end, npcWeaponOptions, true, labels)
 			TextField(scroll, "Здоровье", function() return group.health end, function(v) group.health = v end, {numeric = true})
 			TextField(scroll, "Награда, $", function() return group.reward.money end, function(v) group.reward.money = v end, {numeric = true})
 			TextField(scroll, "Опыт за убийство", function() return group.reward.exp end, function(v) group.reward.exp = v end, {numeric = true})
 		end
 
-		local addGroup = PR_UI.Button(scroll, "+ Группа свиты", function()
+		local function AddGroup()
 			table.insert(edit.followers, {name = "", class = {}, count = 2, weapons = {}, health = 200, reward = {money = 300, exp = 2}})
-			BuildForm()
-		end, {height = 44, color = C.panel2})
+			BuildForm(true)
+		end
+		-- Для автотеста: та же кнопка и прокрутка формы
+		PR_PatrolEditor.Form = {scroll = scroll, addGroup = AddGroup}
+		local addGroup = PR_UI.Button(scroll, "+ Группа свиты", AddGroup, {height = 44, color = C.panel2})
 		addGroup:Dock(TOP)
 		addGroup:DockMargin(0, S(14), 0, 0)
 
@@ -677,7 +684,7 @@ function PR_PatrolEditor.OpenTypes()
 		for i, v in ipairs(edit.vehicles) do
 			Header(scroll, function() return "Техника: " .. (v.name ~= "" and v.name or ("машина " .. i)) end, function()
 				table.remove(edit.vehicles, i)
-				BuildForm()
+				BuildForm(true)
 			end)
 			TextField(scroll, "Название", function() return v.name end, function(val) v.name = val end,
 				{hint = "его же видно в килфиде: это имя бота-экипажа"})
@@ -691,7 +698,7 @@ function PR_PatrolEditor.OpenTypes()
 
 		local addVehicle = PR_UI.Button(scroll, "+ Техника", function()
 			table.insert(edit.vehicles, NewVehicle())
-			BuildForm()
+			BuildForm(true)
 		end, {height = 44, color = C.panel2})
 		addVehicle:Dock(TOP)
 		addVehicle:DockMargin(0, S(8), 0, 0)
@@ -704,6 +711,29 @@ function PR_PatrolEditor.OpenTypes()
 		vehicleHint:SetWrap(true)
 		vehicleHint:SetAutoStretchVertical(true)
 		vehicleHint:SetText("Экипаж всегда полный: наземную (simfphys, танки Луны и Гредвича) водит бот, и на каждое место с оружием садится бот-стрелок. Авиация (LFS/LVS) летает своим ИИ, кружит над патрулём, а боты садятся на все места стрелков (Ми-24, Ми-8, AH-1G). Каждый бот занимает слот игрока.")
+
+		if prevY > 0 then
+			-- Высота холста известна только после раскладки (места пристыкованных строк считаются
+			-- при раскладке холста, а до неё полоса прокрутки обрезает позицию до 0). Раскладываем
+			-- холст, потом панель, ставим прокрутку; не встала — ещё раз через пару кадров.
+			-- Пока не встала, форма прозрачна — чтобы не мелькала верхом
+			scroll:SetAlpha(0)
+			local tries = 0
+			local function Apply()
+				if not IsValid(scroll) then return end
+				tries = tries + 1
+				scroll:GetCanvas():InvalidateLayout(true)
+				scroll:InvalidateLayout(true)
+				local bar = scroll:GetVBar()
+				bar:SetScroll(prevY)
+				if math.abs(bar:GetScroll() - prevY) > 1 and tries < 15 then
+					timer.Simple(0.02, Apply)
+				else
+					scroll:SetAlpha(255)
+				end
+			end
+			Apply()
+		end
 	end
 
 	-- Пока свежий список не пришёл, показываем то, что знаем; пришёл — выбираем первый,
@@ -721,7 +751,7 @@ function PR_PatrolEditor.OpenTypes()
 		-- Сохранили — показываем то, что записал сервер; удалили — первый из оставшихся
 		if key ~= "" and PR_PatrolEditor.Types[key] then
 			state.touched = true
-			Select(key)
+			Select(key, true) -- тот же патруль после сохранения: прокрутка на месте
 		elseif state.key and not PR_PatrolEditor.Types[state.key] then
 			Select(FirstKey())
 		end

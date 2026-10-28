@@ -40,11 +40,13 @@ hook.Add("OnEntityCreated", "PR_SelfTestNPCW", function(ent)
 			end)
 		end
 		if c == "cw_kk_ins2_projectile_frag" or c == "npc_grenade_frag" then S.nade = ent end
+		if c == "cw_40mm_explosive" then S.glNade = ent end
 	end)
 end)
 hook.Add("EntityRemoved", "PR_SelfTestNPCW", function(ent)
 	if ent == S.nade then S.nadeEnd = ent:GetPos() end
 	if ent == S.rocket then S.rocketEnd = ent:GetPos() end
+	if ent == S.glNade then S.glEnd = ent:GetPos() end
 end)
 
 step(0, function()
@@ -189,6 +191,27 @@ step(5, function()
 end)
 
 step(4, function() T.shot("npcw_gallery") end)
+
+-- 40 мм: GP-25 — гранатомёт, граната CW навесом в цель на 1500
+step(1, function()
+	for _, n in ipairs(S.gallery or {}) do if IsValid(n) then n:Remove() end end
+	S.gallery = {}
+	local info = PR_NPCW.List["weapon_vj_cw_kk_ins2_gp25"]
+	check("GP-25 copy is a grenade launcher", info ~= nil and info.kind == "launcher", info and info.kind)
+	local w = weapons.Get("weapon_vj_cw_kk_ins2_gp25")
+	check("GP-25 copy lobs the CW 40 mm grenade", w ~= nil and w.PR_Projectile == "cw_40mm_explosive" and w.PR_Lob == true, w and tostring(w.PR_Projectile))
+	S.gl = Soldier(S.base, 90, "weapon_vj_cw_kk_ins2_gp25")
+	S.bot:SetPos(S.base + Vector(0, 1500, 0))
+	S.glNade, S.glEnd = nil, nil
+end)
+
+waitFor(15, function() return S.glEnd ~= nil end, "40 mm grenade explodes")
+step(0, function()
+	local d = S.glEnd and S.glEnd:Distance(S.bot:GetPos())
+	log("40 mm: end " .. tostring(S.glEnd) .. " bot " .. tostring(S.bot:GetPos()))
+	check("40 mm grenade lands near the target (< 300)", d ~= nil and d < 300, d and math.Round(d))
+	if IsValid(S.gl) then S.gl:Remove() end
+end)
 
 step(1, function()
 	for _, n in ipairs(S.gallery or {}) do if IsValid(n) then n:Remove() end end

@@ -96,7 +96,7 @@ net.Receive("PR_SELFTEST_PTYPE_SAVE", function()
 	local data = net.ReadTable()
 	net.Start("PR_PatrolSaveType")
 		net.WriteString(key)
-		net.WriteTable(data)
+		PR_NetWriteTableZ(data)
 	net.SendToServer()
 	log("PR_PatrolSaveType sent")
 end)
@@ -116,6 +116,30 @@ net.Receive("PR_SELFTEST_PTYPES_OPEN", function()
 	timer.Simple(0.7, function()
 		if PR_PatrolEditor.SelectType then PR_PatrolEditor.SelectType(key) end
 		log("patrol types window, selected " .. key)
+	end)
+end)
+
+-- Окно патрулей: прокрутить форму вниз, добавить группу свиты (как кнопкой) — прокрутка на месте
+net.Receive("PR_SELFTEST_PTYPES_SCROLL", function()
+	local F = PR_PatrolEditor.Form
+	local function Result(ok, detail)
+		net.Start("PR_SELFTEST_RESULT")
+			net.WriteString("patrol editor keeps scroll when a group is added")
+			net.WriteBool(ok)
+			net.WriteString(detail)
+		net.SendToServer()
+	end
+	if not (F and IsValid(F.scroll)) then return Result(false, "no form") end
+	F.scroll:GetVBar():SetScroll(300)
+	timer.Simple(0.2, function()
+		local before = F.scroll:GetVBar():GetScroll()
+		F.addGroup()
+		timer.Simple(0.6, function()
+			local F2 = PR_PatrolEditor.Form
+			local after = F2 and IsValid(F2.scroll) and F2.scroll:GetVBar():GetScroll() or -1
+			log(string.format("patrol editor scroll before %.0f after %.0f", before, after))
+			Result(before > 50 and math.abs(after - before) < 10, string.format("%.0f -> %.0f", before, after))
+		end)
 	end)
 end)
 

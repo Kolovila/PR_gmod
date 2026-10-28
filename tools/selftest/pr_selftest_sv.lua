@@ -13,10 +13,19 @@ util.AddNetworkString("PR_SELFTEST_GUARD")
 util.AddNetworkString("PR_SELFTEST_PTYPE_SAVE")
 util.AddNetworkString("PR_SELFTEST_PTYPE_CMD")
 util.AddNetworkString("PR_SELFTEST_PTYPES_OPEN")
+util.AddNetworkString("PR_SELFTEST_PTYPES_SCROLL")
+util.AddNetworkString("PR_SELFTEST_RESULT")
 util.AddNetworkString("PR_SELFTEST_MINIMAP")
 
 local T = include("pr_selftest_lib.lua")
 local S, log, check, step, waitFor, shot = T.S, T.log, T.check, T.step, T.waitFor, T.shot
+
+-- Проверки, которые делает клиент (окна): итог присылает сюда
+net.Receive("PR_SELFTEST_RESULT", function()
+	local name, ok, detail = net.ReadString(), net.ReadBool(), net.ReadString()
+	S.clientResults = (S.clientResults or 0) + 1
+	check(name, ok, detail)
+end)
 
 local function damage(victim, attacker, inflictor)
 	local d = DamageInfo()
@@ -888,7 +897,16 @@ step(1, function()
 	check("patrol without real NPC rejected", PR_Patrol.CleanType({name = "Пусто", followers = {{class = {"npc_bogus"}}}}) == nil)
 	check("patrol without name rejected", PR_Patrol.CleanType({name = " ", leader = {class = {"npc_vj_mishawild_sniper1"}}}) == nil)
 	local big = PR_Patrol.CleanType({name = "Толпа", followers = {{class = {"npc_vj_mishawild_sniper1"}, count = 50}}})
-	check("follower count capped at 10", big and big.followers[1].count == 10)
+	check("a group of 50 is kept", big and big.followers[1].count == 50)
+	local huge = PR_Patrol.CleanType({name = "Толпа", followers = {{class = {"npc_vj_mishawild_sniper1"}, count = 5000}}})
+	check("group size capped by PR_PATROL_LIMITS", huge and huge.followers[1].count == PR_PATROL_LIMITS.perGroup)
+	local groups = {}
+	for i = 1, 12 do groups[i] = {name = "Группа " .. i, class = {"npc_vj_mishawild_sniper1"}, count = 2} end
+	local many = PR_Patrol.CleanType({name = "Много групп", followers = groups})
+	check("more than 6 follower groups are kept", many and #many.followers == 12, many and #many.followers)
+	local over = {}
+	for i = 1, 3 do over[i] = {class = {"npc_vj_mishawild_sniper1"}, count = 100} end
+	check("patrol over the total limit is rejected", PR_Patrol.CleanType({name = "Армия", followers = over}) == nil)
 
 	S.typesBefore = table.Count(PR_PATROL_TYPES)
 	sendType("", {
@@ -930,6 +948,16 @@ step(2, function()
 	end
 	check("new patrol type spawns from editor", spawned ~= nil and #spawned.members == 3, spawned and #spawned.members)
 	shot("patrol_types")
+end)
+
+-- Добавили группу свиты — окно не прыгает наверх (проверяет клиент)
+step(0.5, function()
+	S.clientResults = 0
+	net.Start("PR_SELFTEST_PTYPES_SCROLL") net.Send(S.host)
+end)
+waitFor(4, function() return (S.clientResults or 0) >= 1 end, "client checks the patrol editor scroll")
+step(0, function()
+	if (S.clientResults or 0) == 0 then check("patrol editor keeps scroll when a group is added", false, "no answer from client") end
 end)
 
 step(1, function()

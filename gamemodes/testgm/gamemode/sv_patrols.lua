@@ -199,7 +199,7 @@ local function CleanNPC(def, isLeader)
 		out.drop = CleanList(def.drop, PR_WeaponExists, 4)
 		out.dropGold = def.dropGold == true
 	else
-		out.count = math.floor(Num(def.count, 1, 10, 1))
+		out.count = math.floor(Num(def.count, 1, PR_PATROL_LIMITS.perGroup, 1))
 	end
 
 	return out
@@ -264,12 +264,16 @@ function PR_Patrol.CleanType(data)
 		if not out.leader then return nil, "у главного не выбран NPC (или его нет в игре)" end
 	end
 
+	-- Групп свиты и людей — сколько угодно в пределах PR_PATROL_LIMITS (защита от опечатки «1000»)
+	local people = out.leader and 1 or 0
 	for i, group in ipairs(istable(data.followers) and data.followers or {}) do
-		if i > 6 then break end
+		if i > PR_PATROL_LIMITS.groups then return nil, "групп свиты больше " .. PR_PATROL_LIMITS.groups end
 		local clean = CleanNPC(group, false)
 		if not clean then return nil, "в группе свиты №" .. i .. " не выбран NPC (или его нет в игре)" end
 		table.insert(out.followers, clean)
+		people = people + clean.count
 	end
+	if people > PR_PATROL_LIMITS.total then return nil, "в патруле " .. people .. " человек, можно до " .. PR_PATROL_LIMITS.total end
 
 	for i, group in ipairs(istable(data.vehicles) and data.vehicles or {}) do
 		if i > 4 then break end
@@ -296,7 +300,7 @@ function PR_Patrol.SendTypes(target)
 	if #recipients == 0 then return end
 
 	net.Start("PR_PatrolTypes")
-		net.WriteTable(PR_PATROL_TYPES)
+		PR_NetWriteTableZ(PR_PATROL_TYPES)
 	net.Send(recipients)
 end
 
@@ -334,16 +338,23 @@ end
 local function FormationSlots(formation, n)
 	if istable(formation) and #formation > 0 then return formation end
 
+	-- Большой отряд — рядами: клин по 5 пар, колонна в две нитки после 8, «вокруг» — кольцами по 8
+	-- (раньше 50 пар клина растягивались на 5000 ю)
 	local slots = {}
 	for k = 1, n do
 		local pair, side = math.ceil(k / 2), (k % 2 == 1) and 1 or -1
 		if formation == "column" then
-			slots[k] = {-90 * k, 0}
+			slots[k] = n > 8 and {-90 * pair, side * 45} or {-90 * k, 0}
 		elseif formation == "wedge" then
-			slots[k] = {-100 * pair, side * 90 * pair}
-		else
+			local row, inRow = math.floor((pair - 1) / 5), (pair - 1) % 5 + 1
+			slots[k] = {-100 * inRow - 300 * row, side * 90 * inRow}
+		elseif k <= 8 then
 			-- Вокруг главного: первые двое впереди, следующие по бокам и дальше назад
 			slots[k] = {110 - (pair - 1) * 120, side * (70 + (pair - 1) * 30)}
+		else
+			local ring, inRing = math.floor((k - 9) / 8) + 2, (k - 9) % 8
+			local a = math.rad(inRing * 45 + ring * 22.5)
+			slots[k] = {math.cos(a) * 140 * ring, math.sin(a) * 140 * ring}
 		end
 	end
 	return slots
@@ -602,13 +613,17 @@ end
 
 -- Место для NPC рядом с pos: на полу, хитбокс ни во что не упирается, не вплотную к другим
 local function FreeSpotNear(pos, used)
-	for i = 1, 20 do
+	-- Круг растёт с толпой: на человека ~60×60 ю (раньше 40–160 ю на всех — после ~35 человек
+	-- новых ставило друг в друга)
+	local maxR = math.max(160, 40 * math.sqrt(#used + 1))
+	for i = 1, 20 + #used do
 		local ang = math.rad(math.random(0, 359))
-		local dist = i == 1 and 0 or math.random(40, 160)
+		local dist = i == 1 and 0 or math.random(40, maxR)
 		local p = pos + Vector(math.cos(ang) * dist, math.sin(ang) * dist, 0)
 
 		local down = util.TraceLine({start = p + Vector(0, 0, 64), endpos = p - Vector(0, 0, 128), mask = MASK_NPCSOLID_BRUSHONLY})
-		if down.Hit and not down.StartSolid then
+		local wall = dist > 160 and util.TraceLine({start = pos + Vector(0, 0, 40), endpos = p + Vector(0, 0, 40), mask = MASK_NPCSOLID_BRUSHONLY}).Hit
+		if down.Hit and not down.StartSolid and not wall then
 			local spot = down.HitPos + Vector(0, 0, 4)
 			local hull = util.TraceHull({start = spot, endpos = spot, mins = Vector(-18, -18, 0), maxs = Vector(18, 18, 72), mask = MASK_NPCSOLID})
 
@@ -621,7 +636,7 @@ local function FreeSpotNear(pos, used)
 		end
 	end
 
-	return pos + Vector(math.random(-60, 60), math.random(-60, 60), 8)
+	return pos + Vector(math.random(-maxR, maxR), math.random(-maxR, maxR), 8)
 end
 
 -- Спот для появления: подальше от игроков, вне их видимости, и чтобы оттуда было куда идти
@@ -5389,7 +5404,8 @@ net.Receive("PR_PatrolSaveType", function(len, ply)
 	if not PR_IsAdmin(ply) or not PR_NetThrottle(ply, "PR_PatrolSaveType", 0.5) then return end
 
 	local key = net.ReadString()
-	local data = net.ReadTable()
+	local data = PR_NetReadTableZ()
+	if not istable(data) then return TypeResult(ply, false, key, "Не сохранено: данные не дошли") end
 
 	local saved, err = PR_Patrol.SaveType(key ~= "" and key or nil, data)
 	if saved then

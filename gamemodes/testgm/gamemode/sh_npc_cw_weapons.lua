@@ -5,6 +5,8 @@
 -- Урон — урон CW × PR_INF.npcDamageScale (как у прежних EFT-стволов NPC: АК-74 33 -> ~6–7).
 -- Убили бойца — выпавший ствол игрок подбирает настоящим CW-стволом (ReplacementWeapon).
 -- Гранатомёты (projectileClass у CW KK: РПГ-7, AT4 и др.) пускают тот же снаряд, что у игрока.
+-- 40-мм (GP-25, M79, M320 — патрон «40MM» без projectileClass: стреляют гранатой CW
+-- cw_40mm_explosive на 2996 ю/с) — тоже гранатомёты, огонь навесом с учётом гравитации.
 
 PR_NPCW = PR_NPCW or {}
 PR_NPCW.List = PR_NPCW.List or {}   -- [класс копии] = {cw = класс CW, kind = "rifle"|"pistol"|..., ...}
@@ -14,8 +16,21 @@ local HOLD = {
 	crossbow = "crossbow", rpg = "rpg", physgun = "ar2", passive = "ar2", camera = "ar2"
 }
 
+-- Чем стреляет гранатомёт: класс снаряда, скорость, летит ли по баллистике (40 мм — да, ракета — нет:
+-- у ракет KK после взвода «двигатель» держит скорость)
+local function Projectile(full)
+	local cls = full.projectileClass
+	if cls and scripted_ents.GetStored(cls) then
+		local lob = string.find(cls, "40mm", 1, true) ~= nil
+		return cls, lob and 2996 or (tonumber(full.MuzzleVelocity) or 115) * 39.37, lob
+	end
+	if full.Primary and full.Primary.Ammo == "40MM" and scripted_ents.GetStored("cw_40mm_explosive") then
+		return "cw_40mm_explosive", 2996, true
+	end
+end
+
 local function Kind(full, hold)
-	if full.projectileClass then return "launcher" end
+	if Projectile(full) then return "launcher" end
 	if hold == "pistol" or hold == "revolver" or hold == "duel" then return "pistol" end
 	if (tonumber(full.Shots) or 1) > 1 or hold == "shotgun" then return "shotgun" end
 	local ammo = string.lower(tostring(full.Primary and full.Primary.Ammo or ""))
@@ -53,7 +68,7 @@ end
 -- ракета проскакивала сквозь цель. Каждый тик — трасса от прошлой точки до новой
 local HULL = Vector(4, 4, 4)
 local function TraceGuard(ent, owner)
-	if not ent.selfDestruct then return end
+	if not (ent.selfDestruct or ent.PhysicsCollide) then return end
 	local id, last = "PR_ProjTrace" .. ent:EntIndex(), ent:GetPos()
 	timer.Create(id, 0, 0, function()
 		if not IsValid(ent) or ent.HadEnough then timer.Remove(id) return end
@@ -64,12 +79,33 @@ local function TraceGuard(ent, owner)
 			if IsValid(hit) and (hit:IsPlayer() or hit:IsNPC()) then
 				ent:SetPos(tr.HitPos)
 				timer.Remove(id)
-				ent:selfDestruct()
+				if ent.selfDestruct then
+					ent:selfDestruct()
+				else
+					-- 40 мм: взрыв — в PhysicsCollide после взвода
+					local phys = ent:GetPhysicsObject()
+					local vel = IsValid(phys) and phys:GetVelocity() or Vector()
+					ent:PhysicsCollide({HitPos = tr.HitPos, HitEntity = hit, HitNormal = tr.HitNormal, OurOldVelocity = vel, Speed = vel:Length()}, phys)
+				end
 				return
 			end
 		end
 		last = now
 	end)
+end
+
+-- Навес: угол пуска со скоростью v в точку to (нижняя траектория); вне дальности — 45°
+local function Lob(from, to, v)
+	local g = -physenv.GetGravity().z
+	local d = to - from
+	local flat = Vector(d.x, d.y, 0)
+	local x = flat:Length()
+	if x < 1 or g <= 0 then return d:GetNormalized() end
+	flat:Normalize()
+	local v2 = v * v
+	local disc = v2 * v2 - g * (g * x * x + 2 * d.z * v2)
+	local th = disc >= 0 and math.atan((v2 - math.sqrt(disc)) / (g * x)) or math.rad(45)
+	return (flat * math.cos(th) + Vector(0, 0, math.sin(th))):GetNormalized()
 end
 
 -- Гранатомёт: тот же снаряд, что у игрока, в точку прицела владельца (GetAimPosition бойца
@@ -86,9 +122,14 @@ local function FireProjectile(self, status)
 	local enemy = owner.GetEnemy and owner:GetEnemy()
 	local to = (owner.GetAimPosition and IsValid(enemy)) and owner:GetAimPosition(enemy, from, 0, self.PR_ProjectileSpeed) or (from + owner:GetForward() * 1000)
 	if owner.PR_AimOverride then to = owner.PR_AimOverride end
-	-- Поправка на снижение: ~0,8° вниз за время до взвода
-	to = to + Vector(0, 0, 15 + from:Distance(to) * 0.014)
-	local dir = (to - from):GetNormalized()
+	local dir
+	if self.PR_Lob then
+		dir = Lob(from, to, self.PR_ProjectileSpeed)
+	else
+		-- Ракета: поправка на снижение ~0,8° за время до взвода
+		to = to + Vector(0, 0, 15 + from:Distance(to) * 0.014)
+		dir = (to - from):GetNormalized()
+	end
 	-- Разброс РПГ: ~0,6° — на 2000 ю ~20 ю, в пределах ширины человека (1,5° давали ~50 ю и ракета
 	-- проходила мимо стоящей цели); слой пехоты может умножить через PR_LauncherSpread
 	local spread = math.rad(0.6) * (owner.PR_LauncherSpread or 1)
@@ -115,7 +156,9 @@ local function Build()
 		if cls and not string.find(cls, "base", 1, true) and (weapons.IsBasedOn(cls, "cw_base") or weapons.IsBasedOn(cls, "mw3_wpn_base")) then
 			local full = weapons.Get(cls)
 			local hold = string.lower(tostring(full and (full.NormalHoldType or full.HoldType) or ""))
-			local launcher = full and full.projectileClass ~= nil and scripted_ents.GetStored(full.projectileClass) ~= nil
+			local proj, projSpeed, lob
+			if full then proj, projSpeed, lob = Projectile(full) end
+			local launcher = proj ~= nil
 			local clip = full and full.Primary and full.Primary.ClipSize or 0
 			if full and (full.Spawnable or full.AdminSpawnable) and HOLD[hold] and isstring(full.WorldModel) and full.WorldModel ~= ""
 				and (launcher or (clip > 0 and tonumber(full.Damage))) then
@@ -152,8 +195,9 @@ local function Build()
 				if launcher then
 					SWEP.NPC_NextPrimaryFire = 4
 					SWEP.NPC_StandingOnly = true
-					SWEP.PR_Projectile = full.projectileClass
-					SWEP.PR_ProjectileSpeed = (tonumber(full.MuzzleVelocity) or 115) * 39.37
+					SWEP.PR_Projectile = proj
+					SWEP.PR_ProjectileSpeed = projSpeed
+					SWEP.PR_Lob = lob
 					SWEP.PR_ProjectileFuse = full.projectileFuse
 					SWEP.OnPrimaryAttack = FireProjectile
 				end

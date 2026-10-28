@@ -53,6 +53,7 @@ end)
 hook.Add("OnEntityCreated", "PR_SelfTestRoles", function(ent)
 	timer.Simple(0, function()
 		if IsValid(ent) and ent:GetClass() == "cw_kk_ins2_projectile_rpg" then S.rocketAt = CurTime() end
+		if IsValid(ent) and ent:GetClass() == "cw_40mm_explosive" then S.gl40 = (S.gl40 or 0) + 1 end
 	end)
 end)
 
@@ -283,7 +284,46 @@ step(12, function()
 	check("boss death is noticed by the squad", sq ~= nil and sq.bossDeadAt ~= nil)
 	check("a new leader takes command", p ~= nil and IsValid(p.leader) and p.leader ~= S.oldBoss, p and tostring(p.leader))
 	Clear()
+
+	-- 7. Патруль без главного (как «Тестовички» игрока — Goons): никто не «босс», Knight давит,
+	-- у Big Pipe GP-25 стреляет гранатами
+	S.typeKey2 = PR_Patrol.SaveType("selftest_goons", {
+		name = "Тест без главного", weight = 0, chance = 1, maxAlive = 1, formation = "wedge",
+		followers = {
+			{name = "Knight", class = {"npc_pr_soldier"}, role = "ebitel", count = 1, models = {"models/eft/bosses/knight_pm.mdl"}, weapons = {"weapon_vj_cw_kk_ins2_ak74"}, health = 200, reward = {money = 1, exp = 0}},
+			{name = "Big Pipe", class = {"npc_pr_soldier"}, role = "grenadier", count = 1, models = {"models/eft/bosses/big_pipe_pm.mdl"}, weapons = {"weapon_vj_cw_kk_ins2_gp25"}, health = 200, reward = {money = 1, exp = 0}},
+			{name = "Birdeye", class = {"npc_pr_soldier"}, role = "marksman", count = 1, models = {"models/eft/bosses/birdeye_pm.mdl"}, weapons = {Pick({"dmr"})}, health = 200, reward = {money = 1, exp = 0}},
+		}
+	})
+	S.patrol3 = S.typeKey2 and PR_Patrol.Spawn(S.typeKey2, S.spot)
+	S.bot:SetPos(S.base + Vector(0, 2600, 0))
+	S.gl40 = 0
+end)
+
+step(18, function()
+	local p = S.patrol3
+	check("leaderless patrol spawned", p ~= nil and #p.members == 3, p and #p.members)
+	if p then
+		local sq = p.squad
+		check("leaderless squad has no boss and no guards", sq ~= nil and sq.boss == nil and #(sq.guards or {}) == 0, sq and tostring(sq.boss))
+		local bossOrders, knightD = 0, nil
+		for _, m in ipairs(p.members) do
+			local o = IsValid(m) and m.PR_Brain and m.PR_Brain.order
+			if o and (o.kind == "boss" or o.kind == "guard") then bossOrders = bossOrders + 1 end
+			if IsValid(m) and m.PR_Role == "ebitel" then knightD = m:GetPos():Distance(S.bot:GetPos()) end
+		end
+		log(string.format("leaderless: knight distance %s (from 2600), 40 mm grenades %d", tostring(knightD and math.Round(knightD)), S.gl40 or 0))
+		check("nobody in a leaderless squad gets boss/guard orders", bossOrders == 0, bossOrders)
+		check("ebitel of a leaderless squad presses the enemy (< 1200)", knightD ~= nil and knightD < 1200, knightD and math.Round(knightD))
+		check("GP-25 grenadier fires 40 mm grenades", (S.gl40 or 0) >= 1, S.gl40)
+	end
+	-- Бой пехоты пишется в запись геймплея (data/pr_gamemode/gameplay) — для разбора боёв игрока
+	local files = file.Find("pr_gamemode/gameplay/*.csv", "DATA", "datedesc") or {}
+	local text = files[1] and file.Read("pr_gamemode/gameplay/" .. files[1], "DATA") or ""
+	check("infantry fight is recorded to the gameplay log", string.find(text, "inf:ebitel,Knight@", 1, true) ~= nil, files[1] or "no file")
+	Clear()
 	if S.typeKey then PR_Patrol.DeleteType(S.typeKey) end
+	if S.typeKey2 then PR_Patrol.DeleteType(S.typeKey2) end
 	if S.spot then PR_Patrol.RemoveSpot(S.spot) end
 	if IsValid(S.bot) then S.bot:Kick("selftest") end
 	hook.Remove("EntityFireBullets", "PR_SelfTestRoles")
