@@ -313,6 +313,16 @@ step(18, function()
 			if IsValid(m) and m.PR_Role == "ebitel" then knightD = m:GetPos():Distance(S.bot:GetPos()) end
 		end
 		log(string.format("leaderless: knight distance %s (from 2600), 40 mm grenades %d", tostring(knightD and math.Round(knightD)), S.gl40 or 0))
+		for _, m in ipairs(p.members) do
+			if IsValid(m) then
+				local b, w = m.PR_Brain or {}, m:GetActiveWeapon()
+				log(string.format("leaderless member %s role %s model %s hp %d weapon %s state %s contacts %d enemy %s moving %s route %s sched %s",
+					tostring(m.PR_PatrolDef and m.PR_PatrolDef.name), tostring(m.PR_Role), m:GetModel(), m:Health(), IsValid(w) and w:GetClass() or "-",
+					tostring(b.state), #(b.contacts or {}), tostring(m.PR_Enemy), tostring(m:IsMoving()), tostring(b.route ~= nil),
+					tostring(m.CurrentSchedule and m.CurrentSchedule.Name)))
+			end
+		end
+		log("leaderless bot " .. tostring(S.bot) .. " alive " .. tostring(IsValid(S.bot) and S.bot:Alive()) .. " pos " .. tostring(IsValid(S.bot) and S.bot:GetPos()) .. " flags notarget " .. tostring(IsValid(S.bot) and S.bot:IsFlagSet(FL_NOTARGET)))
 		check("nobody in a leaderless squad gets boss/guard orders", bossOrders == 0, bossOrders)
 		check("ebitel of a leaderless squad presses the enemy (< 1200)", knightD ~= nil and knightD < 1200, knightD and math.Round(knightD))
 		check("GP-25 grenadier fires 40 mm grenades", (S.gl40 or 0) >= 1, S.gl40)

@@ -1,0 +1,9 @@
+ENT.Type = "anim"
+ENT.Base = "base_entity"
+ENT.PrintName = "M60P1AP"
+ENT.Author = "Joni"
+ENT.Spawnable = true
+ENT.AdminSpawnable = true 
+ENT.Category = "Firearms: Source 2 - Ammo"
+ENT.AmmoType = "60mmp1ap"
+ENT.Amount = 1

@@ -1,0 +1,9 @@
+ENT.Type = "anim"
+ENT.Base = "base_entity"
+ENT.PrintName = "RPG-7 Rocket"
+ENT.Author = "Joni"
+ENT.Spawnable = true
+ENT.AdminSpawnable = true 
+ENT.Category = "Firearms: Source 2 - Ammo"
+ENT.AmmoType = "rpg7_rocket"
+ENT.Amount = 1

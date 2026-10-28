@@ -1,0 +1,9 @@
+ENT.Type = "anim"
+ENT.Base = "base_entity"
+ENT.PrintName = "VOG-25"
+ENT.Author = "Joni"
+ENT.Spawnable = true
+ENT.AdminSpawnable = true 
+ENT.Category = "Firearms: Source 2 - Ammo"
+ENT.AmmoType = "vog25"
+ENT.Amount = 1

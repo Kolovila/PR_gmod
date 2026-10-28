@@ -37,12 +37,16 @@ local function Attack()
 		function() net.Start("PR_SELFTEST_ATTACK_DONE") net.SendToServer() end
 	}
 
-	for i, fn in ipairs(actions) do
-		timer.Simple(i * 0.5, function()
-			local ok, err = pcall(fn)
-			if not ok then log("attack step " .. i .. " error: " .. tostring(err)) end
-		end)
+	-- Цепочкой: следующее — через 0,5 с после предыдущего. Все сразу по таймерам i * 0,5 при подвисании
+	-- клиента (подгрузка тяжёлых моделей) срабатывали пачкой, и сервер резал покупку антиспамом
+	local function Step(i)
+		local fn = actions[i]
+		if not fn then return end
+		local ok, err = pcall(fn)
+		if not ok then log("attack step " .. i .. " error: " .. tostring(err)) end
+		timer.Simple(0.5, function() Step(i + 1) end)
 	end
+	timer.Simple(0.5, function() Step(1) end)
 
 	log("attack queued: " .. #actions .. " actions")
 end

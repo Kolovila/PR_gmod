@@ -8,8 +8,8 @@ util.AddNetworkString("PR_SELFTEST_CLOSE")
 local T = include("pr_selftest_lib.lua")
 local S, log, step, check = T.S, T.log, T.step, T.check
 
-local GUNS = {"weapon_vj_arccw_ur_ak", "weapon_vj_arccw_mw3e_m4a1", "weapon_vj_arccw_cod4e_m9", "weapon_vj_arccw_uc_rpg7",
-	"weapon_vj_arccw_bo1_galil", "weapon_vj_arccw_ud_m16"}
+local GUNS = {"weapon_vj_arccw_ur_ak", "weapon_vj_arccw_firearms2_m4a1", "weapon_vj_arccw_firearms2_gsh18", "weapon_vj_arccw_uc_rpg7",
+	"weapon_vj_arccw_firearms2_ak74", "weapon_vj_arccw_ud_m16"}
 
 local function Ground(x, y)
 	local tr = util.TraceLine({start = Vector(x, y, 2000), endpos = Vector(x, y, -3000), mask = MASK_PLAYERSOLID_BRUSHONLY})
@@ -45,7 +45,10 @@ step(3, function()
 			log(string.format("WM %s model %s pos-hand %.0f custom %s mdlvalid %s bodygroups %s", wep:GetClass(), wep:GetModel(),
 				hand and wep:GetPos():Distance(hand) or -1, tostring(wep.WorldModel_UseCustomPosition), tostring(util.IsValidModel(wep:GetModel())),
 				table.concat(bgs, " ")))
-			check("gun " .. wep:GetClass() .. " sits at the hand", hand and wep:GetPos():Distance(hand) < 40, hand and math.Round(wep:GetPos():Distance(hand)))
+			-- Своя позиция (ArcCW WorldModelOffset) — модель ставим к кисти сами, проверяем расстояние; обычную
+			-- мировую модель (FA:S2) движок приклеивает к кисти при отрисовке — сущность на сервере у ног
+			check("gun " .. wep:GetClass() .. " sits at the hand", not wep.WorldModel_UseCustomPosition or (hand and wep:GetPos():Distance(hand) < 40),
+				hand and math.Round(wep:GetPos():Distance(hand)))
 		else
 			log("WM no weapon for " .. GUNS[i])
 		end

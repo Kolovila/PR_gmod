@@ -59,7 +59,7 @@ step(0, function()
 
 	local n = PR_NPCW and PR_NPCW.Count or 0
 	log("NPC copies of ArcCW weapons: " .. n)
-	check("NPC copies of ArcCW weapons are built", n >= 150, n)
+	check("NPC copies of ArcCW weapons are built", n >= 100, n)
 	local ak = weapons.GetStored("weapon_vj_arccw_ur_ak")
 	check("AKM copy exists", ak ~= nil)
 	if ak then
@@ -180,7 +180,7 @@ step(5, function()
 	hook.Remove("OnEntityCreated", "PR_SelfTestNPCWDrop")
 	-- Снимок бойцов с разными стволами (для глаза): пистолет, дробовик, снайперка
 	S.gallery = {}
-	local picks = {"weapon_vj_arccw_cod4e_m9", "weapon_vj_arccw_ud_870", "weapon_vj_arccw_cod4e_m40a3", "weapon_vj_arccw_mw3e_m4a1", "weapon_vj_arccw_uc_pkm"}
+	local picks = {"weapon_vj_arccw_ud_glock", "weapon_vj_arccw_ud_870", "weapon_vj_arccw_firearms2_m40a3", "weapon_vj_arccw_firearms2_m4a1", "weapon_vj_arccw_uc_pkm"}
 	for i, w in ipairs(picks) do
 		if weapons.GetStored(w) then
 			S.gallery[#S.gallery + 1] = Soldier(S.base + Vector(-200 + i * 100, 300, 0), 270, w, "models/player/eft/bosses/killa.mdl")

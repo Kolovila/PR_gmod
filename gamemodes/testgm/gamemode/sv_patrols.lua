@@ -132,15 +132,19 @@ local function LoadTypes()
 		end)
 	end
 
-	-- Переход с CW 2.0 на ArcCW: оружие бойцов (NPC-копии weapon_vj_cw_*) и добыча (cw_*) — по
-	-- таблице config/arccw_migration.lua; чего в ней нет — убираем (боец получит ствол под роль)
-	if PR_DB.GetMeta("patrol_types_arccw_v1") ~= "1" then
+	-- Смена оружейных паков (CW 2.0 -> ArcCW -> ArcCW без CoD-паков): оружие бойцов (NPC-копии
+	-- weapon_vj_<класс>) и добыча — по таблице config/arccw_migration.lua. Ушедший ствол CW без замены
+	-- убираем (боец получит ствол под роль); ствол ArcCW без замены оставляем — SpawnMember пропустит,
+	-- если его нет в игре
+	if PR_DB.GetMeta("patrol_types_arccw_v2") ~= "1" then
 		local function Map(list, prefix)
 			local out = {}
 			for _, w in ipairs(istable(list) and list or {}) do
-				local cw = string.match(w, "^" .. prefix .. "(cw_.+)$") or string.match(w, "^" .. prefix .. "(khr_.+)$")
-				if not cw then out[#out + 1] = w
-				elseif PR_ARCCW_FROM_CW[cw] then out[#out + 1] = prefix .. PR_ARCCW_FROM_CW[cw] end
+				local src = string.sub(w, #prefix + 1)
+				local ours = string.StartWith(w, prefix) and (string.StartWith(src, "cw_") or string.StartWith(src, "khr_") or string.StartWith(src, "arccw_"))
+				local to = ours and PR_ArcCWReplacement(src)
+				if to then out[#out + 1] = prefix .. to
+				elseif not ours or string.StartWith(src, "arccw_") then out[#out + 1] = w end
 			end
 			return out
 		end
@@ -152,7 +156,7 @@ local function LoadTypes()
 				end
 				PR_DB.SavePatrolType(key, data)
 			end
-			PR_DB.SetMeta("patrol_types_arccw_v1", "1")
+			PR_DB.SetMeta("patrol_types_arccw_v2", "1")
 		end)
 	end
 

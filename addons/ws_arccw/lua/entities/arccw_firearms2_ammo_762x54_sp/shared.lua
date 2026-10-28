@@ -1,0 +1,9 @@
+ENT.Type = "anim"
+ENT.Base = "base_entity"
+ENT.PrintName = "7.62x54MM SP Ammo"
+ENT.Author = "Joni"
+ENT.Spawnable = true
+ENT.AdminSpawnable = true 
+ENT.Category = "Firearms: Source 2 - Ammo"
+ENT.AmmoType = "7.62x54mmsp"
+ENT.Amount = 20

@@ -10,165 +10,100 @@
   "id": "2131058270",
   "title": "[ArcCW] Counter-Strike +",
   "slug": "counter_strike",
-  "bytes": 227282188,
+  "bytes": 227085268,
+  "weapons": []
+ },
+ {
+  "id": "2274508982",
+  "title": "[ArcCW] [Beta] Firearms: Source 2 (FA:S 2.0)",
+  "slug": "firearms_source_2",
+  "bytes": 1435941123,
   "weapons": [
-   "arccw_aug",
-   "arccw_augpara",
-   "arccw_awm",
-   "arccw_bizon",
-   "arccw_contender",
-   "arccw_db",
-   "arccw_db_sawnoff",
-   "arccw_deagle357",
-   "arccw_m107",
-   "arccw_m9",
-   "arccw_melee_fists",
-   "arccw_melee_knife",
-   "arccw_nade_claymore",
-   "arccw_nade_flare",
-   "arccw_nade_flash",
-   "arccw_nade_frag",
-   "arccw_nade_gas",
-   "arccw_nade_impact",
-   "arccw_nade_incendiary",
-   "arccw_nade_semtex",
-   "arccw_nade_smoke",
-   "arccw_p228",
-   "arccw_ragingbull",
-   "arccw_ruger",
-   "arccw_scout",
-   "arccw_sg550",
-   "arccw_sg552",
-   "arccw_shorty",
-   "arccw_tmp",
-   "arccw_ump9",
-   "arccw_usp",
-   "arccw_welrod"
+   "arccw_firearms2_ak101",
+   "arccw_firearms2_ak104",
+   "arccw_firearms2_ak12",
+   "arccw_firearms2_ak400",
+   "arccw_firearms2_ak47",
+   "arccw_firearms2_ak74",
+   "arccw_firearms2_aks74u",
+   "arccw_firearms2_an94",
+   "arccw_firearms2_ash12",
+   "arccw_firearms2_asval",
+   "arccw_firearms2_auga3",
+   "arccw_firearms2_bm16",
+   "arccw_firearms2_bm16_swn",
+   "arccw_firearms2_deagle357",
+   "arccw_firearms2_dv2",
+   "arccw_firearms2_f2000",
+   "arccw_firearms2_famas",
+   "arccw_firearms2_fnfal",
+   "arccw_firearms2_g36c",
+   "arccw_firearms2_g36k",
+   "arccw_firearms2_galil",
+   "arccw_firearms2_glock20",
+   "arccw_firearms2_gsh18",
+   "arccw_firearms2_ifak",
+   "arccw_firearms2_kar98k",
+   "arccw_firearms2_ks23k",
+   "arccw_firearms2_l85a2",
+   "arccw_firearms2_lr300",
+   "arccw_firearms2_m110",
+   "arccw_firearms2_m14soc",
+   "arccw_firearms2_m14sop",
+   "arccw_firearms2_m21",
+   "arccw_firearms2_m24",
+   "arccw_firearms2_m3s90",
+   "arccw_firearms2_m40a3",
+   "arccw_firearms2_m4a1",
+   "arccw_firearms2_m60e3",
+   "arccw_firearms2_m82",
+   "arccw_firearms2_m9_bayonet",
+   "arccw_firearms2_mac11",
+   "arccw_firearms2_machete",
+   "arccw_firearms2_minigun",
+   "arccw_firearms2_minimi",
+   "arccw_firearms2_mossbergm88c",
+   "arccw_firearms2_mp153",
+   "arccw_firearms2_mp5a5",
+   "arccw_firearms2_mp5k",
+   "arccw_firearms2_mp5sd6",
+   "arccw_firearms2_mp9",
+   "arccw_firearms2_nade_ammobox",
+   "arccw_firearms2_nade_claymore",
+   "arccw_firearms2_ots14",
+   "arccw_firearms2_ots33",
+   "arccw_firearms2_p226",
+   "arccw_firearms2_p90",
+   "arccw_firearms2_pmm",
+   "arccw_firearms2_pp19",
+   "arccw_firearms2_ragingbull",
+   "arccw_firearms2_rem870_tact",
+   "arccw_firearms2_rk95",
+   "arccw_firearms2_rpk47",
+   "arccw_firearms2_saiga12k",
+   "arccw_firearms2_sg550",
+   "arccw_firearms2_sg551",
+   "arccw_firearms2_sg552",
+   "arccw_firearms2_shorty",
+   "arccw_firearms2_sr25",
+   "arccw_firearms2_stenmk2",
+   "arccw_firearms2_sterling_l2a3",
+   "arccw_firearms2_sterling_l34a1",
+   "arccw_firearms2_sterling_mk7a4",
+   "arccw_firearms2_toz34",
+   "arccw_firearms2_ump45",
+   "arccw_firearms2_usp",
+   "arccw_firearms2_uzi",
+   "arccw_firearms2_vollmer",
+   "arccw_firearms2_vss"
   ]
  },
  {
-  "id": "2317482090",
-  "title": "[ArcCW] Black Ops Pack (Discontinued)",
-  "slug": "black_ops_pack",
-  "bytes": 938947066,
-  "weapons": [
-   "arccw_bo1_asp",
-   "arccw_bo1_aug",
-   "arccw_bo1_ballistic_knife",
-   "arccw_bo1_car15",
-   "arccw_bo1_chinalake",
-   "arccw_bo1_crossbow",
-   "arccw_bo1_cz75",
-   "arccw_bo1_fal",
-   "arccw_bo1_famas",
-   "arccw_bo1_g11",
-   "arccw_bo1_galil",
-   "arccw_bo1_hk21",
-   "arccw_bo1_hs10",
-   "arccw_bo1_ithaca",
-   "arccw_bo1_kiparis",
-   "arccw_bo1_ks23",
-   "arccw_bo1_l96",
-   "arccw_bo1_law",
-   "arccw_bo1_m14",
-   "arccw_bo1_m16",
-   "arccw_bo1_m1911",
-   "arccw_bo1_m202",
-   "arccw_bo1_mac11",
-   "arccw_bo1_minigun",
-   "arccw_bo1_mpl",
-   "arccw_bo1_olympia",
-   "arccw_bo1_pm63",
-   "arccw_bo1_python",
-   "arccw_bo1_rpk",
-   "arccw_bo1_shiv",
-   "arccw_bo1_skorpion",
-   "arccw_bo1_sog_knife",
-   "arccw_bo1_spectre",
-   "arccw_bo1_sten",
-   "arccw_bo1_stoner",
-   "arccw_bo1_wa2000",
-   "arccw_bo1_xl60",
-   "arccw_bo2_an94",
-   "arccw_bo2_b23r",
-   "arccw_bo2_ballista",
-   "arccw_bo2_browninghp",
-   "arccw_bo2_chicom",
-   "arccw_bo2_dsr50",
-   "arccw_bo2_fiveseven",
-   "arccw_bo2_fnp45",
-   "arccw_bo2_hamr",
-   "arccw_bo2_judge",
-   "arccw_bo2_kard",
-   "arccw_bo2_ksg",
-   "arccw_bo2_lsat",
-   "arccw_bo2_m1216",
-   "arccw_bo2_m27",
-   "arccw_bo2_m32",
-   "arccw_bo2_mg08",
-   "arccw_bo2_mk48",
-   "arccw_bo2_mm1",
-   "arccw_bo2_mp7",
-   "arccw_bo2_msmc",
-   "arccw_bo2_mtar",
-   "arccw_bo2_nma",
-   "arccw_bo2_osw",
-   "arccw_bo2_pdw57",
-   "arccw_bo2_peacekeeper",
-   "arccw_bo2_qbb",
-   "arccw_bo2_r870",
-   "arccw_bo2_rpd",
-   "arccw_bo2_s12",
-   "arccw_bo2_scorpion",
-   "arccw_bo2_sig556",
-   "arccw_bo2_smr",
-   "arccw_bo2_stormpsr",
-   "arccw_bo2_svu",
-   "arccw_bo2_thompson",
-   "arccw_bo2_type95",
-   "arccw_bo2_vector",
-   "arccw_bo2_xm8",
-   "arccw_bo2_xpr50",
-   "arccw_bo3_bloodhound",
-   "arccw_bo3_c96",
-   "arccw_bo3_icr1",
-   "arccw_bo3_kuda",
-   "arccw_bo3_mp40",
-   "arccw_bo3_mr6",
-   "arccw_bo3_ppsh41",
-   "arccw_bo3_rk5",
-   "arccw_bo3_sten3",
-   "arccw_bo3_stg44",
-   "arccw_cde_ak5",
-   "arccw_cde_m93r",
-   "arccw_kali_ar15",
-   "arccw_waw_357",
-   "arccw_waw_arisaka",
-   "arccw_waw_bar",
-   "arccw_waw_bazooka",
-   "arccw_waw_carbine",
-   "arccw_waw_doublebarrel",
-   "arccw_waw_dp28",
-   "arccw_waw_fg42",
-   "arccw_waw_g43",
-   "arccw_waw_garand",
-   "arccw_waw_k98k",
-   "arccw_waw_m1919",
-   "arccw_waw_mg42",
-   "arccw_waw_mosin",
-   "arccw_waw_nambu",
-   "arccw_waw_p38",
-   "arccw_waw_panzerschreck",
-   "arccw_waw_ptrs41",
-   "arccw_waw_springfield",
-   "arccw_waw_svt40",
-   "arccw_waw_thompson",
-   "arccw_waw_trenchgun",
-   "arccw_waw_tt33",
-   "arccw_waw_type100",
-   "arccw_waw_type99",
-   "arccw_waw_zombie"
-  ]
+  "id": "2401302833",
+  "title": "Escape From Tarkov - Arccw-Shared",
+  "slug": "escape_from_tarkov_arccw_shared",
+  "bytes": 204338766,
+  "weapons": []
  },
  {
   "id": "2640556672",
@@ -193,56 +128,12 @@
   ]
  },
  {
-  "id": "2658879364",
-  "title": "[ArcCW] Modern Warfare 3 Pack (Discontinued)",
-  "slug": "modern_warfare_3_pack",
-  "bytes": 310586286,
+  "id": "2654914995",
+  "title": "ESCAPE FROM TARKOV - T-5000 [ARCCW]",
+  "slug": "escape_from_tarkov_t_5000",
+  "bytes": 60337148,
   "weapons": [
-   "arccw_cod4e_ak47",
-   "arccw_cod4e_g3",
-   "arccw_cod4e_g36c",
-   "arccw_cod4e_m1014",
-   "arccw_cod4e_m1911",
-   "arccw_cod4e_m40a3",
-   "arccw_cod4e_m4m16",
-   "arccw_cod4e_m60",
-   "arccw_cod4e_m9",
-   "arccw_cod4e_mp44",
-   "arccw_cod4e_mp5",
-   "arccw_cod4e_r700",
-   "arccw_cod4e_uzi",
-   "arccw_cod4e_w1200",
-   "arccw_mw2e_cheytac",
-   "arccw_mw2e_f2000",
-   "arccw_mw2e_famas",
-   "arccw_mw2e_pp2000",
-   "arccw_mw2e_thumper",
-   "arccw_mw3e_aa12",
-   "arccw_mw3e_acr",
-   "arccw_mw3e_ak74u",
-   "arccw_mw3e_anaconda",
-   "arccw_mw3e_awm",
-   "arccw_mw3e_cm901",
-   "arccw_mw3e_fmg9",
-   "arccw_mw3e_g36",
-   "arccw_mw3e_glock",
-   "arccw_mw3e_l86",
-   "arccw_mw3e_m1887",
-   "arccw_mw3e_m4a1",
-   "arccw_mw3e_mk14",
-   "arccw_mw3e_mp412",
-   "arccw_mw3e_mp9",
-   "arccw_mw3e_p90",
-   "arccw_mw3e_p99",
-   "arccw_mw3e_pm9",
-   "arccw_mw3e_pp90m1",
-   "arccw_mw3e_qbz97",
-   "arccw_mw3e_rsass",
-   "arccw_mw3e_scarl",
-   "arccw_mw3e_striker",
-   "arccw_mw3e_ump45",
-   "arccw_mw3e_usas12",
-   "arccw_mw3e_xm25"
+   "arccw_eft_t5000"
   ]
  },
  {
@@ -251,6 +142,15 @@
   "slug": "extras",
   "bytes": 22402007,
   "weapons": []
+ },
+ {
+  "id": "2776236794",
+  "title": "[ArcCW] EFT MP-153/155 (+ Ultima bodykit)",
+  "slug": "eft_mp_153_155",
+  "bytes": 57308480,
+  "weapons": [
+   "arccw_eft_mp155"
+  ]
  },
  {
   "id": "2906702282",
@@ -331,6 +231,24 @@
   "weapons": []
  },
  {
+  "id": "3557475685",
+  "title": "[ArcCW] [UC] Steyr ACR",
+  "slug": "steyr_acr",
+  "bytes": 172039879,
+  "weapons": [
+   "arccw_uc_steyracr"
+  ]
+ },
+ {
+  "id": "3631373801",
+  "title": "[ArcCW] [UC] PSL-54C",
+  "slug": "psl_54c",
+  "bytes": 192118459,
+  "weapons": [
+   "arccw_uc_psl"
+  ]
+ },
+ {
   "id": "3631384590",
   "title": "[ArcCW] [UC] M14 / M1 Garand / M21",
   "slug": "m14_m1_garand_m21",
@@ -346,6 +264,15 @@
   "bytes": 74269800,
   "weapons": [
    "arccw_ua_m249"
+  ]
+ },
+ {
+  "id": "3682700929",
+  "title": "[ArcCW] [UC] Ultimax-100",
+  "slug": "ultimax_100",
+  "bytes": 170416232,
+  "weapons": [
+   "arccw_uc_u100"
   ]
  },
  {
@@ -388,7 +315,7 @@
   "id": "3778882189",
   "title": "[ArcCW] [UC] AT4",
   "slug": "at4",
-  "bytes": 56805927,
+  "bytes": 56802960,
   "weapons": [
    "arccw_uc_at4"
   ]
@@ -401,12 +328,164 @@
   "weapons": []
  },
  {
+  "id": "3791991444",
+  "title": "[ArcCW] [UC] Urban Ordnance",
+  "slug": "urban_ordnance",
+  "bytes": 756334683,
+  "weapons": [
+   "arccw_uo_betty",
+   "arccw_uo_breachcharge",
+   "arccw_uo_c4",
+   "arccw_uo_claymore",
+   "arccw_uo_dm51",
+   "arccw_uo_dm51a1",
+   "arccw_uo_eihandgranate",
+   "arccw_uo_f1",
+   "arccw_uo_flare",
+   "arccw_uo_gammon",
+   "arccw_uo_geballteladung",
+   "arccw_uo_hafthohlladung",
+   "arccw_uo_homing",
+   "arccw_uo_ied",
+   "arccw_uo_incendiary",
+   "arccw_uo_landmine",
+   "arccw_uo_lantern",
+   "arccw_uo_m18",
+   "arccw_uo_m1917chem",
+   "arccw_uo_m1a1mine",
+   "arccw_uo_m26",
+   "arccw_uo_m26a2",
+   "arccw_uo_m32",
+   "arccw_uo_m34",
+   "arccw_uo_m67",
+   "arccw_uo_m84",
+   "arccw_uo_mills",
+   "arccw_uo_mk2",
+   "arccw_uo_mk3a2",
+   "arccw_uo_molotov",
+   "arccw_uo_navalmine",
+   "arccw_uo_nebelhandgranate",
+   "arccw_uo_no69",
+   "arccw_uo_no77",
+   "arccw_uo_no79",
+   "arccw_uo_pipebomb",
+   "arccw_uo_rdg1",
+   "arccw_uo_rg14",
+   "arccw_uo_rgd5",
+   "arccw_uo_rgo",
+   "arccw_uo_rock",
+   "arccw_uo_sonar",
+   "arccw_uo_sticky",
+   "arccw_uo_stielhandgranate",
+   "arccw_uo_t43mine",
+   "arccw_uo_tabun",
+   "arccw_uo_tgg1",
+   "arccw_uo_tmrp6",
+   "arccw_uo_tnt",
+   "arccw_uo_type4",
+   "arccw_uo_type59mine",
+   "arccw_uo_type67",
+   "arccw_uo_type97",
+   "arccw_uo_ubungsstiel",
+   "arccw_uo_vecsey",
+   "arccw_uo_zarya"
+  ]
+ },
+ {
   "id": "3792000311",
   "title": "[ArcCW] [UC] SKS",
   "slug": "sks",
   "bytes": 75715657,
   "weapons": [
    "arccw_uc_sks"
+  ]
+ },
+ {
+  "id": "3792002799",
+  "title": "[ArcCW] [UC] Mosin Nagant M91/30",
+  "slug": "mosin_nagant_m91_30",
+  "bytes": 219764985,
+  "weapons": []
+ },
+ {
+  "id": "3792007607",
+  "title": "[ArcCW] [UC] FN Evolys",
+  "slug": "fn_evolys",
+  "bytes": 127314306,
+  "weapons": [
+   "arccw_uc_evolys"
+  ]
+ },
+ {
+  "id": "3792010134",
+  "title": "[ArcCW] [UC] Mk153 SMAW",
+  "slug": "mk153_smaw",
+  "bytes": 217079843,
+  "weapons": [
+   "arccw_uc_smaw"
+  ]
+ },
+ {
+  "id": "3802866269",
+  "title": "[ArcCW] [UC] AAC Honeybadger (Urban One-Offs Unofficial)",
+  "slug": "aac_honeybadger",
+  "bytes": 84299066,
+  "weapons": [
+   "arccw_uc_lynx"
+  ]
+ },
+ {
+  "id": "3802883319",
+  "title": "[ArcCW] [UC] CZ 805 Bren A1 / CZ Bren 2 / Scorpion Evo Hybrid",
+  "slug": "cz_805_bren_a1_cz_bren_2_scorpion_evo_hy",
+  "bytes": 248274612,
+  "weapons": [
+   "arccw_uc_cz805"
+  ]
+ },
+ {
+  "id": "3802887848",
+  "title": "[ArcCW] [UC] Cheytac M200 Intervention",
+  "slug": "cheytac_m200_intervention",
+  "bytes": 62839674,
+  "weapons": [
+   "arccw_uc_m200"
+  ]
+ },
+ {
+  "id": "3802891099",
+  "title": "[ArcCW] [UC] Steyr Scout",
+  "slug": "steyr_scout",
+  "bytes": 14779403,
+  "weapons": [
+   "arccw_uc_scout"
+  ]
+ },
+ {
+  "id": "3802893489",
+  "title": "[ArcCW] [UC] Barrett MARS",
+  "slug": "barrett_mars",
+  "bytes": 102672771,
+  "weapons": [
+   "arccw_uc_barrett_mars"
+  ]
+ },
+ {
+  "id": "3802895868",
+  "title": "[ArcCW] [UC] KRISS Vector (REMAKE)",
+  "slug": "kriss_vector",
+  "bytes": 61176410,
+  "weapons": [
+   "arccw_uc_vector"
+  ]
+ },
+ {
+  "id": "3825515054",
+  "title": "[ArcCW] [UC] AA-12",
+  "slug": "aa_12",
+  "bytes": 62575337,
+  "weapons": [
+   "arccw_uc_aa12"
   ]
  },
  {
@@ -419,12 +498,66 @@
   ]
  },
  {
+  "id": "3825530756",
+  "title": "[ArcCW] [UC] Ithaca M37",
+  "slug": "ithaca_m37",
+  "bytes": 84368692,
+  "weapons": [
+   "arccw_uc_m37"
+  ]
+ },
+ {
+  "id": "3825557590",
+  "title": "[ArcCW] [UC] 6p62 Machinegun",
+  "slug": "6p62_machinegun",
+  "bytes": 103682939,
+  "weapons": [
+   "arccw_uc_6p62"
+  ]
+ },
+ {
   "id": "3825562345",
   "title": "[ArcCW] [UC] PK Platform",
   "slug": "pk_platform",
   "bytes": 515211758,
   "weapons": [
    "arccw_uc_pkm"
+  ]
+ },
+ {
+  "id": "3825573813",
+  "title": "[ArcCW] [UC] KS-23 Platform",
+  "slug": "ks_23_platform",
+  "bytes": 342860082,
+  "weapons": [
+   "arccw_uc_ks23"
+  ]
+ },
+ {
+  "id": "3825578613",
+  "title": "[ArcCW] [UC] Fort-230",
+  "slug": "fort_230",
+  "bytes": 100390745,
+  "weapons": [
+   "arccw_uc_fort230"
+  ]
+ },
+ {
+  "id": "3825587319",
+  "title": "[ArcCW] [UC] FGM-148 Javelin",
+  "slug": "fgm_148_javelin",
+  "bytes": 64350946,
+  "weapons": [
+   "arccw_uc_javelin"
+  ]
+ },
+ {
+  "id": "3825592810",
+  "title": "[ArcCW] [UC] 9K38 Igla",
+  "slug": "9k38_igla",
+  "bytes": 199660969,
+  "weapons": [
+   "arccw_uc_igla"
   ]
  },
  {

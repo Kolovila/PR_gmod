@@ -44,7 +44,7 @@ PR_PATROL_DEFAULTS = {
             weapons = {"weapon_vj_meft_reshala_ak101"},
             health = 600,
             reward = {money = 3000, exp = 15},
-            drop = {"arccw_waw_tt33"},
+            drop = {"arccw_ur_pm"},
             dropGold = true
         },
 
@@ -87,7 +87,7 @@ PR_PATROL_DEFAULTS = {
             weapons = {"weapon_vj_meft_reshala_ak101"},
             health = 600,
             reward = {money = 3000, exp = 15},
-            drop = {"arccw_waw_tt33"},
+            drop = {"arccw_ur_pm"},
             dropGold = true
         },
 
@@ -135,7 +135,7 @@ PR_PATROL_DEFAULTS = {
             weapons = {"weapon_vj_meft_reshala_ak101"},
             health = 600,
             reward = {money = 3000, exp = 15},
-            drop = {"arccw_waw_tt33"},
+            drop = {"arccw_ur_pm"},
             dropGold = true
         },
 

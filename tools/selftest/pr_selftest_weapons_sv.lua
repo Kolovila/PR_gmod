@@ -37,7 +37,7 @@ step(0, function()
 	end
 	table.sort(S.list)
 	log("ArcCW weapons spawnable: " .. #S.list)
-	T.check("200+ ArcCW weapons from the Workshop packs", #S.list >= 200, #S.list)
+	T.check("150+ realistic ArcCW weapons from the Workshop packs", #S.list >= 150, #S.list)
 	T.check("no CW 2.0 weapons left", weapons.GetStored("cw_base") == nil)
 
 	local noVM, noWM, noSnd = {}, {}, {}

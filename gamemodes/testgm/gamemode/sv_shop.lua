@@ -190,30 +190,35 @@ end
 -- Отметка в pr_meta, что стартовые товары уже добавлены. Новая версия списка — новый ключ
 local SEED_META_KEY = "shop_defaults_v2"
 
--- Переход с CW 2.0 на ArcCW (config/arccw_migration.lua): товары CW в базе — из стартовых списков,
--- их стволов в игре больше нет. Один раз убираем их, и стартовые списки (уже на ArcCW) садятся
--- заново. Цену и опыт, которые админ поменял у ствола CW, переносим на его замену из таблицы.
--- Свои товары админа (не CW) не трогаются
-local ARCCW_META_KEY = "shop_arccw_v1"
+-- Смена оружейных паков (config/arccw_migration.lua): CW 2.0 -> ArcCW (v1), потом ArcCW без CoD-паков
+-- (v2). Товары, чьих стволов в игре больше нет, — из стартовых списков; один раз убираем их, и
+-- стартовые списки садятся заново. Цену и опыт, которые админ поменял у ушедшего ствола, переносим
+-- на его замену из таблицы. Свои товары админа с установленными стволами не трогаются
+local ARCCW_META_KEY = "shop_arccw_v2"
 
-local function IsCW(class)
-    return isstring(class) and (string.StartWith(class, "cw_") or string.StartWith(class, "khr_"))
+local function IsGone(class)
+    if not isstring(class) then return false end
+    if string.StartWith(class, "cw_") or string.StartWith(class, "khr_") then return true end
+    return string.StartWith(class, "arccw_") and not PR_WeaponExists(class) and not scripted_ents.GetStored(class)
 end
 
 -- Вернёт {[фракция] = {[класс ArcCW] = {Price, Exp}}} — правки админа для переноса после посева
 local function DropCWItems(D)
     if PR_DB.GetMeta(ARCCW_META_KEY) == "1" then return nil end
-    -- PR_ARCCW_FROM_CW — config/arccw_migration.lua (его подключает sv_patrols.lua)
+    -- PR_ArcCWReplacement — config/arccw_migration.lua (его подключает sv_patrols.lua)
     local removed, custom = 0, {}
     local weapons = PR_DB.LoadShopList("weapon")
     for frac, entries in pairs(weapons) do
         for i = #entries, 1, -1 do
             local e = entries[i]
-            if IsCW(e.ClassName) then
-                local tier = tonumber(e.Tier) or 1
-                local price = D.TierPrice[tier] and math.Round(D.TierPrice[tier] * (D.TypePriceMul[e.Type] or 1) / 10) * 10
-                local to = PR_ARCCW_FROM_CW and PR_ARCCW_FROM_CW[e.ClassName]
-                if to and (tonumber(e.Price) ~= price or tonumber(e.Exp) ~= D.TierExp[tier]) then
+            local tier = tonumber(e.Tier) or 1
+            local price = D.TierPrice[tier] and math.Round(D.TierPrice[tier] * (D.TypePriceMul[e.Type] or 1) / 10) * 10
+            local untouched = tonumber(e.Price) == price and tonumber(e.Exp) == D.TierExp[tier]
+            -- Ушедший ствол — убрать (правку цены — на замену); нетронутый стартовый товар ArcCW — тоже
+            -- убрать: стартовые списки сядут заново с новыми тирами и цепочками «открывается после»
+            if IsGone(e.ClassName) or (untouched and string.StartWith(e.ClassName or "", "arccw_")) then
+                local to = not untouched and IsGone(e.ClassName) and PR_ArcCWReplacement and PR_ArcCWReplacement(e.ClassName)
+                if to then
                     custom[frac] = custom[frac] or {}
                     custom[frac][to] = {Price = e.Price, Exp = e.Exp}
                 end
@@ -224,7 +229,7 @@ local function DropCWItems(D)
     end
     local equip = PR_DB.LoadShopList("equip")
     for i = #equip, 1, -1 do
-        if IsCW(equip[i].ClassName) then table.remove(equip, i) removed = removed + 1 end
+        if IsGone(equip[i].ClassName) then table.remove(equip, i) removed = removed + 1 end
     end
     PR_DB.Transaction(function()
         PR_DB.SaveShopList("weapon", weapons)
@@ -232,17 +237,27 @@ local function DropCWItems(D)
         PR_DB.SetMeta(ARCCW_META_KEY, "1")
         PR_DB.SetMeta(SEED_META_KEY, "0")
     end)
-    MsgN("[PR] магазин: убрано товаров CW 2.0 — " .. removed .. " (переход на ArcCW)")
+    MsgN("[PR] магазин: убрано товаров без стволов в игре — " .. removed .. " (смена оружейных паков)")
     return custom
 end
 
+-- После переезда: правки цены — на замены; «открывается после» на ушедший ствол — на его замену
+-- в той же фракции, а нет её — без условия (иначе товар не открыть никогда)
 local function ApplyCustom(custom)
-    if not custom or not next(custom) then return end
+    if not custom then return end
     local weapons = PR_DB.LoadShopList("weapon")
     for frac, entries in pairs(weapons) do
+        local here = {}
+        for _, e in ipairs(entries) do here[e.ClassName] = true end
         for _, e in ipairs(entries) do
             local c = custom[frac] and custom[frac][e.ClassName]
             if c then e.Price, e.Exp = c.Price, c.Exp end
+            for i, need in ipairs(istable(e.NeedToUnlock) and e.NeedToUnlock or {}) do
+                if need ~= "" and not here[need] then
+                    local to = PR_ArcCWReplacement and PR_ArcCWReplacement(need)
+                    e.NeedToUnlock[i] = (to and here[to] and to ~= e.ClassName) and to or ""
+                end
+            end
         end
     end
     PR_DB.SaveShopList("weapon", weapons)

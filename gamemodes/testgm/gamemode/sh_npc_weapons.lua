@@ -24,6 +24,8 @@ local function Skip(cls, full)
 	if isstring(se) and (string.find(se, "_thr_", 1, true) or string.find(se, "bolt", 1, true) or string.find(se, "knife", 1, true)) then
 		return true
 	end
+	-- ПЗРК и ПТРК с самонаведением (Игла, Javelin) — не оружие пехотинца-NPC против людей
+	if string.find(cls, "igla", 1, true) or string.find(cls, "javelin", 1, true) or string.find(cls, "stinger", 1, true) then return true end
 	return false
 end
 
