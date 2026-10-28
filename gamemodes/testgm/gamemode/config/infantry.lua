@@ -3,16 +3,21 @@
 
 PR_INF = {
 	-- Зрение: время до обнаружения (с) от дистанции, точки {дистанция, время}, между ними — линейно
-	detectCurve = {{0, 0.25}, {520, 0.25}, {5200, 0.8}, {9000, 1.5}},
+	-- 2026-10-28 (знаток ИИ Таркова по записи боя: от появления цели на 50 м до сведённого выстрела
+	-- было 2,4–2,8 с — «тормознутые»): быстрее, как у ЧВК EFT
+	detectCurve = {{0, 0.15}, {520, 0.2}, {2600, 0.35}, {5200, 0.6}, {9000, 1.2}},
 	detectMin = 0.1,
 	fov = 160,               -- полный угол зрения
 	fogEnd = 9000,           -- дальше не видно ничего (туман карты)
 	-- Реакция после обнаружения: обычная и «держал этот угол»
-	reaction = {0.3, 0.8},
-	reactionPrepared = 0.25,
+	-- Игрок: «в Таркове боты спустя 0,5 с ебашат в голову» — реакция 0,1–0,25 с
+	reaction = {0.1, 0.25},
+	reactionPrepared = 0.08,
+	detectPatrolMul = 1.3, detectFightMul = 0.7,   -- в патруле (не ждёт врага) дольше, в бою быстрее
 	preparedAngle = 30, preparedDist = 200,
 	-- Опрос зрения по дальности: {до дистанции, раз в столько секунд}
-	visionPoll = {{4700, 0.1}, {8300, 1}, {math.huge, 3}},
+	-- (раз в 1 с на 4700–8300 — рабочей дальности марксмана — было слишком редко)
+	visionPoll = {{4700, 0.1}, {8300, 0.2}, {math.huge, 1}},
 
 	-- Слух: дальности (ю). Выстрел — по патрону оружия (shotByAmmo, по подстроке), иначе по типу
 	shotByAmmo = {
@@ -57,22 +62,45 @@ PR_INF = {
 	suppressDecay = 0.28,       -- в секунду (от 1 до 0 за ~3,5 с)
 	suppressHide = 0.5, suppressHeavy = 0.8,
 
-	-- Огонь. Сведение прицела (как SAIN, сверено с экспертами 2026-10-28 по записи боя игрока): пока
-	-- цель на виду, а боец стоит, разброс сходится от ×1 до «пола» профиля за T секунд; бег сбрасывает,
-	-- шаг сводит вдвое медленнее, своё движение за 0,5 с — T ×1,5, первый контакт — −0,2 с, попадание по
-	-- бойцу — −0,3 с. «Пол» на 58 м: босс 0,15 (~78% попаданий), охрана и бойцы ролей 0,2 (~60%),
-	-- обычный 0,3 (~40%), марксман 0,12, снайпер 0,1
+	-- Огонь. Сведение прицела (как SAIN / EFT; сверено с тремя экспертами 2026-10-28 по записи боя
+	-- игрока и тесту меткости -Suite aim): пока цель на виду, а боец стоит, разброс сходится от start до
+	-- floor за T секунд. Бег не сбрасывает, а размывает (−aimRunDecay·T в секунду: рывок 1,5 с оставляет
+	-- ~40%), шаг сводит вдвое медленнее, цель пропала — гаснет на aimLostDecay·T в секунду (вернулась та
+	-- же — остаток); первый контакт — −0,2 с, попадание по бойцу — −0,3 с, своё движение за 0,5 с —
+	-- T ×1,3. holdUntil — марксман и снайпер не стреляют, пока не свели holdUntil·T. Множитель роли (acc)
+	-- уже внутри профиля. burstFar/burstMid — свои очереди профиля (босс, Knight, охрана бьют и на 75 м)
+	-- Цели по стоящему (игрок: «точность ставь хорошую прям»; тест -Suite aim, прицел в центр груди):
+	-- 50 м / 75 м — босс и Knight ~90% / ~70%, охрана и бойцы ролей ~80% / ~55%, обычный ~60% / ~40%,
+	-- марксман ~100% / ~90%, снайпер ~100% / ~100%. Промахи — в основном вбок (торс ~15 ю шириной):
+	-- доля ≈ 1 − (1 − 9 / (0,05·floor·d))²
+	-- Решение игрока: первый прицельный выстрел точный, доводка — только при внезапном контакте. Боец,
+	-- который уже в бою (слышал, видел, знает о враге), новую цель берёт сразу сведённой; доводка от start —
+	-- только у застигнутого врасплох (был в патруле). head — шанс целить в голову (как боты EFT; голова у
+	-- игрока 35 HP — одно попадание), когда прицел сведён на aimHeadMinK и сам стоит; бросок раз в aimHeadRoll
 	aim = {
-		boss = {T = 0.6, floor = 0.15}, guard = {T = 0.8, floor = 0.2}, fighter = {T = 0.8, floor = 0.2},
-		marksman = {T = 1.0, floor = 0.12}, sniper = {T = 1.0, floor = 0.1}, regular = {T = 1.2, floor = 0.3},
+		boss = {T = 0.5, start = 0.45, floor = 0.1, burstFar = 3900, burstMid = {3, 4}, head = 0.3},
+		knight = {T = 0.5, start = 0.45, floor = 0.1, burstFar = 3900, burstMid = {3, 4}, head = 0.3},
+		guard = {T = 0.6, start = 0.5, floor = 0.13, burstFar = 3900, burstMid = {3, 4}, head = 0.2},
+		fighter = {T = 0.6, start = 0.5, floor = 0.13, head = 0.15},
+		marksman = {T = 0.8, start = 0.4, floor = 0.06, holdUntil = 0.8, head = 0.4},
+		sniper = {T = 1.2, start = 0.4, floor = 0.04, holdUntil = 0.8, head = 0.5},
+		regular = {T = 1.0, start = 0.7, floor = 0.16, head = 0.05},
 	},
+	aimHeadMinK = 0.8, aimHeadRoll = 0.6,
 	aimFirstContact = 0.2, aimHitPenalty = 0.3,
+	aimRunDecay = 0.4, aimLostDecay = 0.5, aimWalkGain = 0.5, aimMoveT = 1.3,
 	aimStillSpeed = 40, aimRunSpeed = 150,  -- ю/с: медленнее — стоит, быстрее — бежит
-	spreadPerShot = 0.35,       -- отдача: рост за выстрел в очереди
-	spreadMax = 3,
-	spreadRun = 3, spreadWalk = 1.5, spreadCrouch = 0.8,
+	targetMoveSpread = 0.6,     -- бегущая цель: разброс × (1 + это × min(скорость / 250, 1))
+	-- Решение игрока (2026-10-28): «все будут жать в гашетку, без очередей, точность ставь хорошую прям» —
+	-- огонь без пауз (очереди ролей и от дальности не действуют), отдача почти не разносит прицел
+	fullAuto = true,
+	spreadPerShot = 0.03,       -- отдача: рост за выстрел подряд
+	spreadMax = 1.25,
+	spreadRun = 2.5, spreadWalk = 1.5, spreadCrouch = 0.8,
 	-- Длина очереди от дальности: дальше burstFar — одиночные, дальше burstNear — 2–3, ближе — очередь роли
 	burstNear = 1000, burstFar = 2600, burstMid = {2, 3}, burstPauseMid = {0.3, 0.5}, burstPauseFar = {0.4, 0.6},
+	-- Приказ отряда (отход, охрана): метка моложе этого — лицом к ней, а не по приказу
+	orderThreatAge = 6,
 	suppressSpread = 0.5,       -- подавление: разброс × (1 + это × подавление)
 	burstReset = {pistol = 0.3, rifle = 0.4, heavy = 0.55, mg = 0.7},
 	burst = {4, 6},             -- по умолчанию; роли задают своё (штурмовик 8–10)
@@ -95,6 +123,9 @@ PR_INF = {
 	-- Чужие стволы VJ в руках бойца (старый пак EFT weapon_vj_meft_*: урон 5–12) — урон × это,
 	-- дробь (несколько дробин) — × npcLegacyPelletMul
 	npcLegacyDamageMul = 3, npcLegacyPelletMul = 1.5,
+	-- Не меньше этого за пулю по виду ствола (у ArcCW SR-25 — 41, а 7,62×51 в EFT ≈ 80): марксману
+	-- должно хватать двух попаданий в грудь (85)
+	npcDamageFloor = {dmr = 55, sniper = 80},
 	-- Старый пак EFT для VJ (addons/eft_weapons): урон за пулю (дробовик — за дробину), разброс и вид
 	-- ствола — по таблице эксперта по ИИ Таркова (урон пака 3–12 и случайные 7600 у мосинки)
 	legacyWeapons = {
@@ -161,17 +192,30 @@ PR_INF_ROLES = {
 -- pause — пауза между очередями; search — через сколько идёт искать потерянного; sprint — шанс бегом
 PR_INF_ROLE_CFG = {
 	[""] = {dist = {300, 1500, 4500}, acc = 1, burst = {4, 6}, pause = {0.4, 0.8}, search = 10},
-	sniper = {dist = {4500, 6500, 8000}, acc = 0.35, burst = {1, 1}, pause = {1.5, 3}, search = 9999,
+	sniper = {dist = {4500, 6500, 8000}, acc = 1, burst = {1, 1}, pause = {1.5, 3}, search = 9999,
 		holdAngle = {20, 40}, exposedShots = 1, moveTown = 1000, moveDesert = 2000, angleChange = 15, tooClose = 2000},
-	marksman = {dist = {2500, 4500, 7000}, acc = 0.6, burst = {1, 2}, pause = {0.6, 1.2}, search = 60,
-		relocateShots = {3, 5}, moveTown = 800, moveDesert = 1500, angleChange = 15, tooClose = 1200},
+	marksman = {dist = {2500, 4500, 7000}, acc = 1, burst = {1, 2}, pause = {0.6, 1.0}, search = 60, relocateHidden = 8,
+		relocateShots = {2, 3}, moveTown = 800, moveDesert = 1500, angleChange = 15, tooClose = 1200},
 	assault = {dist = {600, 1500, 3000}, acc = 1, burst = {8, 10}, pause = {0.4, 0.8}, pauseFar = {1, 1.5}, search = 10,
 		bound = {3, 4}, holdBetween = {4, 6}, boundMax = 800, burstNear = 1600, press = {600, 900}, backoff = 400},
 	grenadier = {dist = {1500, 3000, 5000}, acc = 1, burst = {3, 5}, pause = {0.6, 1}, search = 20,
-		rpgMin = 800, rpgMax = 5000, rpgRadius = 250, rpgAge = 6, rockets = 3, backup = {"smg", "rifle"}, kneel = 0.8, relocate = 800,
-		stillTime = 1.5, nadeRange = {400, 1600}, nadeCooldown = {8, 15}, nades = 2, squadNadeCooldown = 6, nadeSafe = 600},
-	ebitel = {dist = {200, 600, 1500}, acc = 1.1, burst = {5, 8}, pause = {0.4, 0.8}, search = 0.1, searchFor = 150,
+		-- 2026-10-28 (тактик + знаток EFT по записи боя: Big pipe не выстрелил за бой ни разу): бьёт с
+		-- места на 1600 (взвод гранаты, своя безопасность) – 6000, цель стоит 0,5 с или идёт ≤ 150 ю/с,
+		-- метка за укрытием до 15 с и 400 ю; серия 2 выстрела через 2,5 с, потом шаг вбок 260–520 и пауза
+		-- 6–10 с; 8 гранат; ближе 1600 — запасной ствол, дальше 2200 — снова гранатомёт; свой ближе 520 к
+		-- точке падения — не стреляет
+		rpgMin = 1600, rpgMax = 6000, rpgRadius = 400, rpgAge = 15, rockets = 8, backup = {"smg", "rifle"}, kneel = 0.6, relocate = 800,
+		-- Критик: не «лазерная артиллерия» — первый выстрел с разбросом firstSpread° (пристрелка: каждый
+		-- следующий по той же метке ×0,5, не точнее 0,6°), цель стоит 0,8 с или идёт ≤ 100 ю/с
+		stillTime = 0.8, slowSpeed = 100, shotsPerSpot = 2, seriesGap = 2.5, seriesPause = {6, 10}, sidestep = {260, 520},
+		friendSafe = 520, swapCooldown = 3, swapBackExtra = 600, firstSpread = 2.5,
+		nadeRange = {400, 1600}, nadeCooldown = {8, 15}, nades = 2, squadNadeCooldown = 6, nadeSafe = 600},
+	ebitel = {dist = {200, 600, 1500}, acc = 1, burst = {5, 8}, pause = {0.4, 0.8}, search = 0.1, searchFor = 150,
 		stopShot = {0.8, 1.5}, stopShotFar = {2.5, 4}, windowQuiet = 1.5, closeRunSpread = 1.5, cornerPause = {0.5, 1.5}, enterAfterBlast = {0.3, 0.8}, backoffHit = 0.3, backoffTime = {5, 8},
+		-- hittingMax: «попадает — стоит и добивает» только ближе этого (дальше давит: Ебитель, а не стрелок на
+		-- 3000); ранен — одна очередь (backoffPrep) и рывок (критик: под сбитым прицелом добивали на месте)
+		runFireMax = 1000, walkFireMax = 1000, hittingFor = 2.5, hittingMax = 2000, boundAfter = 4, boundTime = 3.5, boundTravel = 800,
+		boundUnderFire = {2.5, 500}, nadeOpen = 800, backoffPrep = {0.5, 0.8}, backoffDash = 500,
 		healBelow = 0.35, healTime = {15, 25}, swear = {5, 10}},
 	sneak = {dist = {0, 400, 1500}, acc = 0.9, burst = {6, 10}, pause = {0.3, 0.6}, search = {90, 240},
 		rear = 110, freezeLook = 30, freezeMax = {2, 3}, lookedTrigger = 0.7, behind = 800, arcTown = 1500, arcDesert = 2500,
@@ -184,6 +228,10 @@ PR_INF_SQUAD = {
 	guardDist = {150, 300}, guardDistDesert = {300, 500},
 	bossBehind = {1500, 3000}, bossRetreatAt = 1500, bossRetreatAgain = 30,
 	retreatLoss = 0.5, retreatBossHp = 0.4, rallyTown = {2000, 4000}, rallyDesert = {4000, 6000},
+	retreatMinContact = 8, retreatHits = 2, retreatHitWindow = 10, retreatLeg = {3, 5}, retreatLegFire = {2, 3}, retreatCover = {5, 8},
+	-- Свой на линии огня (коридор blockedWidth) дольше blockedAfter — шаг вбок sidestep; коридор линий
+	-- огня стрелков, который не пересекает рывок «Ебителя», — laneWidth
+	blockedWidth = 60, blockedAfter = 1, sidestep = {150, 300}, laneWidth = 150,
 	regroup = {15, 30}, reattackShare = 0.6, cycles = 2,
 	holdToSearch = {30, 45}, flankChance = 0.7, flankTimeout = {45, 60}, pincerAt = 8,
 	fireShiftDist = 600, fireShiftAngle = 10, ambushHits = 2, ambushWindow = 2, ambushFree = {3, 5},
@@ -194,5 +242,5 @@ PR_INF_SQUAD = {
 	-- Босс и охрана: переназначать места, только если враг или фронт сдвинулись дальше этого; босс,
 	-- который видит врага с bossHoldSeen и дальше, стоит и стреляет. Тыловой в бою — от rearMinSquad человек
 	reorderMove = 800, bossHoldSeen = 1500, bossCoverTravel = 400, rearMinSquad = 6,
-	bossAccMul = 0.6,          -- босс стреляет точнее своих (как Решала в EFT)
+	bossAccMul = 1,            -- точность босса — в его профиле прицела (PR_INF.aim.boss)
 }

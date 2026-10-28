@@ -20,7 +20,7 @@ ENT.EnemyDetection = false
 ENT.EnemyTimeout = 1e6
 ENT.SightDistance = 9000
 ENT.SightAngle = 160
-ENT.TurningSpeed = 20
+ENT.TurningSpeed = 35   -- 350°/с: разворот на 180° за ~0,5 с (было 20 — 0,9 с, «тормознутые»)
 
 ENT.DisableWandering = true
 ENT.DisableChasingEnemy = true
@@ -153,7 +153,19 @@ end
 -- Не видит врага — VJ кладёт сюда свою «последнюю видимую» точку; у нас — оценка слоя
 function ENT:GetAimPosition(target, aimOrigin, predictionRate, projectileSpeed)
 	if not self.EnemyData.Visible and self.PR_AimAt then return self.PR_AimAt end
-	return self.BaseClass.GetAimPosition(self, target, aimOrigin, predictionRate, projectileSpeed)
+	local p = self.BaseClass.GetAimPosition(self, target, aimOrigin, predictionRate, projectileSpeed)
+	-- По игроку VJ целится в глаза − 15 ю (~49 ю от пола: верх груди, шея) — пули шли над плечами в стену
+	-- за целью (тест -Suite aimdiag: в среднем на 12–23 ю выше центра). Целимся в центр груди, а в голову —
+	-- по PR_Inf.HeadAim (шанс профиля при сведённом прицеле); только пулей — не снарядом
+	-- (EnemyData.Visible у нашего бойца почти всегда ложно — своё зрение слоя пехоты; не проверяем)
+	if IsValid(target) and target:IsPlayer() then
+		local vjAim = target:BodyTarget(aimOrigin) - Vector(0, 0, 15)
+		local h = target:OBBMaxs().z - target:OBBMins().z
+		local want = target:WorldSpaceCenter() + Vector(0, 0, h * 0.08)
+		if not projectileSpeed and PR_Inf and PR_Inf.HeadAim and PR_Inf.HeadAim(self) then want = target:EyePos() - Vector(0, 0, 2) end
+		p = p + (want - vjAim)
+	end
+	return p
 end
 
 -- Разброс: первый выстрел после паузы точный, очередь расползается, движение, присед,
@@ -183,6 +195,7 @@ end
 function ENT:OnWeaponCanFire()
 	if self.PR_Fire == false then return false end
 	if PR_Inf and PR_Inf.HoldFire(self) then return false end
+	if PR_Inf and PR_Inf.AimHold and PR_Inf.AimHold(self) then return false end
 end
 
 -- Чужой ствол VJ (не NPC-копия ArcCW, у тех урон уже как у оригинала) — урон поднимаем: у старого

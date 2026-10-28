@@ -48,11 +48,13 @@ hook.Add("EntityFireBullets", "PR_SelfTestRoles", function(ent)
 	if IsValid(ent) and ent.PR_Brain then
 		ent.PR_TestShots = ent.PR_TestShots or {}
 		table.insert(ent.PR_TestShots, CurTime())
+		ent.PR_TestShotD = ent.PR_TestShotD or {}
+		table.insert(ent.PR_TestShotD, IsValid(S.bot) and ent:GetPos():Distance(S.bot:GetPos()) or 0)
 	end
 end)
 hook.Add("OnEntityCreated", "PR_SelfTestRoles", function(ent)
 	timer.Simple(0, function()
-		if IsValid(ent) and ent:GetClass() == "arccw_ucex_rocket" then S.rocketAt = CurTime() end
+		if IsValid(ent) and ent:GetClass() == "arccw_ucex_rocket" then S.rocketAt = S.rocketAt or CurTime() S.rocketsN = (S.rocketsN or 0) + 1 end
 		if IsValid(ent) and ent:GetClass() == "arccw_uc_40mm_he" then S.gl40 = (S.gl40 or 0) + 1 end
 	end)
 end)
@@ -120,15 +122,16 @@ step(20, function()
 	local n = S.as
 	local d = n:GetPos():Distance(S.bot:GetPos())
 	-- Самая длинная очередь (выстрелы с промежутком < 0,3 с)
-	local shots, best, run = n.PR_TestShots or {}, 0, 1
+	-- Самая длинная очередь дальше 1700 (ближе 1600 — длинные очереди роли)
+	local shots, sd, best, run = n.PR_TestShots or {}, n.PR_TestShotD or {}, 0, 1
 	for i = 2, #shots do
-		if shots[i] - shots[i - 1] < 0.3 then run = run + 1 else run = 1 end
+		if shots[i] - shots[i - 1] < 0.3 and (sd[i] or 0) > 1700 then run = run + 1 else run = 1 end
 		best = math.max(best, run)
 	end
-	log(string.format("assault: distance %.0f (from 2600), shots %d, longest burst %d", d, #shots, best))
+	log(string.format("assault: distance %.0f (from 2600), shots %d, longest burst beyond 1700 %d", d, #shots, best))
 	check("assault closes in by bounds", d < S.d0 - 400, math.Round(d))
-	-- Дальше 1600 — прицельные 2–3 (очередь от дальности), ближе — длинные очереди роли
-	check("assault fires short aimed bursts beyond 1600 (2-3)", #shots > 0 and best <= 3, best)
+	-- Решение игрока: все жмут на спуск без очередей — и дальше 1700 огонь подряд
+	check("assault holds the trigger beyond 1700 (6+ in a row)", best >= 6, best)
 	n:SetPos(S.base + Vector(0, 1400, 0))
 	S.asShots0 = #shots
 end)
@@ -146,18 +149,22 @@ step(10, function()
 	-- 3. Гранатомётчик: стоящая цель на 2500
 	S.gr = Soldier(S.base, 90, "grenadier", "weapon_vj_arccw_uc_rpg7")
 	S.bot:SetPos(S.base + Vector(0, 2500, 0))
-	S.rocketAt = nil
+	S.rocketAt, S.rocketsN = nil, 0
 	S.t0 = CurTime()
 end)
 
 waitFor(15, function() return S.rocketAt ~= nil end, "grenadier fires a rocket")
+-- Серия: второй выстрел с того же места, потом шаг вбок
+waitFor(8, function() return (S.rocketsN or 0) >= 2 end, "grenadier fires the second rocket")
 step(1.5, function()
 	local gb = S.gr.PR_Brain
 	log(string.format("grenadier: rocket after %s s, still %s, rockets %s, route %s, dist %.0f, weapon %s", S.rocketAt and string.format("%.1f", S.rocketAt - S.t0) or "-",
 		tostring(gb.stillSince and math.Round(CurTime() - gb.stillSince, 1)), tostring(gb.rockets), tostring(gb.route ~= nil), S.gr:GetPos():Distance(S.bot:GetPos()),
 		tostring(IsValid(S.gr:GetActiveWeapon()) and S.gr:GetActiveWeapon():GetClass())))
 	check("grenadier fires the RPG at a standing target", S.rocketAt ~= nil)
-	check("grenadier moves after the shot", S.gr.PR_Brain.route ~= nil or (S.gr.PR_Brain.posGoal ~= nil))
+	check("grenadier fires a series of two from one spot", (S.rocketsN or 0) >= 2, S.rocketsN)
+	check("grenadier moves after the series", S.gr.PR_Brain.route ~= nil or (S.gr.PR_Brain.posGoal ~= nil))
+	check("grenadier spends rockets only on launches", gb.rockets == PR_INF_ROLE_CFG.grenadier.rockets - (S.rocketsN or 0), tostring(gb.rockets) .. " / " .. tostring(S.rocketsN))
 	-- Ракеты кончились — запасной ствол
 	S.gr.PR_Brain.rockets = 0
 end)
@@ -270,7 +277,9 @@ step(8, function()
 	S.dBefore = boss:GetPos():Distance(S.bot:GetPos())
 end)
 
-step(2, function()
+-- Отход — не раньше 8 с с начала боя (сначала ответный огонь и укрытие)
+waitFor(12, function() local sq = S.patrol and S.patrol.squad return sq ~= nil and (sq.phase == "retreat" or sq.phase == "regroup") end, "squad retreat")
+step(0.5, function()
 	local sq = S.patrol and S.patrol.squad
 	check("squad retreats after losing half", sq ~= nil and (sq.phase == "retreat" or sq.phase == "regroup"), sq and sq.phase)
 end)

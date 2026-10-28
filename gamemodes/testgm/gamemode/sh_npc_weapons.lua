@@ -131,6 +131,13 @@ local function FireProjectile(self, status)
 	if not IsValid(owner) then return end
 	local ent = ents.Create(self.PR_Projectile)
 	if not IsValid(ent) then return end
+	-- Граната списывается здесь — при настоящем пуске (роль раньше списывала и без выстрела)
+	local brain = owner.PR_Brain
+	if brain then
+		owner.PR_RecShots = (owner.PR_RecShots or 0) + 1 -- запись боя
+		brain.lastFireAt = CurTime()
+		if brain.rockets then brain.rockets = brain.rockets - 1 end
+	end
 	-- От глаз, а не от бедра: снаряд с низкого старта ложился в землю на полпути
 	local from = owner:EyePos()
 	local enemy = owner.GetEnemy and owner:GetEnemy()
@@ -223,7 +230,8 @@ local function Build()
 					Reload_TimeUntilAmmoIsSet = 1.6,
 					Primary = {
 						-- Среднее вблизи и вдали: у VJ урон не падает с дальностью
-						Damage = math.max(1, math.Round(((tonumber(full.Damage) or 30) + (tonumber(full.DamageMin) or tonumber(full.Damage) or 30)) / 2 * scale)),
+						Damage = math.max((PR_INF and PR_INF.npcDamageFloor and PR_INF.npcDamageFloor[kind]) or 1,
+							math.Round(((tonumber(full.Damage) or 30) + (tonumber(full.DamageMin) or tonumber(full.Damage) or 30)) / 2 * scale)),
 						NumberOfShots = math.max(1, tonumber(full.Num) or 1),
 						ClipSize = launcher and 1 or clip,
 						Ammo = full.Primary and full.Primary.Ammo or "SMG1",

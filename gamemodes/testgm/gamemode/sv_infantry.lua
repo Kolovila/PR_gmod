@@ -228,7 +228,7 @@ function PR_Inf.DetectTime(npc, t, eye, tp, dist, parts, angle, now)
 	local elev = math.deg(math.atan2(tp.z - eye.z, math.max(Vector(tp.x - eye.x, tp.y - eye.y, 0):Length(), 1)))
 	if elev > 0 then T = T * (1 + 1.5 * math.min(elev, 60) / 60) elseif elev < -30 then T = T * 0.75 end
 	if dist > C.fogEnd * 0.7 then T = T * 2 end
-	T = T * (b.state == "patrol" and 1.5 or 0.7)
+	T = T * (b.state == "patrol" and C.detectPatrolMul or C.detectFightMul)
 	if now - (b.firedBy[t] or 0) < 3 then T = T * 0.5 end
 	local ene = npc:GetEnemy()
 	if IsValid(ene) and ene ~= t and npc.EnemyData and npc.EnemyData.Visible then T = T * 1.5 end
@@ -497,11 +497,13 @@ end
 -- Профиль сведения прицела: босс, охрана, бойцы ролей, марксман, снайпер, обычный
 local function AimProfile(npc, b)
 	local P = C.aim
+	if b.aimProfile and P[b.aimProfile] then return P[b.aimProfile] end -- тест меткости
 	if b.isBoss then return P.boss end
 	if b.isGuard then return P.guard end
 	local role = npc.PR_Role or ""
 	if role == "sniper" then return P.sniper end
 	if role == "marksman" then return P.marksman end
+	if role == "ebitel" then return P.knight end
 	if role ~= "" then return P.fighter end
 	return P.regular
 end
@@ -516,22 +518,25 @@ function PR_Inf.SpreadMul(npc)
 	b.shot = b.shot + 1
 	b.shotsHere = (b.shotsHere or 0) + 1
 	b.lastFireAt = now
-	-- Сведение прицела: от 1 до «пола» профиля за время T непрерывной видимости цели (своё движение
-	-- за последние 0,5 с — T ×1,5). Первый прицельный выстрел точный, если успел свести
+	-- Сведение прицела: от start до «пола» профиля за время T видимости цели (своё движение за последние
+	-- 0,5 с — T × aimMoveT). Первый прицельный выстрел точный, если успел свести
 	local A = AimProfile(npc, b)
-	local T = A.T * (now - (b.selfMovedAt or -10) < 0.5 and 1.5 or 1)
-	local m = Lerp(math.Clamp(math.max(b.aimT or 0, 0) / T, 0, 1), 1, A.floor)
+	local T = A.T * (now - (b.selfMovedAt or -10) < 0.5 and C.aimMoveT or 1)
+	local m = Lerp(math.Clamp(math.max(b.aimT or 0, 0) / T, 0, 1), A.start or 1, A.floor)
 	-- Отдача очереди: каждый следующий выстрел шире
 	if b.shot > 1 then m = m * math.min(C.spreadMax, 1 + C.spreadPerShot * (b.shot - 1)) end
 	-- Начало очереди: длина и пауза от дальности (далеко — одиночные, средняя — 2–3, близко — очередь
 	-- роли); роль не может стрелять чаще своей паузы
-	if b.shot == 1 then
+	if b.shot == 1 and C.fullAuto then
+		-- Решение игрока (2026-10-28): «все жмут в гашетку, без очередей» — огонь без пауз, пока видит
+		b.burstN, b.curPause = math.huge, nil
+	elseif b.shot == 1 then
 		local e = npc:GetEnemy()
 		local d = IsValid(e) and npc:GetPos():Distance(e:GetPos()) or 1500
 		local burst, pause = b.burst or C.burst, b.burstPause or C.burstPause
 		local band, bandPause
-		if d > C.burstFar then band, bandPause = {1, 1}, C.burstPauseFar
-		elseif d > (b.burstNear or C.burstNear) then band, bandPause = C.burstMid, C.burstPauseMid end
+		if d > (A.burstFar or C.burstFar) then band, bandPause = {1, 1}, C.burstPauseFar
+		elseif d > (b.burstNear or C.burstNear) then band, bandPause = A.burstMid or C.burstMid, C.burstPauseMid end
 		if band then
 			burst = {math.min(burst[1], band[1]), math.min(burst[2], band[2])}
 			pause = {math.max(pause[1], bandPause[1]), math.max(pause[2], bandPause[2])}
@@ -558,10 +563,37 @@ function PR_Inf.SpreadMul(npc)
 		m = m * C.spreadCrouch
 	end
 	m = m * (1 + C.suppressSpread * b.supp)
+	-- Бегущая цель — шире (член VJ от скорости цели почти ничего не даёт: +12% на 250 ю/с)
+	local e = npc:GetEnemy()
+	if IsValid(e) then m = m * (1 + C.targetMoveSpread * math.min(e:GetVelocity():Length2D() / 250, 1)) end
 	if now < b.knockUntil then m = m * C.knockMul end
 	if b.accMul then m = m * b.accMul end
 	if b.rageUntil and now < b.rageUntil then m = m * 1.25 end
 	return m
+end
+
+-- В голову (как боты EFT): шанс профиля, когда прицел сведён на aimHeadMinK и сам стоит; бросок раз
+-- в aimHeadRoll (на очередь, а не на каждую пулю)
+function PR_Inf.HeadAim(npc)
+	local b = Brain(npc)
+	if not b then return false end
+	local now = CurTime()
+	if now >= (b.headRollAt or 0) then
+		b.headRollAt = now + C.aimHeadRoll
+		local A = AimProfile(npc, b)
+		local k = math.Clamp(math.max(b.aimT or 0, 0) / A.T, 0, 1)
+		b.headAim = (A.head or 0) > 0 and k >= C.aimHeadMinK and (b.moveSpeed or 0) <= C.aimStillSpeed and math.random() < A.head
+	end
+	return b.headAim == true
+end
+
+-- Марксман и снайпер не стреляют по видимой цели, пока не свели прицел (holdUntil × T): первый выстрел
+-- «в пустоту» с несведённым прицелом выдавал позицию и мазал
+function PR_Inf.AimHold(npc)
+	local b = Brain(npc)
+	if not (b and IsValid(b.aimTarget)) then return false end
+	local A = AimProfile(npc, b)
+	return A.holdUntil ~= nil and (b.aimT or 0) < A.holdUntil * A.T
 end
 
 ----------------------------------------------------------------------------------------------------
@@ -872,19 +904,26 @@ timer.Create("PR_InfThink", 0.1, 0, function()
 			-- Тяжёлое подавление: не замолкает (первый ответ на контакт — ответный огонь), а приседает и
 			-- стреляет реже: паузы между очередями ×2 на 2–4 с
 			if b.supp > C.suppressHeavy and now > (b.suppPauseUntil or 0) + 4 then b.suppPauseUntil = now + math.Rand(2, 4) end
-			-- Сведение прицела (как SAIN): пока цель на виду, а сам стоит, прицел сходится; бег сбрасывает,
-			-- шаг сводит вдвое медленнее
+			-- Сведение прицела (как SAIN / EFT): пока цель на виду, а сам стоит, прицел сходится; бег
+			-- размывает, шаг сводит вдвое медленнее; цель мигнула (укрытие, дым) — сведение гаснет, а не
+			-- обнуляется: вернулась та же цель — остаток. Новая цель — заново
 			local seen = BestVisible(npc, b)
 			local speed = VJ.GetMoveVelocity(npc):Length2D()
+			local A = AimProfile(npc, b)
 			b.moveSpeed = speed
 			if speed > C.aimStillSpeed then b.selfMovedAt = now end
 			if seen ~= b.aimTarget then
+				-- Новая цель: уже в бою — сразу сведён (первый прицельный выстрел точный), застигнут врасплох
+				-- в патруле — доводка с первым контактом
+				if seen and seen ~= b.aimLast then b.aimT = b.state ~= "patrol" and A.T or -C.aimFirstContact end
+				if b.aimTarget then b.aimLast = b.aimTarget end
 				b.aimTarget = seen
-				b.aimT = (seen and not b.aimSeenBefore) and -C.aimFirstContact or 0
 				if seen then b.aimSeenBefore = true end
 			elseif seen then
-				if speed > C.aimRunSpeed then b.aimT = 0
-				else b.aimT = math.min((b.aimT or 0) + dt * (speed > C.aimStillSpeed and 0.5 or 1), 5) end
+				if speed > C.aimRunSpeed then b.aimT = math.max(0, (b.aimT or 0) - C.aimRunDecay * A.T * dt)
+				else b.aimT = math.min((b.aimT or 0) + dt * (speed > C.aimStillSpeed and C.aimWalkGain or 1), A.T + 0.5) end
+			else
+				b.aimT = math.max(0, (b.aimT or 0) - C.aimLostDecay * A.T * dt)
 			end
 			AgeContacts(npc, b, now, dt)
 			if now >= (b.decideAt or 0) then

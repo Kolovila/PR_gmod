@@ -63,6 +63,8 @@ $Suites = @{
     weapons  = @('pr_selftest_weapons_sv.lua', '')   # every ArcCW weapon of addons\ws_arccw: models, fire sound, can be held; shop defaults exist (WEAPON_BAD lines)
     infantry = @('pr_selftest_infantry_sv.lua', '')  # infantry layer: honest sight, hearing, radio, suppression, spread, gaits, patrol of soldiers
     npcw     = @('pr_selftest_npcw_sv.lua', '')      # NPC copies of ArcCW weapons, RPG, 40 mm and hand grenades, screenshots npcw_*
+    aimdiag  = @('pr_selftest_aim_sv.lua', 'diag')   # quick: knight and regular at 50/75 m with miss offsets (AIMOFF lines)
+    aim      = @('pr_selftest_aim_sv.lua', 'grid extra')       # infantry accuracy: each aim profile at a standing target 1000-4000, AIM lines
     roles    = @('pr_selftest_roles_sv.lua', '')     # infantry roles and squad: sniper, assault, grenadier, ebitel, sneak, boss, retreat
     wmdebug  = @('pr_wmdebug_sv.lua', '')   # ArcCW guns in soldiers' hands close up: offset from the hand, model, bodygroups, wm_* shots
     npcs     = @('pr_selftest_npcs_sv.lua', '')      # every VJ human NPC of the spawn menu: alive, model, weapon in hands (NPC_BAD lines)
@@ -194,7 +196,7 @@ while ((Get-Date) -lt $mountDeadline) {
 $done = $false
 if ($mapSent) {
     # The vehicle scan goes through dozens of vehicles: give it longer
-    $deadline = (Get-Date).AddMinutes($(if ($Suite -eq 'navgen') { 95 } elseif ($Suite -eq 'navzone') { 155 } elseif ($Suite -like 'record*') { 65 } elseif ($Suite -like 'scan*') { 40 } elseif ($Suite -in 'weapons', 'npcs', 'roles') { 20 } else { 8 }))
+    $deadline = (Get-Date).AddMinutes($(if ($Suite -eq 'navgen') { 95 } elseif ($Suite -eq 'navzone') { 155 } elseif ($Suite -like 'record*') { 65 } elseif ($Suite -like 'scan*') { 40 } elseif ($Suite -in 'weapons', 'npcs', 'roles', 'aim') { 20 } else { 8 }))
     $sawStart = $false
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 3

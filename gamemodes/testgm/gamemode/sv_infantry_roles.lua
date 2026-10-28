@@ -139,6 +139,16 @@ local function Score(npc, g, E, r, o, me)
 	return score
 end
 
+-- Точка или середина пути к ней — в коридоре чужой линии огня ({от, до, ширина})
+local function OnLines(lines, me, g)
+	if not lines then return false end
+	local mid = LerpVector(0.5, me, g)
+	for _, l in ipairs(lines) do
+		if util.DistanceToLine(l[1], l[2], g) < l[3] or util.DistanceToLine(l[1], l[2], mid) < l[3] then return true end
+	end
+	return false
+end
+
 function PR_Inf.FindPosition(npc, E, o)
 	local now = CurTime()
 	local me = npc:GetPos()
@@ -176,7 +186,8 @@ function PR_Inf.FindPosition(npc, E, o)
 				dirOk = ang <= half + 5
 			end
 			if dirOk and travel <= o.maxTravel and (not o.minMove or travel >= o.minMove)
-				and dE >= o.dist[1] * 0.85 and dE <= o.dist[3] and not Taken(npc, g, spacing) and not BadSpot(g, now) then
+				and dE >= o.dist[1] * 0.85 and dE <= o.dist[3] and not Taken(npc, g, spacing) and not BadSpot(g, now)
+				and not OnLines(o.avoid, me, g) then
 				scored[#scored + 1] = {p = g, s = -math.abs(dE - o.dist[2]) / o.dist[2] * 2 - travel / 3000}
 			end
 		end
@@ -246,6 +257,40 @@ local function Backoff(npc, b, from, dist, gait)
 	local me = npc:GetPos()
 	local p = Ground(me + FlatDir(from, me) * dist) or Ground(me + Rotate(FlatDir(from, me), 40) * dist)
 	if p then GoPos(npc, b, p, gait, from) end
+end
+
+-- Свой на линии огня «я — цель» (VJ сквозь своего не стреляет): Birdeye 7,5 с молчал, пока Knight
+-- бежал по его линии
+local function FriendOnLine(npc, E, r)
+	local from = Eye(npc)
+	local to = E + CHEST
+	local len = from:Distance(to)
+	for _, m in ipairs(Members(npc.PR_Patrol)) do
+		if m ~= npc then
+			local dist, _, along = util.DistanceToLine(from, to, m:WorldSpaceCenter())
+			if dist < r and along > 40 and along < len - 40 then return m end
+		end
+	end
+end
+
+PR_Inf.FriendOnLine = FriendOnLine
+
+-- Свой перекрыл линию огня дольше SQ.blockedAfter — шаг вбок поперёк линии, в сторону от него
+local function ClearLine(npc, b, E, now)
+	if b.route and now < (b.sidestepUntil or 0) then return true end
+	local f = FriendOnLine(npc, E, SQ.blockedWidth)
+	if not f then b.blockedSince = nil return false end
+	b.blockedSince = b.blockedSince or now
+	if now - b.blockedSince < SQ.blockedAfter then return false end
+	local me = npc:GetPos()
+	local side = Rotate(FlatDir(me, E), 90)
+	if side:Dot(f:GetPos() - me) > 0 then side = -side end
+	local p = Ground(me + side * Rand(SQ.sidestep))
+	if not p then return false end
+	if b.route then Stop(npc, b) end
+	GoPos(npc, b, p, "walk", E)
+	b.blockedSince, b.sidestepUntil = nil, now + 3
+	return true
 end
 
 -- Подавление по оценке: только свежая и узкая, 1 выстрел в 1–1,5 с, в край укрытия
@@ -332,31 +377,62 @@ local function Orders(npc, b, now)
 	if not o then return false end
 	local seen = U.BestVisible(npc, b)
 	if seen then Engage(npc, b, seen, now) end
+	-- Не видит, но метка свежая (попали, слышал выстрелы) — лицом к ней, а не туда, куда велит приказ:
+	-- марксман при отходе стоял спиной к игроку, по нему попали трижды, а он не обернулся
+	local c = U.BestContact(b)
+	local threat = not seen and c and now - c.t < C.orderThreatAge and c.pos or nil
 	b.state = "fight"
 	npc.PR_Fire = true
+	-- Гранатомётчик и под приказом бьёт из гранатомёта (при отходе Big pipe 40 с видел стоящего игрока
+	-- и молчал: приказ решал раньше роли)
+	if PR_Inf.LauncherTick and PR_Inf.LauncherTick(npc, b, now, seen, c, true) then return true end
 	local d = npc:GetPos():Distance(o.pos)
-	-- Застрял по пути к точке приказа (StepGoto снял маршрут) — точка приказа там, где стоит: иначе
-	-- тот же путь в ту же недостижимую точку по кругу (босс 31 с «бежал» на месте)
+	-- Застрял по пути к точке приказа (StepGoto снял маршрут) — точка приказа там, где стоит, и он
+	-- «дошёл»: иначе тот же путь в ту же недостижимую точку по кругу (босс 31 с «бежал» на месте), а
+	-- отход отряда не кончался никогда
 	if b.stuckAt and now - b.stuckAt < 1 and d > 150 and o.kind ~= "guardbody" then
 		o.pos = npc:GetPos()
+		o.arrived = true
 		d = 0
 	end
+	-- Попали, стрелка не видно — пара выстрелов в его сторону (по свежей узкой метке)
+	if not seen and c and now - (b.hitAt or -10) < 2 then Suppress(npc, b, c, now) end
 	if o.kind == "retreat" then
-		-- Бегом; враг на виду — лицом к нему и стреляя. Шагом (≈ 46 ю/с лицом назад) до точки сбора в
-		-- 2000–6000 не дойти: отход в тесте прошёл 45 ю за 12 с
-		if not b.route and d > 200 then GoPos(npc, b, o.pos, "run", seen and seen:GetPos() or nil) end
-		npc.PR_Crouch = d <= 200
+		local face = seen and seen:GetPos() or threat
+		-- Марксман прикрывает отход: стоит и стреляет, уходит последним
+		if o.startAt and now < o.startAt then
+			if b.route then Stop(npc, b) end
+			if not seen and face then npc.PR_Face, npc.PR_AimAt = face, face + CHEST end
+			return true
+		end
+		-- Бегом; враг на виду — лицом к нему и перекатами: 3–5 с бегом, 2–3 с огня с места. Шагом
+		-- (≈ 46 ю/с лицом назад) до точки сбора в 2000–6000 не дойти
+		if seen then
+			if b.route and now > (b.legUntil or 0) then Stop(npc, b) b.legFireUntil = now + Rand(SQ.retreatLegFire) end
+			if now < (b.legFireUntil or 0) then npc.PR_Crouch = false return true end
+		end
+		-- Попали на бегу — маршрут заново, лицом к стрелку (и огонь, когда увидит); не чаще раза в 2 с
+		if b.route and face and now - (b.hitAt or 0) < 0.3 and now - (b.faceRestartAt or -10) > 2
+			and not (b.route.face and b.route.face:Distance(face) < 300) then
+			Stop(npc, b)
+			b.faceRestartAt = now
+		end
+		if not b.route and d > 200 then GoPos(npc, b, o.pos, "run", face) b.legUntil = now + Rand(SQ.retreatLeg) end
+		npc.PR_Crouch = d <= 200 and not seen
+		if not seen and not b.route and face then npc.PR_Face, npc.PR_AimAt = face, face + CHEST end
 		return true
 	elseif o.kind == "guard" or o.kind == "boss" then
-		if not b.route and d > 150 then GoPos(npc, b, o.pos, "run", o.face) end
+		if not b.route and d > 150 then GoPos(npc, b, o.pos, "run", threat or o.face) end
 		-- Босс на «держать» стоит и стреляет из укрытия; под плотным огнём приседает за него
 		npc.PR_Crouch = d <= 150 and (b.supp > C.suppressHide or (o.kind == "boss" and not o.hold))
-		if not seen and o.face then npc.PR_Face, npc.PR_AimAt = o.face, o.face + CHEST end
+		local face = threat or o.face
+		if not seen and face then npc.PR_Face, npc.PR_AimAt = face, face + CHEST end
 		return true
 	elseif o.kind == "guardbody" then
-		if not b.route and d > 150 then GoPos(npc, b, o.pos, "walk", o.face) end
-		npc.PR_Crouch = d <= 150
-		if not seen then npc.PR_Face, npc.PR_AimAt = o.face, o.face + CHEST end
+		if not b.route and d > 150 then GoPos(npc, b, o.pos, "walk", threat or o.face) end
+		npc.PR_Crouch = d <= 150 and not threat
+		local face = threat or o.face
+		if not seen and face then npc.PR_Face, npc.PR_AimAt = face, face + CHEST end
 		return true
 	end
 	return false
@@ -390,7 +466,9 @@ local function Shooter(npc, b, now, cfg, isSniper)
 			if not b.route then s.want = "retreat" end
 		else
 			-- Видит цель на рабочей дистанции — стоп и огонь отсюда, позицию не ищет (бежал к «своим» 4500
-			-- у игрока на виду и получал в спину). Позицию меняет, когда цель скроется или по нему попадают
+			-- у игрока на виду и получал в спину). Позицию меняет, когда цель скроется или по нему попадают.
+			-- Свой перекрыл линию дольше 1 с — шаг вбок
+			if ClearLine(npc, b, seen:GetPos(), now) then return true end
 			if b.route then Stop(npc, b) end
 			s.moving = false
 			if not s.pos or s.pos:Distance(me) > 150 then s.pos = me b.shotsHere = 0 end
@@ -438,7 +516,12 @@ local function Shooter(npc, b, now, cfg, isSniper)
 			if hidden > s.holdT then s.want, s.lastVis = "relocate", nil end
 		else
 			s.need = s.need or math.random(cfg.relocateShots[1], cfg.relocateShots[2])
-			if (b.shotsHere or 0) >= s.need or exposed then s.want, s.lastVis, s.need = "relocate", nil, nil end
+			-- Свежая узкая метка, а цели не видно дольше relocateHidden — на другой угол (стоял 37 с лицом к
+			-- метке и ничего не делал)
+			-- (только засвеченный — стрелял отсюда или по нему попали: иначе всё время в движении)
+			local stale = hidden > cfg.relocateHidden and c and now - c.t < 15 and c.r <= 800
+				and ((b.shotsHere or 0) > 0 or now - (b.hitAt or -10) < 15)
+			if (b.shotsHere or 0) >= s.need or exposed or stale then s.want, s.lastVis, s.need = "relocate", nil, nil end
 			Suppress(npc, b, c, now)
 		end
 	elseif not isSniper and c and not seen then
@@ -515,6 +598,74 @@ local function BehindCover(npc, c)
 	return util.TraceLine({start = Eye(npc), endpos = c.pos + CHEST, mask = LOS, filter = npc}).Hit
 end
 
+-- Гранатомёт (роль и приказы отряда): видит цель на rpgMin–rpgMax, стоит она (stillTime) или идёт не
+-- быстрее slowSpeed, либо свежая узкая метка за укрытием — на колено и выстрел. С одного места —
+-- shotsPerSpot выстрела через seriesGap (по нему попали — сразу уходит), потом шаг вбок и пауза
+-- seriesPause. Свой у точки падения ближе friendSafe или на линии — не стреляет. Под приказом отряда
+-- место не меняет (движением ведает приказ)
+function PR_Inf.LauncherTick(npc, b, now, seen, c, inOrder)
+	if npc.PR_Role ~= "grenadier" then return false end
+	local wep = npc:GetActiveWeapon()
+	if not (IsValid(wep) and wep.PR_Projectile) then return false end
+	local cfg = RC.grenadier
+	npc.PR_Fire = false -- VJ сам пускал бы гранаты по бегущему
+	local tpos, aimPos
+	if seen then
+		if seen:GetVelocity():Length2D() <= cfg.slowSpeed then b.stillSince = b.stillSince or now else b.stillSince = nil end
+		tpos, aimPos = seen:WorldSpaceCenter(), seen:GetPos()
+	elseif c then
+		tpos, aimPos = c.pos + Vector(0, 0, 30), c.pos
+	else
+		return false
+	end
+	local me = npc:GetPos()
+	local d = me:Distance(tpos)
+	local okSeen = seen and ((b.stillSince and now - b.stillSince >= cfg.stillTime) or (seen:IsPlayer() and seen:Crouching()))
+	local okHidden = not seen and c and now - c.t <= cfg.rpgAge and c.r <= cfg.rpgRadius and (Indoor(c.pos) or BehindCover(npc, c))
+	b.rockets = b.rockets or cfg.rockets
+	local can = (okSeen or okHidden) and d >= cfg.rpgMin and d <= cfg.rpgMax and b.rockets > 0 and now >= (b.rpgNext or 0)
+		and NoFriendNear(npc, aimPos, cfg.friendSafe) and not FriendOnLine(npc, aimPos, SQ.blockedWidth)
+	if not can then
+		if b.kneelUntil then b.kneelUntil, npc.PR_Crouch = nil, false end
+		return false
+	end
+	if b.route then Stop(npc, b) end
+	if not b.kneelUntil then
+		b.kneelUntil = now + cfg.kneel
+		npc:SetTurnTarget(tpos, 1)
+		npc:PlaySoundSystem("Suppressing")
+	end
+	npc.PR_Crouch = true
+	if not seen then npc.PR_AimAt, npc.PR_Face = tpos, aimPos end
+	if now < b.kneelUntil then return true end
+	local cpos = c and c.pos or aimPos
+	if b.rpgAt and b.rpgAt:Distance(cpos) < 300 then b.rpgShots = (b.rpgShots or 0) + 1 else b.rpgShots = 0 end
+	b.rpgAt = cpos
+	-- Пристрелка: первая — firstSpread°, каждая следующая по той же метке ×0,5, не точнее 0,6° (база
+	-- FireProjectile); широкая метка — шире
+	npc.PR_LauncherSpread = math.max(1, cfg.firstSpread / 0.6 * 0.5 ^ b.rpgShots) * math.Clamp((c and c.r or 100) / 250, 1, 1.5)
+	npc.PR_AimOverride = tpos
+	local ene = seen or (c and c.ent)
+	if IsValid(ene) then npc:PR_SetEnemy(ene) end
+	if IsValid(npc:GetEnemy()) and wep:Clip1() > 0 then wep:PrimaryAttack() end
+	timer.Simple(0.2, function() if IsValid(npc) then npc.PR_AimOverride = nil end end)
+	-- Граната списывается в FireProjectile (sh_npc_weapons.lua) — только при настоящем пуске
+	b.kneelUntil = nil
+	b.spotShots = (b.spotShots or 0) + 1
+	local again = b.spotShots < cfg.shotsPerSpot and now - (b.hitAt or -10) >= 3
+	b.rpgNext = now + (again and cfg.seriesGap or Rand(cfg.seriesPause))
+	if not again then
+		b.spotShots = 0
+		npc.PR_Crouch = false
+		if not inOrder then
+			-- Выстрелы выдали — шаг вбок поперёк линии на цель
+			local p = Ground(me + Rotate(FlatDir(me, cpos), math.random() < 0.5 and 90 or -90) * Rand(cfg.sidestep))
+			if p then GoPos(npc, b, p, "run", cpos) b.relocating = true end
+		end
+	end
+	return true
+end
+
 PR_Inf.Roles.grenadier = function(npc, b, now)
 	if Orders(npc, b, now) then return true end
 	local cfg = RC.grenadier
@@ -523,79 +674,49 @@ PR_Inf.Roles.grenadier = function(npc, b, now)
 	Apply(npc, b, cfg)
 	local wep = npc:GetActiveWeapon()
 	local launcher = IsValid(wep) and wep.PR_Projectile ~= nil
-	-- Ракеты кончились — достаёт запасной ствол и дальше воюет им (гранаты остаются)
-	if launcher and (b.rockets or cfg.rockets) <= 0 and not b.backupGiven then
-		b.backupGiven = true
-		local list = PR_NPCW.ForKind(cfg.backup)
-		if #list > 0 then npc:DoChangeWeapon(list[math.random(#list)]) return true end
-	end
-	-- Гранатомёт стреляет только по решению роли (VJ сам бы пускал ракеты по бегущему)
-	npc.PR_Fire = not launcher
 	local me = npc:GetPos()
 	b.state = "fight"
-
-	local tpos
-	if seen then
-		Engage(npc, b, seen, now)
-		npc.PR_Fire = not launcher
-		if seen:GetVelocity():Length2D() < 40 then b.stillSince = b.stillSince or now else b.stillSince = nil end
-		tpos = seen:WorldSpaceCenter()
-	elseif c then
-		tpos = c.pos + Vector(0, 0, 30)
-		npc.PR_AimAt, npc.PR_Face = tpos, c.pos
-	end
+	npc.PR_Fire = not launcher
+	if seen then Engage(npc, b, seen, now) npc.PR_Fire = not launcher end
+	local tpos = seen and seen:WorldSpaceCenter() or (c.pos + Vector(0, 0, 30))
+	if not seen then npc.PR_AimAt, npc.PR_Face = tpos, c.pos end
 	local d = me:Distance(tpos)
 
-	-- Слишком близко для РПГ — отойти
-	if launcher and d < cfg.rpgMin then
-		if not b.route then Backoff(npc, b, tpos, 700, "run") end
-		return true
+	-- Запасной ствол: гранаты кончились или цель ближе rpgMin (взвод гранаты; раньше бежал назад) — смена;
+	-- цель снова дальше rpgMin + swapBackExtra и гранаты есть — обратно гранатомёт
+	if launcher then b.launcherClass = wep:GetClass() end
+	b.rockets = b.rockets or cfg.rockets
+	if now >= (b.swapAt or 0) then
+		if launcher and (b.rockets <= 0 or d < cfg.rpgMin) then
+			if not b.backupClass then
+				local list = PR_NPCW.ForKind(cfg.backup)
+				if #list > 0 then b.backupClass = list[math.random(#list)] end
+			end
+			if b.backupClass then
+				b.swapAt = now + cfg.swapCooldown
+				b.kneelUntil, npc.PR_Crouch = nil, false
+				npc:DoChangeWeapon(b.backupClass)
+				return true
+			end
+		elseif not launcher and b.launcherClass and b.rockets > 0 and d > cfg.rpgMin + cfg.swapBackExtra then
+			b.swapAt = now + cfg.swapCooldown
+			npc:DoChangeWeapon(b.launcherClass)
+			return true
+		end
 	end
 
-	local okSeen = seen and ((b.stillSince and now - b.stillSince >= cfg.stillTime) or (seen:IsPlayer() and seen:Crouching()))
-	local okHidden = not seen and c and now - c.t <= cfg.rpgAge and c.r <= cfg.rpgRadius and (Indoor(c.pos) or BehindCover(npc, c))
-	b.rockets = b.rockets or cfg.rockets
-	local canShoot = launcher and (okSeen or okHidden) and d <= cfg.rpgMax and b.rockets > 0 and now >= (b.rpgNext or 0)
-	-- Идёт на позицию — дойти; но цель стоит на виду в дальности выстрела — остановиться и стрелять
-	-- (только не со смены позиции после своего выстрела: та и нужна, чтобы не ответили)
-	if b.route then
-		if seen and not launcher then
-			Stop(npc, b) -- запасной ствол: видит — стоп и огонь, как стрелок (бежал с MP7 у игрока на виду)
-		elseif not (canShoot and okSeen and not b.relocating) then
-			return true
-		else
-			Stop(npc, b)
-		end
+	if launcher then
+		if PR_Inf.LauncherTick(npc, b, now, seen, c, false) then return true end
+		-- После своей серии — дойти до новой точки; видит цель в дальности выстрела — работает отсюда,
+		-- а не бежит на «свои» 3000 (бежал от игрока с 2473 до 3796 и не стрелял)
+		if b.route and b.relocating then return true end
+		if b.route and seen and d >= cfg.rpgMin and d <= cfg.rpgMax then Stop(npc, b) end
+	elseif seen then
+		-- Запасной ствол: видит — стоп и огонь, как стрелок; свой на линии дольше 1 с — шаг вбок
+		if not ClearLine(npc, b, seen:GetPos(), now) and b.route then Stop(npc, b) end
 	end
-	b.relocating = nil
-	if canShoot then
-		if not b.kneelUntil then
-			b.kneelUntil = now + cfg.kneel
-			npc.PR_Crouch = true
-			npc:SetTurnTarget(tpos, 1)
-			npc:PlaySoundSystem("Suppressing")
-		elseif now >= b.kneelUntil then
-			local cpos = c and c.pos or tpos
-			if b.rpgAt and b.rpgAt:Distance(cpos) < 300 then b.rpgShots = (b.rpgShots or 0) + 1 else b.rpgShots = 0 end
-			b.rpgAt = cpos
-			-- Поправка: каждая следующая по той же метке точнее (×0,5, минимум ×0,25)
-			npc.PR_LauncherSpread = math.max(0.25, 0.5 ^ b.rpgShots) * math.Clamp((c and c.r or 100) / 250, 0.5, 1.5)
-			npc.PR_AimOverride = tpos
-			local ene = seen or (c and c.ent)
-			if IsValid(ene) then npc:PR_SetEnemy(ene) end
-			if IsValid(npc:GetEnemy()) and wep:Clip1() > 0 then wep:PrimaryAttack() end
-			timer.Simple(0.2, function() if IsValid(npc) then npc.PR_AimOverride = nil end end)
-			b.rockets = b.rockets - 1
-			b.rpgNext = now + 4
-			b.kneelUntil = nil
-			-- Выстрел выдал — на другую позицию
-			local p = PR_Inf.FindPosition(npc, cpos, {dist = cfg.dist, sectorDir = SideDir(npc, cpos), sectorHalf = 70,
-				needLOS = true, minMove = cfg.relocate, maxTravel = cfg.relocate * 2})
-			if p then GoPos(npc, b, p, "run", cpos) b.relocating = true end
-		end
-		return true
-	end
-	b.kneelUntil = nil
+	if not b.route then b.relocating = nil end
+	if b.route then return true end
 
 	-- Ручная граната: враг в здании или за укрытием, в 400–1600, свои далеко, дуга свободна
 	b.nades = b.nades or cfg.nades
@@ -609,11 +730,9 @@ PR_Inf.Roles.grenadier = function(npc, b, now)
 		return true
 	end
 
-	-- Держит позицию с обзором на своей дистанции
+	-- Держит позицию с обзором на своей дистанции; уже видит цель в дальности выстрела — работает отсюда
 	if not b.rs then b.rs = {} end
-	if not b.rs.pos and seen and d >= cfg.dist[1] and d <= cfg.dist[3] then
-		b.rs.pos = me -- уже видит цель на своей дистанции — работает отсюда, позицию сменит после выстрела
-	end
+	if not b.rs.pos and seen and d >= cfg.rpgMin and d <= cfg.rpgMax then b.rs.pos = me end
 	if not b.rs.pos then
 		local p = PR_Inf.FindPosition(npc, c and c.pos or tpos, {dist = cfg.dist, sectorDir = SideDir(npc, c and c.pos or tpos), sectorHalf = 60, needLOS = true, maxTravel = 2500})
 		b.rs.pos = p or me
@@ -635,6 +754,16 @@ local function LostRecently(npc, b, now)
 	return sum / math.max(npc:GetMaxHealth(), 1)
 end
 
+-- Линии огня своих стрелков (марксман, снайпер, гранатомётчик) — рывок «Ебителя» их не пересекает
+local function ShooterLanes(npc, E)
+	local out = {}
+	for _, m in ipairs(Members(npc.PR_Patrol)) do
+		local r = m.PR_Role
+		if m ~= npc and (r == "marksman" or r == "sniper" or r == "grenadier") then out[#out + 1] = {m:GetPos(), E, SQ.laneWidth} end
+	end
+	return out
+end
+
 PR_Inf.Roles.ebitel = function(npc, b, now)
 	if Orders(npc, b, now) then return true end
 	local cfg = RC.ebitel
@@ -645,9 +774,20 @@ PR_Inf.Roles.ebitel = function(npc, b, now)
 	b.state = "fight"
 	local me = npc:GetPos()
 
-	-- Отход / лечение
+	-- Отход / лечение. Ранен на открытом — спиной не поворачивается (развернулся на 179° и погиб): присел,
+	-- 1–2 с ответного огня, потом рывок вбок-назад (60° от линии угрозы) лицом к ней
 	if b.backoffUntil and now < b.backoffUntil then
 		if seen then Engage(npc, b, seen, now) end
+		if b.backoffPrepUntil then
+			npc.PR_Crouch = true
+			if now < b.backoffPrepUntil then return true end
+			b.backoffPrepUntil = nil
+			npc.PR_Crouch = false
+			local from = b.backoffFrom or me
+			local p = Ground(me + Rotate(FlatDir(from, me), 60 * (b.flankSign or 1)) * cfg.backoffDash)
+				or Ground(me + Rotate(FlatDir(from, me), -60 * (b.flankSign or 1)) * cfg.backoffDash)
+			if p then GoPos(npc, b, p, "run", from) end
+		end
 		return true
 	end
 	if b.healUntil and now < b.healUntil then
@@ -662,8 +802,9 @@ PR_Inf.Roles.ebitel = function(npc, b, now)
 	if LostRecently(npc, b, now) > cfg.backoffHit then
 		b.hits = {}
 		Stop(npc, b)
-		Backoff(npc, b, E, 500, "run")
-		b.backoffUntil = now + Rand(cfg.backoffTime)
+		b.backoffFrom = E
+		b.backoffPrepUntil = now + Rand(cfg.backoffPrep)
+		b.backoffUntil = b.backoffPrepUntil + Rand(cfg.backoffTime)
 		b.flankSign = math.random() < 0.5 and (b.flankSign or 1) * -1 or (b.flankSign or 1)
 		return true
 	end
@@ -686,6 +827,8 @@ PR_Inf.Roles.ebitel = function(npc, b, now)
 		local d = me:Distance(E)
 		npc.PR_Crouch = false
 		b.runSpread = d <= cfg.dist[2] and cfg.closeRunSpread or nil
+		-- На бегу дальше runFireMax не стреляет: 8 с огня на бегу на 57–73 м — ни одного попадания
+		if b.route and d > cfg.runFireMax then npc.PR_Fire = false end
 		if d > cfg.dist[2] then
 			if b.route and now > (b.boundUntil or 0) then
 				Stop(npc, b)
@@ -694,19 +837,25 @@ PR_Inf.Roles.ebitel = function(npc, b, now)
 			end
 			-- Рывок — только после очереди с новой точки (за 0,4–0,8 с остановки не успевал прицелиться)
 			local fired = (b.lastFireAt or 0) > (b.stopAt or 0) or now - (b.stopAt or 0) > 6
-			-- Рывок — в «окно»: цель не стреляла 1,5 с, перезаряжается или не смотрит на него; ждать окна —
-			-- не дольше 6 с (давит всё равно)
-			local window = now - (seen.PR_ShotAt or 0) >= cfg.windowQuiet
+			-- Попадает по цели — стоит и добивает (убегал от стоящего игрока, по которому попадал). Рывок —
+			-- когда не попадает и есть «окно»: цель не стреляла 1,5 с, перезаряжается, не смотрит на него
+			-- или с остановки прошло boundAfter
+			local hitting = d <= cfg.hittingMax and now - (b.hitEnemyAt or -10) < cfg.hittingFor
+			local window = not hitting and (now - (seen.PR_ShotAt or 0) >= cfg.windowQuiet
 				or (b.heardReloadAt and now - b.heardReloadAt < 2)
 				or not LooksAt(seen, npc, 30)
-				or now - (b.stopAt or 0) > 6
+				or now - (b.stopAt or 0) > cfg.boundAfter)
 			if not b.route and now >= (b.stopUntil or 0) and fired and window and PR_Inf.CanMove(npc) then
 				b.bounding = true
 				b.flankSign = b.flankSign or (math.random() < 0.5 and 1 or -1)
+				-- Под прицельным огнём рывок короче; не через линии огня своих стрелков; 600–1000 — шагом со
+				-- стрельбой лицом к цели
+				local underFire = now - (b.hitAt or -10) < 2 or b.supp > 0.3
 				local p = PR_Inf.FindPosition(npc, E, {dist = {300, 600, math.max(700, d - 200)}, sectorDir = Rotate(FlatDir(E, me), 20 * b.flankSign),
-					sectorHalf = 40, needLOS = false, maxTravel = 700})
-				GoPos(npc, b, p or (me + FlatDir(me, E) * 500), "run", nil)
-				b.boundUntil = now + 3
+					sectorHalf = 40, needLOS = false, maxTravel = underFire and cfg.boundUnderFire[2] or cfg.boundTravel, avoid = ShooterLanes(npc, E)})
+				local walk = d <= cfg.walkFireMax
+				GoPos(npc, b, p or (me + FlatDir(me, E) * 500), walk and "walk" or "run", walk and E or nil)
+				b.boundUntil = now + (underFire and cfg.boundUnderFire[1] or cfg.boundTime)
 			end
 			if not b.route then b.bounding = false end
 		else
@@ -739,7 +888,9 @@ PR_Inf.Roles.ebitel = function(npc, b, now)
 		return true
 	end
 	b.nades = b.nades or 2
-	if Indoor(c.pos) and d < 1200 and d > 350 and b.nades > 0 and now >= (b.nadeNext or 0) and NoFriendNear(npc, c.pos, 500) and ArcClear(npc, c.pos) then
+	-- Граната — в здание, а потеряв цель ближе nadeOpen — и под открытым небом, за угол (6 с бегал без
+	-- видимости в 9 м от игрока с двумя гранатами)
+	if (Indoor(c.pos) or (d < cfg.nadeOpen and c.r <= 400 and now - c.t < 10)) and d < 1200 and d > 350 and b.nades > 0 and now >= (b.nadeNext or 0) and NoFriendNear(npc, c.pos, 500) and ArcClear(npc, c.pos) then
 		local g, fuse = PR_Inf.ThrowGrenade(npc, c.pos)
 		if g then
 			b.nades = b.nades - 1
@@ -882,6 +1033,10 @@ local function SetupSquad(patrol, ms)
 	local sq = {initial = #ms, cycles = 0, phase = "patrol"}
 	patrol.squad = sq
 	sq.boss = BossOf(patrol)
+	-- Goons (есть «Ебитель») не отступают — и после смерти Knight
+	for _, m in ipairs(ms) do
+		if m.PR_Role == "ebitel" then sq.goons = true end
+	end
 	local followers = {}
 	for _, m in ipairs(ms) do
 		if m ~= sq.boss then followers[#followers + 1] = m end
@@ -981,6 +1136,9 @@ local function SquadTick(patrol, now)
 	-- Начало боя: обход или нет, сторона, кто база, кто манёвр
 	if sq.phase == "patrol" then
 		sq.phase = "combat"
+		-- Потери считаются за этот бой: погибшие до контакта — не повод отходить (одиночка отходил на
+		-- первом же контакте)
+		sq.initial, sq.contactAt = #ms, now
 		sq.flank = math.random() < SQ.flankChance
 		sq.flankSign = math.random() < 0.5 and 1 or -1
 		sq.flankUntil = now + Rand(SQ.flankTimeout)
@@ -1011,33 +1169,59 @@ local function SquadTick(patrol, now)
 	if hits >= SQ.ambushHits and now > (sq.ambushUntil or 0) + 5 then
 		sq.ambushUntil = now + Rand(SQ.ambushFree)
 		for _, m in ipairs(ms) do
-			local p = PR_Inf.FindPosition(m, E, {dist = {200, 800, 3000}, sectorDir = FlatDir(E, m:GetPos()), sectorHalf = 90, wantHidden = true, maxTravel = 500})
-			if p then GoPos(m, m.PR_Brain, p, "run", E) end
+			-- Гранатомётчика на колене не трогать (срывало выстрел)
+			if not m.PR_Brain.kneelUntil then
+				local p = PR_Inf.FindPosition(m, E, {dist = {200, 800, 3000}, sectorDir = FlatDir(E, m:GetPos()), sectorHalf = 90, wantHidden = true, maxTravel = 500})
+				if p then GoPos(m, m.PR_Brain, p, "run", E) end
+			end
 		end
 	end
 
 	-- Отход: потеряна половина или босс плох; не больше двух циклов
 	local share = #ms / sq.initial
 	local bossLow = IsValid(boss) and Alive(boss) and boss:Health() / math.max(boss:GetMaxHealth(), 1) < SQ.retreatBossHp
-	-- Отряд с «Ебителем» не отступает (Goons в EFT давят до конца)
-	local noRetreat = false
-	for _, m in ipairs(ms) do
-		if m.PR_Role == "ebitel" then noRetreat = true break end
+	-- Отряд с «Ебителем» не отступает (Goons в EFT давят до конца), одиночка — тоже (воюет по роли).
+	-- Не раньше retreatMinContact с начала боя (сначала — ответный огонь и укрытие) и только если враг
+	-- сильнее: retreatHits+ попаданий по отряду за retreatHitWindow или нас не больше известных врагов
+	-- Гибель своих — тоже попадания по отряду (по два за погибшего)
+	if sq.lastCount and #ms < sq.lastCount then
+		sq.deaths = sq.deaths or {}
+		for _ = 1, sq.lastCount - #ms do sq.deaths[#sq.deaths + 1] = now end
 	end
-	if not noRetreat and sq.phase == "combat" and (share <= SQ.retreatLoss or bossLow) and sq.cycles < SQ.cycles then
+	sq.lastCount = #ms
+	local hitsRecent, foes = 0, {}
+	for _, t in ipairs(sq.deaths or {}) do
+		if now - t < SQ.retreatHitWindow then hitsRecent = hitsRecent + 2 end
+	end
+	for _, m in ipairs(ms) do
+		local mb = m.PR_Brain
+		for _, h in ipairs(mb.hits or {}) do
+			if now - h.t < SQ.retreatHitWindow then hitsRecent = hitsRecent + 1 end
+		end
+		for _, c in ipairs(mb.contacts or {}) do
+			if IsValid(c.ent) and now - c.t < 20 then foes[c.ent] = true end
+		end
+	end
+	local nFoes = math.max(table.Count(foes), 1)
+	local stronger = hitsRecent >= SQ.retreatHits or #ms <= nFoes
+	if not sq.goons and #ms > 1 and sq.phase == "combat" and now - (sq.contactAt or now) >= SQ.retreatMinContact
+		and ((share <= SQ.retreatLoss and stronger) or bossLow) and sq.cycles < SQ.cycles then
 		sq.phase = "retreat"
 		sq.cycles = sq.cycles + 1
 		sq.rally = Rally(patrol, ms, E)
 		for i, m in ipairs(ms) do
 			local p = Ground(sq.rally + Rotate(Vector(1, 0, 0), i * 50) * 150) or sq.rally
 			m.PR_Brain.order = {kind = "retreat", pos = p}
+			-- Марксман и снайпер прикрывают: стреляют, пока свои делают первый рывок, уходят последними
+			if m.PR_Role == "marksman" or m.PR_Role == "sniper" then m.PR_Brain.order.startAt = now + Rand(SQ.retreatCover) end
 		end
 		if ms[1] then ms[1]:PlaySoundSystem("CallForHelp") end
 	end
 	if sq.phase == "retreat" then
 		local arrived = 0
 		for _, m in ipairs(ms) do
-			if m:GetPos():Distance(sq.rally) < 600 then arrived = arrived + 1 end
+			local o = m.PR_Brain.order
+			if m:GetPos():Distance(sq.rally) < 600 or (o and o.arrived) then arrived = arrived + 1 end
 		end
 		if arrived >= math.ceil(#ms * 0.6) then
 			sq.phase = "regroup"
@@ -1152,4 +1336,11 @@ timer.Create("PR_InfSquad", 0.5, 0, function()
 		local ok, err = pcall(SquadTick, patrol, now)
 		if not ok then ErrorNoHalt("[PR] отряд: " .. tostring(err) .. "\n") end
 	end
+end)
+
+-- Попал по врагу — «Ебитель», который попадает по стоящему, стоит и добивает
+hook.Add("PostEntityTakeDamage", "PR_InfHitEnemy", function(ent, dmg, took)
+	if not took or not IsValid(ent) or not (ent:IsPlayer() or ent:IsNPC()) then return end
+	local a = dmg:GetAttacker()
+	if IsValid(a) and a ~= ent and a.PR_Brain then a.PR_Brain.hitEnemyAt = CurTime() end
 end)
